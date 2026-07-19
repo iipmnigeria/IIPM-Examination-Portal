@@ -16,25 +16,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 
-// Dynamically determine API Base URL.
-const API_BASE = (() => {
-  if (typeof window === 'undefined') return '';
-  const hostname = window.location.hostname;
-  if (
-    hostname.includes('localhost') ||
-    hostname.includes('run.app') ||
-    hostname.includes('0.0.0.0') ||
-    hostname.includes('127.0.0.1')
-  ) {
-    return '';
-  }
-  // If we are hosted on GitHub Pages, we direct to the production/preview container backend.
-  if (hostname.includes('github.io')) {
-    return 'https://ais-pre-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
-  }
-  // Otherwise, if we are in an iframe in AI Studio, we direct to the development server container.
-  return 'https://ais-dev-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
-})();
+import { resilientFetch } from '../api';
 
 interface LoginPortalProps {
   onLoginSuccess: (name: string, role: 'student' | 'admin') => void;
@@ -114,7 +96,7 @@ export default function LoginPortal({ onLoginSuccess }: LoginPortalProps) {
           }
 
           try {
-            const response = await fetch(`${API_BASE}/api/auth/login`, {
+            const response = await resilientFetch('/api/auth/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
@@ -159,7 +141,7 @@ export default function LoginPortal({ onLoginSuccess }: LoginPortalProps) {
           }
 
           try {
-            const response = await fetch(`${API_BASE}/api/auth/register`, {
+            const response = await resilientFetch('/api/auth/register', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -198,7 +180,7 @@ export default function LoginPortal({ onLoginSuccess }: LoginPortalProps) {
           }
 
           try {
-            const response = await fetch(`${API_BASE}/api/auth/login`, {
+            const response = await resilientFetch('/api/auth/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -237,7 +219,7 @@ export default function LoginPortal({ onLoginSuccess }: LoginPortalProps) {
           }
 
           try {
-            const response = await fetch(`${API_BASE}/api/auth/register`, {
+            const response = await resilientFetch('/api/auth/register', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

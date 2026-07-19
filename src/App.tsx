@@ -16,28 +16,7 @@ import AdminPortal from './components/AdminPortal';
 import LoginPortal from './components/LoginPortal';
 import { Test, Attempt, ProctorLogEvent } from './types';
 import { fallbackExams } from './fallbackData';
-
-// Dynamically determine API Base URL.
-// When running in a custom deployed frontend (such as GitHub Pages or local preview targeting remote server),
-// we route requests to the deployed live container backend endpoint.
-const API_BASE = (() => {
-  if (typeof window === 'undefined') return '';
-  const hostname = window.location.hostname;
-  if (
-    hostname.includes('localhost') ||
-    hostname.includes('run.app') ||
-    hostname.includes('0.0.0.0') ||
-    hostname.includes('127.0.0.1')
-  ) {
-    return '';
-  }
-  // If we are hosted on GitHub Pages, we direct to the production/preview container backend.
-  if (hostname.includes('github.io')) {
-    return 'https://ais-pre-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
-  }
-  // Otherwise, if we are in an iframe in AI Studio, we direct to the development server container.
-  return 'https://ais-dev-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
-})();
+import { resilientFetch } from './api';
 
 export default function App() {
   // User Authentication & Session States
@@ -84,12 +63,12 @@ export default function App() {
       
       // If student, pull ONLY their own attempts for confidentiality. If admin, pull all.
       const attemptsUrl = userRole === 'student'
-        ? `${API_BASE}/api/attempts?studentName=${encodeURIComponent(studentName)}`
-        : `${API_BASE}/api/attempts`;
+        ? `/api/attempts?studentName=${encodeURIComponent(studentName)}`
+        : `/api/attempts`;
 
       const [testsRes, attemptsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/tests`).catch(() => null),
-        fetch(attemptsUrl).catch(() => null)
+        resilientFetch('/api/tests').catch(() => null),
+        resilientFetch(attemptsUrl).catch(() => null)
       ]);
 
       let testsData = fallbackExams;
@@ -177,7 +156,7 @@ export default function App() {
     if (!selectedTest) return;
 
     try {
-      const response = await fetch(`${API_BASE}/api/tests/submit`, {
+      const response = await resilientFetch('/api/tests/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -22,27 +22,7 @@ import {
 import { Test, Question, ProctorLogEvent, ProctorEventType } from '../types';
 import CountdownTimer from './CountdownTimer';
 
-// Dynamically determine API Base URL.
-// When running in a custom deployed frontend (such as GitHub Pages or local preview targeting remote server),
-// we route requests to the deployed live container backend endpoint.
-const API_BASE = (() => {
-  if (typeof window === 'undefined') return '';
-  const hostname = window.location.hostname;
-  if (
-    hostname.includes('localhost') ||
-    hostname.includes('run.app') ||
-    hostname.includes('0.0.0.0') ||
-    hostname.includes('127.0.0.1')
-  ) {
-    return '';
-  }
-  // If we are hosted on GitHub Pages, we direct to the production/preview container backend.
-  if (hostname.includes('github.io')) {
-    return 'https://ais-pre-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
-  }
-  // Otherwise, if we are in an iframe in AI Studio, we direct to the development server container.
-  return 'https://ais-dev-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
-})();
+import { resilientFetch } from '../api';
 
 interface ExamScreenProps {
   test: Test;
@@ -494,7 +474,7 @@ export default function ExamScreen({
       const base64Image = canvas.toDataURL('image/jpeg', 0.6);
 
       // Call Express AI Proctor endpoint
-      const response = await fetch(`${API_BASE}/api/proctor/analyze`, {
+      const response = await resilientFetch('/api/proctor/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
