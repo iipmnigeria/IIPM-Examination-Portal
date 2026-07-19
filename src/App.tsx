@@ -19,13 +19,24 @@ import { Test, Attempt, ProctorLogEvent } from './types';
 // Dynamically determine API Base URL.
 // When running in a custom deployed frontend (such as GitHub Pages or local preview targeting remote server),
 // we route requests to the deployed live container backend endpoint.
-const API_BASE = (
-  typeof window !== 'undefined' && 
-  !window.location.hostname.includes('localhost') && 
-  !window.location.hostname.includes('run.app') &&
-  !window.location.hostname.includes('0.0.0.0') &&
-  !window.location.hostname.includes('127.0.0.1')
-) ? 'https://ais-pre-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app' : '';
+const API_BASE = (() => {
+  if (typeof window === 'undefined') return '';
+  const hostname = window.location.hostname;
+  if (
+    hostname.includes('localhost') ||
+    hostname.includes('run.app') ||
+    hostname.includes('0.0.0.0') ||
+    hostname.includes('127.0.0.1')
+  ) {
+    return '';
+  }
+  // If we are hosted on GitHub Pages, we direct to the production/preview container backend.
+  if (hostname.includes('github.io')) {
+    return 'https://ais-pre-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
+  }
+  // Otherwise, if we are in an iframe in AI Studio, we direct to the development server container.
+  return 'https://ais-dev-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
+})();
 
 export default function App() {
   // User Authentication & Session States
