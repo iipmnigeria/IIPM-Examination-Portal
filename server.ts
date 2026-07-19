@@ -360,8 +360,39 @@ const examsDatabase: Test[] = [
   }
 ];
 
+// User Account Interface for registration & login
+export interface UserAccount {
+  id: string;
+  name: string;
+  email: string;
+  role: 'student' | 'admin';
+  password?: string;
+  username?: string; // for admin
+  pin?: string;      // optional student pin
+}
+
 // In-memory student attempts database
 const attemptsDatabase: Attempt[] = [];
+
+// In-memory users database initialized with default administrator and some test accounts
+const usersDatabase: UserAccount[] = [
+  {
+    id: 'user_admin_default',
+    name: 'Administrator',
+    email: 'admin@iipm.org',
+    role: 'admin',
+    username: 'admin',
+    password: 'iipmadmin'
+  },
+  {
+    id: 'user_student_demo',
+    name: 'Obinna Nwosu',
+    email: 'obinna@iipm.org',
+    role: 'student',
+    password: 'password123',
+    pin: 'STU-2026'
+  }
+];
 
 // Initialize Gemini Client safely
 let ai: GoogleGenAI | null = null;
@@ -502,19 +533,134 @@ app.get('/api/attempts', (req, res) => {
   res.json(attemptsDatabase);
 });
 
-// Auth / Login helper endpoint
-app.post('/api/auth/login', (req, res) => {
-  const { username, password, role, name } = req.body;
+// Auth / Registration endpoint
+app.post('/api/auth/register', (req, res) => {
+  const { name, email, password, role, username, pin, adminCode } = req.body;
+
+  if (!role || (role !== 'student' && role !== 'admin')) {
+    return res.status(400).json({ success: false, error: 'Valid user role is required.' });
+  }
+
+  if (!name || name.trim().length < 3) {
+    return res.status(400).json({ success: false, error: 'Full legal name (minimum 3 characters) is required.' });
+  }
+
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ success: false, error: 'A valid email address is required.' });
+  }
+
+  if (!password || password.length < 6) {
+    return res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.' });
+  }
+
+  // Admin Registration Checks
   if (role === 'admin') {
-    if (username === 'admin' && password === 'iipmadmin') {
-      return res.json({ success: true, role: 'admin', name: 'Administrator' });
+    if (!username || username.trim().length < 3) {
+      return res.status(400).json({ success: false, error: 'Username is required for administrator accounts.' });
     }
-    return res.status(401).json({ success: false, error: 'Invalid admin credentials' });
+
+    if (adminCode !== 'IIPM-ADMIN-2026') {
+      return res.status(400).json({ success: false, error: 'Invalid Auditor Code. Administrative registration is restricted.' });
+    }
+
+    const exists = usersDatabase.find(
+      u => u.email.toLowerCase() === email.trim().toLowerCase() || 
+           (u.username && u.username.toLowerCase() === username.trim().toLowerCase())
+    );
+    if (exists) {
+      return res.status(400).json({ success: false, error: 'An administrator with this email or username already exists.' });
+    }
+
+    const newAdmin: UserAccount = {
+      id: `admin_${Date.now()}`,
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      role: 'admin',
+      username: username.trim().toLowerCase(),
+      password: password
+    };
+    usersDatabase.push(newAdmin);
+    return res.json({ success: true, role: 'admin', name: newAdmin.name, email: newAdmin.email });
+
   } else {
-    if (!name || name.trim().length < 3) {
-      return res.status(400).json({ success: false, error: 'Valid candidate name required' });
+    // Student Registration
+    const exists = usersDatabase.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (exists) {
+      return res.status(400).json({ success: false, error: 'This email is already registered. Please proceed to Candidate Login.' });
     }
-    return res.json({ success: true, role: 'student', name: name.trim() });
+
+    const newStudent: UserAccount = {
+      id: `student_${Date.now()}`,
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      role: 'student',
+      password: password,
+      pin: pin ? pin.trim() : `STU-${Date.now().toString().substring(8)}`
+    };
+    usersDatabase.push(newStudent);
+    return res.json({ success: true, role: 'student', name: newStudent.name, email: newStudent.email });
+  }
+});
+
+// Auth / Login helper endpoint supporting registered user accounts
+app.post('/api/auth/login', (req, res) => {
+  const { username, email, password, role, name } = req.body;
+
+  if (role === 'admin') {
+    // Look up by username or email
+    const loginIdentifier = (username || email || '').trim().toLowerCase();
+    const adminUser = usersDatabase.find(
+      u => u.role === 'admin' && 
+           (u.username?.toLowerCase() === loginIdentifier || u.email.toLowerCase() === loginIdentifier)
+    );
+
+    if (adminUser && adminUser.password === password) {
+      return res.json({ success: true, role: 'admin', name: adminUser.name, email: adminUser.email });
+    }
+
+    // Default hardcoded admin fallback for convenience
+    if (loginIdentifier === 'admin' && password === 'iipmadmin') {
+      return res.json({ success: true, role: 'admin', name: 'Administrator', email: 'admin@iipm.org' });
+    }
+
+    return res.status(401).json({ success: false, error: 'Invalid auditor identification or passkey.' });
+
+  } else {
+    // If login request provides email and password
+    if (email && password) {
+      const studentUser = usersDatabase.find(
+        u => u.role === 'student' && u.email.toLowerCase() === email.trim().toLowerCase()
+      );
+
+      if (studentUser && studentUser.password === password) {
+        return res.json({ success: true, role: 'student', name: studentUser.name, email: studentUser.email });
+      }
+      return res.status(401).json({ success: false, error: 'Invalid candidate credentials.' });
+    }
+
+    // Legacy or fast input session matching (by Name)
+    if (!name || name.trim().length < 3) {
+      return res.status(400).json({ success: false, error: 'Valid candidate legal name required.' });
+    }
+
+    const nameClean = name.trim();
+    const existingStudent = usersDatabase.find(
+      u => u.role === 'student' && u.name.toLowerCase() === nameClean.toLowerCase()
+    );
+
+    if (existingStudent) {
+      return res.json({ success: true, role: 'student', name: existingStudent.name, email: existingStudent.email });
+    }
+
+    // Fallback: Auto-provision in-memory user to prevent breaking quick user tests
+    const autoCreated: UserAccount = {
+      id: `student_auto_${Date.now()}`,
+      name: nameClean,
+      email: `${nameClean.toLowerCase().replace(/\s+/g, '.')}@example.com`,
+      role: 'student'
+    };
+    usersDatabase.push(autoCreated);
+    return res.json({ success: true, role: 'student', name: autoCreated.name, email: autoCreated.email });
   }
 });
 
