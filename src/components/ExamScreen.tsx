@@ -38,7 +38,7 @@ const API_BASE = (() => {
   }
   // If we are hosted on GitHub Pages, we direct to the production/preview container backend.
   if (hostname.includes('github.io')) {
-    return 'https://ais-pre-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
+    return 'https://ais-dev-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
   }
   // Otherwise, if we are in an iframe in AI Studio, we direct to the development server container.
   return 'https://ais-dev-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
