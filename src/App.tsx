@@ -15,6 +15,7 @@ import ExamScreen from './components/ExamScreen';
 import AdminPortal from './components/AdminPortal';
 import LoginPortal from './components/LoginPortal';
 import { Test, Attempt, ProctorLogEvent } from './types';
+import { fallbackExams } from './fallbackData';
 
 // Dynamically determine API Base URL.
 // When running in a custom deployed frontend (such as GitHub Pages or local preview targeting remote server),
@@ -32,7 +33,7 @@ const API_BASE = (() => {
   }
   // If we are hosted on GitHub Pages, we direct to the production/preview container backend.
   if (hostname.includes('github.io')) {
-    return 'https://ais-dev-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
+    return 'https://ais-pre-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
   }
   // Otherwise, if we are in an iframe in AI Studio, we direct to the development server container.
   return 'https://ais-dev-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
@@ -55,7 +56,7 @@ export default function App() {
   });
   
   // App Core Data states
-  const [tests, setTests] = useState<Test[]>([]);
+  const [tests, setTests] = useState<Test[]>(fallbackExams);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [selectedTest, setSelectedTest] = useState<Test | null>(null);
   const [simType, setSimType] = useState('none');
@@ -87,18 +88,42 @@ export default function App() {
         : `${API_BASE}/api/attempts`;
 
       const [testsRes, attemptsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/tests`),
-        fetch(attemptsUrl)
+        fetch(`${API_BASE}/api/tests`).catch(() => null),
+        fetch(attemptsUrl).catch(() => null)
       ]);
 
-      if (testsRes.ok && attemptsRes.ok) {
-        const testsData = await testsRes.json();
-        const attemptsData = await attemptsRes.json();
-        setTests(testsData);
-        setAttempts(attemptsData);
+      let testsData = fallbackExams;
+      let attemptsData: Attempt[] = [];
+
+      if (testsRes && testsRes.ok) {
+        testsData = await testsRes.json();
       }
+      if (attemptsRes && attemptsRes.ok) {
+        attemptsData = await attemptsRes.json();
+      }
+
+      setTests(testsData && testsData.length > 0 ? testsData : fallbackExams);
+
+      // Load and merge local storage offline attempts
+      const localAttemptsKey = userRole === 'student' ? `aura_offline_attempts_${studentName}` : 'aura_offline_attempts_all';
+      const localAttempts = JSON.parse(localStorage.getItem(localAttemptsKey) || '[]');
+      
+      const mergedAttempts = [...attemptsData, ...localAttempts];
+      // Filter out duplicates by id
+      const uniqueAttempts = mergedAttempts.filter((item, index) => 
+        mergedAttempts.findIndex(a => a.id === item.id) === index
+      );
+      setAttempts(uniqueAttempts);
+
     } catch (error) {
       console.error('Error synchronizing portal catalogs:', error);
+      // On failure, load offline/fallback data
+      if (tests.length === 0) {
+        setTests(fallbackExams);
+      }
+      const localAttemptsKey = userRole === 'student' ? `aura_offline_attempts_${studentName}` : 'aura_offline_attempts_all';
+      const localAttempts = JSON.parse(localStorage.getItem(localAttemptsKey) || '[]');
+      setAttempts(localAttempts);
     } finally {
       setIsLoading(false);
     }
@@ -165,18 +190,56 @@ export default function App() {
         })
       });
 
-      if (response.ok) {
+      if (response && response.ok) {
         const newAttempt = await response.json();
         // Update state and attempts
         setAttempts((prev) => [newAttempt, ...prev]);
         setView('dashboard');
         setSelectedTest(null);
         setJustCompletedAttempt(newAttempt);
+        return;
       }
     } catch (err) {
-      console.error('Error submitting exam answers:', err);
-      alert('Network failure submitting assessment. Local progress has been cached.');
+      console.error('Error submitting exam answers to server, switching to offline fallback grading:', err);
     }
+
+    // Offline Grading Fallback
+    let correctCount = 0;
+    selectedTest.questions.forEach((q) => {
+      if (answers[q.id] === q.correctOptionIndex) {
+        correctCount++;
+      }
+    });
+    const score = Math.round((correctCount / selectedTest.questions.length) * 100);
+    
+    const newAttempt: Attempt = {
+      id: 'local_attempt_' + Date.now(),
+      studentName,
+      testId: selectedTest.id,
+      testTitle: selectedTest.title,
+      startTime: new Date(Date.now() - selectedTest.durationMinutes * 60 * 1000).toISOString(),
+      endTime: new Date().toISOString(),
+      answers,
+      score,
+      logs,
+      status: tabAwayCount > 3 || logs.some(l => l.severity === 'high') ? 'flagged' : 'submitted',
+      suspiciousScore: Math.min(100, Math.max(0, tabAwayCount * 25 + logs.length * 15))
+    };
+
+    // Save to local storage for persistence across reloads/offline sessions
+    const localAttemptsKey = `aura_offline_attempts_${studentName}`;
+    const localAttempts = JSON.parse(localStorage.getItem(localAttemptsKey) || '[]');
+    localStorage.setItem(localAttemptsKey, JSON.stringify([newAttempt, ...localAttempts]));
+
+    // Also update admin local storage attempts list so the administrator can view them offline
+    const adminLocalAttemptsKey = 'aura_offline_attempts_all';
+    const adminLocalAttempts = JSON.parse(localStorage.getItem(adminLocalAttemptsKey) || '[]');
+    localStorage.setItem(adminLocalAttemptsKey, JSON.stringify([newAttempt, ...adminLocalAttempts]));
+
+    setAttempts((prev) => [newAttempt, ...prev]);
+    setView('dashboard');
+    setSelectedTest(null);
+    setJustCompletedAttempt(newAttempt);
   };
 
   // Admin Override Control
