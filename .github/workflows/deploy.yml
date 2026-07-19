@@ -1,36 +1,57 @@
 name: Deploy to GitHub Pages
 
+# Keep this workflow on Node 24 without npm cache unless a lock file is committed.
 on:
   push:
     branches:
       - main
-      - master
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v6
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: 24
+          package-manager-cache: false
 
-      - name: Install Dependencies
-        run: npm ci || npm install
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
 
-      - name: Build Project
-        run: npm run build
+      - name: Build static Vite frontend
+        run: npx vite build
 
-      - name: Deploy to GitHub Pages 🚀
-        uses: JamesIves/github-pages-deploy-action@v4
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
         with:
-          folder: dist
-          branch: gh-pages
+          path: ./dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
