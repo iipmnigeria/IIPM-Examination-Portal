@@ -8,6 +8,17 @@ import { chrmpQuestions } from './src/chrmpQuestions';
 const app = express();
 const PORT = 3000;
 
+// Set up CORS headers to support cross-origin requests from custom hosted environments (e.g. GitHub Pages)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Set up JSON parsing with a higher limit for base64 image snapshots
 app.use(express.json({ limit: '10mb' }));
 
@@ -480,9 +491,31 @@ app.post('/api/tests/submit', (req, res) => {
   res.json(newAttempt);
 });
 
-// 4. Get previous attempts (admin / review dashboard view)
+// 4. Get previous attempts (admin / review dashboard view / student personal history)
 app.get('/api/attempts', (req, res) => {
+  const { studentName } = req.query;
+  if (studentName) {
+    const nameStr = String(studentName).trim().toLowerCase();
+    const filtered = attemptsDatabase.filter(a => a.studentName.trim().toLowerCase() === nameStr);
+    return res.json(filtered);
+  }
   res.json(attemptsDatabase);
+});
+
+// Auth / Login helper endpoint
+app.post('/api/auth/login', (req, res) => {
+  const { username, password, role, name } = req.body;
+  if (role === 'admin') {
+    if (username === 'admin' && password === 'iipmadmin') {
+      return res.json({ success: true, role: 'admin', name: 'Administrator' });
+    }
+    return res.status(401).json({ success: false, error: 'Invalid admin credentials' });
+  } else {
+    if (!name || name.trim().length < 3) {
+      return res.status(400).json({ success: false, error: 'Valid candidate name required' });
+    }
+    return res.json({ success: true, role: 'student', name: name.trim() });
+  }
 });
 
 // 5. AI Proctor Snapshots Analysis

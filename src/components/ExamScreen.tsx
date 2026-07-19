@@ -22,6 +22,17 @@ import {
 import { Test, Question, ProctorLogEvent, ProctorEventType } from '../types';
 import CountdownTimer from './CountdownTimer';
 
+// Dynamically determine API Base URL.
+// When running in a custom deployed frontend (such as GitHub Pages or local preview targeting remote server),
+// we route requests to the deployed live container backend endpoint.
+const API_BASE = (
+  typeof window !== 'undefined' && 
+  !window.location.hostname.includes('localhost') && 
+  !window.location.hostname.includes('run.app') &&
+  !window.location.hostname.includes('0.0.0.0') &&
+  !window.location.hostname.includes('127.0.0.1')
+) ? 'https://ais-pre-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app' : '';
+
 interface ExamScreenProps {
   test: Test;
   studentName: string;
@@ -472,7 +483,7 @@ export default function ExamScreen({
       const base64Image = canvas.toDataURL('image/jpeg', 0.6);
 
       // Call Express AI Proctor endpoint
-      const response = await fetch('/api/proctor/analyze', {
+      const response = await fetch(`${API_BASE}/api/proctor/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

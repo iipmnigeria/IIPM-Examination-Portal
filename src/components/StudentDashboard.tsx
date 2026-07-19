@@ -21,8 +21,10 @@ import {
   Printer,
   X,
   FileSpreadsheet,
-  Sparkles
+  Sparkles,
+  Download
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { Test, Attempt } from '../types';
 // @ts-ignore
 import iipmSeal from '../assets/images/iipm_seal_1784411386400.jpg';
@@ -69,6 +71,250 @@ export default function StudentDashboard({
       setActiveTab('gradebook');
     }
   }, [justCompletedAttempt]);
+
+  // High-Fidelity Professional PDF Certificate Generator using jsPDF
+  const downloadCertificateAsPDF = (attempt: Attempt) => {
+    const testObj = tests.find(t => t.id === attempt.testId);
+    const courseCode = testObj ? (
+      ['HRMFC', 'CHRMG', 'CHRMP'].includes(testObj.course)
+        ? testObj.course
+        : testObj.course.split(' ').map((w: string) => w[0] || '').join('').toUpperCase()
+    ) : 'MGMT';
+    const dateObj = new Date(attempt.endTime || attempt.startTime);
+    const year = dateObj.getFullYear();
+    const serial = attempt.id.substring(18).toUpperCase() || '73A2B';
+    const certId = `IIPM/${courseCode}/${year}/${serial}`;
+
+    const day = dateObj.getDate();
+    const getOrdinal = (n: number) => {
+      const s = ["th", "st", "nd", "rd"];
+      const v = n % 100;
+      return s[(v - 20) % 10] || s[v] || s[0];
+    };
+    const dayStr = day + getOrdinal(day);
+    const monthStr = dateObj.toLocaleString('en-US', { month: 'long' });
+    const yearStr = dateObj.getFullYear();
+
+    // Create landscape A4 PDF page (297mm x 210mm)
+    const doc = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    // 1. Draw elegant background
+    doc.setFillColor(254, 254, 252); // soft professional off-white/cream
+    doc.rect(0, 0, 297, 210, 'F');
+
+    // 2. Outer premium academic border (deep navy #0c2340)
+    doc.setDrawColor(12, 35, 64);
+    doc.setLineWidth(1.5);
+    doc.rect(10, 10, 277, 190);
+
+    // 3. Inner border lines for traditional double frame effect
+    doc.setLineWidth(0.5);
+    doc.rect(12, 12, 273, 186);
+    doc.rect(13, 13, 271, 184);
+
+    // Corner decorative lines
+    const drawCornerLines = (startX: number, startY: number, dirX: number, dirY: number) => {
+      const size = 8;
+      doc.setDrawColor(12, 35, 64);
+      doc.setLineWidth(0.7);
+      doc.line(startX, startY, startX + (size * dirX), startY);
+      doc.line(startX, startY, startX, startY + (size * dirY));
+    };
+    drawCornerLines(14, 14, 1, 1);
+    drawCornerLines(283, 14, -1, 1);
+    drawCornerLines(14, 196, 1, -1);
+    drawCornerLines(283, 196, -1, -1);
+
+    // 4. Background watermark vector circles
+    doc.setDrawColor(12, 35, 64);
+    doc.setLineWidth(0.04);
+    doc.circle(148.5, 105, 55, 'D');
+    doc.circle(148.5, 105, 45, 'D');
+    doc.circle(148.5, 105, 25, 'D');
+
+    // Draw light radial latitude/longitude grid marks representing the Globe
+    for (let i = 0; i < 360; i += 30) {
+      const rad = i * Math.PI / 180;
+      const x1 = 148.5 + 45 * Math.cos(rad);
+      const y1 = 105 + 45 * Math.sin(rad);
+      const x2 = 148.5 + 55 * Math.cos(rad);
+      const y2 = 105 + 55 * Math.sin(rad);
+      doc.line(x1, y1, x2, y2);
+    }
+
+    // 5. Header Title block
+    doc.setTextColor(12, 35, 64);
+    doc.setFont('times', 'bold');
+    doc.setFontSize(20);
+    doc.text('INTEGRATED INSTITUTE OF PROFESSIONAL MANAGEMENT', 148.5, 34, { align: 'center' });
+
+    // Accent separation line
+    doc.setDrawColor(234, 88, 12); // Orange (#ea580c)
+    doc.setLineWidth(0.8);
+    doc.line(80, 40, 217, 40);
+
+    // 6. Certificate Title
+    doc.setTextColor(12, 35, 64);
+    doc.setFont('times', 'bold');
+    doc.setFontSize(26);
+    doc.text('CERTIFICATE OF COMPLETION', 148.5, 58, { align: 'center' });
+
+    // 7. Statement Text
+    doc.setTextColor(100, 116, 139);
+    doc.setFont('times', 'italic');
+    doc.setFontSize(13);
+    doc.text('This certifies that', 148.5, 71, { align: 'center' });
+
+    // 8. Student Name with Underline Accent
+    doc.setTextColor(12, 35, 64);
+    doc.setFont('times', 'bold');
+    doc.setFontSize(28);
+    doc.text(attempt.studentName.toUpperCase(), 148.5, 89, { align: 'center' });
+
+    doc.setDrawColor(12, 35, 64);
+    doc.setLineWidth(0.4);
+    doc.line(75, 93, 222, 93);
+
+    // 9. Completion info
+    doc.setTextColor(71, 85, 105);
+    doc.setFont('times', 'normal');
+    doc.setFontSize(11);
+    doc.text('has successfully completed the Professional Modular Certificate Programme in', 148.5, 103, { align: 'center' });
+
+    // 10. Course Title
+    doc.setTextColor(12, 35, 64);
+    doc.setFont('times', 'bold');
+    doc.setFontSize(18);
+    doc.text(attempt.testTitle.toUpperCase(), 148.5, 115, { align: 'center' });
+
+    // 11. Grading context
+    doc.setTextColor(71, 85, 105);
+    doc.setFont('times', 'normal');
+    doc.setFontSize(11);
+    doc.text(`having fulfilled the required learning activities, assessments, and completion requirements with a`, 148.5, 125, { align: 'center' });
+    doc.text(`passing assessment score of ${attempt.score}%.`, 148.5, 131, { align: 'center' });
+
+    // 12. Date
+    doc.setTextColor(100, 116, 139);
+    doc.setFont('times', 'italic');
+    doc.setFontSize(11);
+    doc.text(`Issued on this ${dayStr} Day of ${monthStr}, ${yearStr}.`, 148.5, 143, { align: 'center' });
+
+    // 13. Bottom signatures
+    const sigLineY = 171;
+    const textLabelY = 177;
+    const titleLabelY = 182;
+
+    // Dr. Kashim Akor Signee (Left Side)
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.3);
+    doc.line(30, sigLineY, 90, sigLineY);
+    
+    // Draw Dr. Kashim Akor Vector Signature
+    doc.setDrawColor(30, 41, 59);
+    doc.setLineWidth(0.65);
+    doc.line(38, 166, 42, 154);
+    doc.line(42, 154, 45, 168);
+    doc.line(45, 168, 49, 156);
+    doc.line(49, 156, 53, 164);
+    doc.line(53, 164, 59, 158);
+    doc.line(59, 158, 65, 160);
+    doc.line(65, 160, 72, 157);
+    doc.line(72, 157, 85, 157);
+    doc.line(40, 161, 78, 161); // cross line
+
+    doc.setTextColor(12, 35, 64);
+    doc.setFont('times', 'bold');
+    doc.setFontSize(11);
+    doc.text('Dr. Kashim Akor', 60, textLabelY, { align: 'center' });
+    doc.setTextColor(148, 163, 184);
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(8);
+    doc.text('COUNCIL CHAIRMAN', 60, titleLabelY, { align: 'center' });
+
+    // Barr. Peter N. Nwachukwu Signee (Right Side)
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.3);
+    doc.line(205, sigLineY, 265, sigLineY);
+
+    // Draw Barr. Peter N. Nwachukwu Vector Signature
+    doc.setDrawColor(30, 41, 59);
+    doc.setLineWidth(0.65);
+    doc.line(210, 160, 220, 153);
+    doc.line(220, 153, 230, 154);
+    doc.line(230, 154, 235, 160);
+    doc.line(235, 160, 225, 162);
+    doc.line(225, 162, 215, 163);
+    doc.line(215, 163, 220, 157);
+    doc.line(220, 157, 221, 168);
+    doc.line(221, 168, 224, 147);
+    doc.line(224, 147, 225, 162);
+
+    doc.setTextColor(12, 35, 64);
+    doc.setFont('times', 'bold');
+    doc.setFontSize(11);
+    doc.text('Barr. Peter N. Nwachukwu', 235, textLabelY, { align: 'center' });
+    doc.setTextColor(148, 163, 184);
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(8);
+    doc.text('REGISTRAR', 235, titleLabelY, { align: 'center' });
+
+    // 14. Academic Wax Seal (Middle Bottom Placement)
+    const sealX = 148.5;
+    const sealY = 171;
+    doc.setFillColor(224, 122, 27); // Orange gold
+    doc.setDrawColor(234, 88, 12);
+    doc.setLineWidth(0.4);
+    doc.circle(sealX, sealY, 13, 'FD');
+
+    doc.setFillColor(220, 38, 38); // Crimson red wax
+    doc.circle(sealX, sealY, 11.5, 'F');
+
+    doc.setDrawColor(251, 191, 36); // Yellow gold inner ring
+    doc.setLineWidth(0.25);
+    doc.circle(sealX, sealY, 9.5, 'D');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('times', 'bold');
+    doc.setFontSize(6.5);
+    doc.text('IIPM', sealX, sealY - 1.5, { align: 'center' });
+
+    doc.setFont('times', 'normal');
+    doc.setFontSize(4);
+    doc.text('ACADEMIC SEAL', sealX, sealY + 2.5, { align: 'center' });
+    doc.text('EST. 2026', sealX, sealY + 5, { align: 'center' });
+
+    // 15. Footer ID & Barcode Group
+    doc.setTextColor(148, 163, 184);
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(7.5);
+    doc.text(`Certificate ID: ${certId}`, 16, 195);
+
+    // Dynamic clean vector lines representing a barcode
+    doc.setDrawColor(0, 0, 0);
+    let barcodeStart = 228;
+    const barcodeY = 191;
+    const barcodeHeight = 4.5;
+    const barcodePattern = [1, 2, 0.5, 1.5, 0.5, 2, 1, 0.5, 1.5, 2, 0.5, 1, 1.5, 0.5, 2, 1];
+    barcodePattern.forEach((w) => {
+      doc.setLineWidth(w * 0.25);
+      doc.line(barcodeStart, barcodeY, barcodeStart, barcodeY + barcodeHeight);
+      barcodeStart += (w * 0.25) + 0.6;
+    });
+
+    doc.setTextColor(148, 163, 184);
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(5);
+    doc.text(`*${certId}*`, barcodeStart - 1, barcodeY + barcodeHeight + 2, { align: 'right' });
+
+    // Output and trigger instant download of the PDF artifact
+    const safeTitle = attempt.testTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    doc.save(`IIPM_Certificate_${safeTitle}.pdf`);
+  };
 
   // Initialize and check camera permissions
   const startCameraCheck = async () => {
@@ -676,17 +922,27 @@ export default function StudentDashboard({
                               </button>
 
                               {canClaimCertificate ? (
-                                <button
-                                  onClick={() => setSelectedCertificate(attempt)}
-                                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-lg transition flex items-center gap-1 shadow-sm border border-amber-600/20"
-                                >
-                                  <Trophy className="w-3.5 h-3.5" /> Certificate
-                                </button>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    onClick={() => setSelectedCertificate(attempt)}
+                                    className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 text-[11px] font-black rounded-lg transition flex items-center gap-1 shadow-sm border border-amber-600/20 cursor-pointer"
+                                    title="View Verifiable Certificate"
+                                  >
+                                    <Trophy className="w-3 h-3" /> View
+                                  </button>
+                                  <button
+                                    onClick={() => downloadCertificateAsPDF(attempt)}
+                                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition flex items-center gap-1 shadow-sm border border-emerald-700/20 cursor-pointer"
+                                    title="Download Certificate PDF (jsPDF)"
+                                  >
+                                    <Download className="w-3 h-3" /> PDF
+                                  </button>
+                                </div>
                               ) : (
                                 <button
                                   disabled
                                   title={isHighRisk ? "Certificate locked: Security compliance flag was registered during this assessment." : "Certificate locked: Passing grade of 70% required."}
-                                  className="px-3 py-1.5 bg-slate-50 text-slate-300 text-xs font-bold rounded-lg border border-slate-100 cursor-not-allowed flex items-center gap-1"
+                                  className="px-3 py-1.5 bg-slate-50 text-slate-300 text-xs font-bold rounded-lg border border-slate-100 cursor-not-allowed flex items-center gap-1 w-full justify-center"
                                 >
                                   <Trophy className="w-3.5 h-3.5 text-slate-300" /> Locked
                                 </button>
@@ -926,10 +1182,16 @@ export default function StudentDashboard({
                   </div>
                   <div className="flex items-center gap-2">
                     <button
+                      onClick={() => downloadCertificateAsPDF(selectedCertificate)}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl border border-emerald-700/20 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Download PDF (jsPDF)
+                    </button>
+                    <button
                       onClick={() => window.print()}
                       className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl border border-slate-800 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
                     >
-                      <Printer className="w-3.5 h-3.5" /> Print / Save PDF
+                      <Printer className="w-3.5 h-3.5" /> Print
                     </button>
                     <button
                       onClick={() => setSelectedCertificate(null)}
