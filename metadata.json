@@ -1,0 +1,10 @@
+{
+  "name": "AI Examination Portal",
+  "description": "Secure online examination portal with real-time video proctoring and AI-powered suspicious activity detection powered by Gemini.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
