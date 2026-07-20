@@ -8,10 +8,13 @@ In the Supabase dashboard, open **SQL Editor** and run these files in order:
 
 1. `supabase/migrations/202607200001_initial_examination_schema.sql`
 2. `supabase/migrations/202607200002_security_hardening.sql`
+3. `supabase/migrations/202607200003_bootstrap_super_admin.sql`
 
 The first migration creates authentication profiles, programmes, examinations, questions, protected answer keys, assignments, sessions, answers, attempts, proctor events, certificates, audit logs, RLS policies and private storage buckets.
 
 The second migration prevents candidate privilege escalation and reserves official examination writes and answer-key access for protected server operations.
+
+The third migration promotes `iipmonline@iipmi.org` to the first active Super Administrator. Run it only after that email address has been created under **Authentication → Users**.
 
 ## 2. Configure Supabase Auth URLs
 
@@ -23,19 +26,20 @@ Under **Authentication → URL Configuration** set:
 
 Enable email/password authentication. Candidate sign-up should require email verification before production use.
 
-## 3. Create the first user
+## 3. Create the first Super Admin account
 
-Create the intended Super Admin through **Authentication → Users → Add user** or through the candidate registration flow after it is wired.
+Open **Authentication → Users → Add user** and create:
 
-Then promote the account in SQL Editor, replacing the email value:
+- Email: `iipmonline@iipmi.org`
+- Password: choose a strong private password
+- Auto Confirm User: enabled for this administrator account
+- User metadata `full_name`: `IIPM Super Administrator` when the dashboard provides a metadata field
 
-```sql
-update public.profiles
-set role = 'super_admin', is_active = true
-where lower(email) = lower('SUPER_ADMIN_EMAIL_HERE');
-```
+After the Auth user exists, run:
 
-Do not create administrator roles from public registration metadata.
+`supabase/migrations/202607200003_bootstrap_super_admin.sql`
+
+The script will stop with a clear error if the Auth user has not yet been created. Public registration cannot assign staff or administrator roles.
 
 ## 4. Frontend configuration
 
@@ -46,17 +50,24 @@ The browser client is defined in `src/lib/supabase.ts` and supports:
 
 Only the publishable browser key may be used in the frontend. Never expose a Supabase secret/service-role key or Gemini key in GitHub Pages.
 
-## 5. Integration order
+The integration branch now includes:
 
-After the migrations are applied:
+- Candidate registration through Supabase Auth
+- Candidate email/password login
+- Authorised staff email/password login
+- Password reset
+- Persistent session restoration
+- Supabase sign-out
+- Disabled public auditor registration
 
-1. Replace candidate registration/login with `src/services/authService.ts`.
-2. Remove public auditor registration.
-3. Add protected `start-exam` and `submit-exam` Edge Functions.
-4. Move questions and grading from the in-memory Express server to Supabase.
-5. Add assignment management and the auditor dashboard.
-6. Add proctor event submission and evidence storage.
-7. Add certificate issuance and verification.
+## 5. Remaining integration order
+
+1. Add protected `start-exam` and `submit-exam` Edge Functions.
+2. Move questions and grading from the in-memory Express server to Supabase.
+3. Add examination assignment management and the auditor dashboard.
+4. Add proctor-event submission and evidence storage.
+5. Add certificate issuance and public verification.
+6. Complete multi-user, RLS and security acceptance testing.
 
 ## 6. Production rule
 
