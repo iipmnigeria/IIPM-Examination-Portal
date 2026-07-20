@@ -2,9 +2,17 @@
 
 This branch introduces the Supabase-backed examination platform without changing the live GitHub Pages demonstration.
 
-## 1. Apply the database migrations
+## Preview address
 
-In the Supabase dashboard, open **SQL Editor** and run these files in order:
+After the `Deploy Supabase Preview` workflow completes, use:
+
+`https://iipmnigeria.github.io/IIPM-Examination-Portal/supabase-preview/`
+
+The working demonstration remains at the repository root.
+
+## Database migrations
+
+The following migrations have been applied in this order:
 
 1. `supabase/migrations/202607200001_initial_examination_schema.sql`
 2. `supabase/migrations/202607200002_security_hardening.sql`
@@ -22,12 +30,12 @@ Migrations 4–7 add:
 - Secure examination session creation and expiry
 - Server-side grading and attempt persistence
 - Proctor-event persistence and suspicious-score calculation
-- Staff-controlled examination assignment
+- Super Admin/exam-admin controlled examination assignment
 - An HRMFC five-question pilot examination
 
-## 2. Configure Supabase Auth URLs
+## Supabase Auth URLs
 
-Under **Authentication → URL Configuration** set:
+Under **Authentication → URL Configuration**:
 
 - Site URL: `https://iipmnigeria.github.io/IIPM-Examination-Portal/`
 - Redirect URL: `https://iipmnigeria.github.io/IIPM-Examination-Portal/**`
@@ -35,25 +43,18 @@ Under **Authentication → URL Configuration** set:
 
 Enable email/password authentication. Candidate sign-up should require email verification before production use.
 
-## 3. Super Administrator
-
-The first Super Administrator is:
+## Super Administrator
 
 - Email: `iipmonline@iipmi.org`
 - Role: `super_admin`
 
 Public registration cannot assign staff or administrator roles.
 
-## 4. Frontend configuration
+## Frontend security
 
-The browser client is defined in `src/lib/supabase.ts` and supports:
+Only the Supabase publishable browser key is present in the frontend. Never expose a Supabase secret/service-role key, database password or Gemini key in GitHub Pages.
 
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_PUBLISHABLE_KEY`
-
-Only the publishable browser key may be used in the frontend. Never expose a Supabase secret/service-role key or Gemini key in GitHub Pages.
-
-The integration branch now includes:
+The integration branch includes:
 
 - Candidate registration and email/password login
 - Authorised staff login
@@ -66,17 +67,17 @@ The integration branch now includes:
 - Staff assignment RPC
 - HRMFC pilot examination
 
-## 5. Pilot acceptance test
+## Pilot acceptance test
 
-1. Create a separate candidate account through the portal or **Authentication → Users**.
-2. Confirm the candidate email.
-3. Sign in as the candidate.
-4. Open the HRMFC pilot examination.
-5. Submit answers and confirm the score persists after logout and login.
+1. Open the Supabase preview address.
+2. Register a separate candidate account and confirm its email.
+3. Assign the HRMFC pilot examination to that candidate.
+4. Sign in as the candidate, take the examination and submit it.
+5. Confirm the score remains after logout and login.
 6. Sign in as the Super Admin and confirm the attempt appears in the Control Hub.
 7. Confirm a candidate cannot read `question_answer_keys` or another candidate’s attempt.
 
-## 6. Remaining production work
+## Remaining production work
 
 1. Add a full examination-authoring and assignment interface.
 2. Migrate CHRMG, CHRMP and other approved question banks.
@@ -85,6 +86,4 @@ The integration branch now includes:
 5. Add evidence retention controls, certificate issuance and public verification.
 6. Complete multi-user, RLS and security acceptance testing.
 
-## 7. Production rule
-
-The current GitHub Pages demo must remain live until Supabase authentication, secure grading, RLS isolation and multi-user persistence pass acceptance testing on the integration branch.
+The root GitHub Pages demonstration must remain live until Supabase authentication, secure grading, RLS isolation and multi-user persistence pass acceptance testing on the preview.
