@@ -420,6 +420,11 @@ if (API_KEY && API_KEY !== 'MY_GEMINI_API_KEY' && API_KEY.trim() !== '') {
 // API ROUTES
 // ----------------------------------------------------
 
+// 0. Lightweight health / ping check for latency tracking
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: Date.now() });
+});
+
 // 1. Get list of exams (sanitize and hide correct answers to prevent source-code viewing)
 app.get('/api/tests', (req, res) => {
   const sanitizedExams = examsDatabase.map(exam => ({
