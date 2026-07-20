@@ -1,6 +1,6 @@
 # IIPM Examination Portal — Supabase Activation
 
-This branch introduces the Supabase foundation without changing the live GitHub Pages portal.
+This branch introduces the Supabase-backed examination platform without changing the live GitHub Pages demonstration.
 
 ## 1. Apply the database migrations
 
@@ -9,12 +9,21 @@ In the Supabase dashboard, open **SQL Editor** and run these files in order:
 1. `supabase/migrations/202607200001_initial_examination_schema.sql`
 2. `supabase/migrations/202607200002_security_hardening.sql`
 3. `supabase/migrations/202607200003_bootstrap_super_admin.sql`
+4. `supabase/migrations/202607200004_exam_catalogue_and_start.sql`
+5. `supabase/migrations/202607200005_secure_submit_and_attempts.sql`
+6. `supabase/migrations/202607200006_assignment_management.sql`
+7. `supabase/migrations/202607200007_hrmfc_pilot_catalogue.sql`
 
-The first migration creates authentication profiles, programmes, examinations, questions, protected answer keys, assignments, sessions, answers, attempts, proctor events, certificates, audit logs, RLS policies and private storage buckets.
+The first three migrations create the secure database foundation and activate `iipmonline@iipmi.org` as the first Super Administrator.
 
-The second migration prevents candidate privilege escalation and reserves official examination writes and answer-key access for protected server operations.
+Migrations 4–7 add:
 
-The third migration promotes `iipmonline@iipmi.org` to the first active Super Administrator. Run it only after that email address has been created under **Authentication → Users**.
+- Candidate-facing examination catalogue without answer keys
+- Secure examination session creation and expiry
+- Server-side grading and attempt persistence
+- Proctor-event persistence and suspicious-score calculation
+- Staff-controlled examination assignment
+- An HRMFC five-question pilot examination
 
 ## 2. Configure Supabase Auth URLs
 
@@ -26,20 +35,14 @@ Under **Authentication → URL Configuration** set:
 
 Enable email/password authentication. Candidate sign-up should require email verification before production use.
 
-## 3. Create the first Super Admin account
+## 3. Super Administrator
 
-Open **Authentication → Users → Add user** and create:
+The first Super Administrator is:
 
 - Email: `iipmonline@iipmi.org`
-- Password: choose a strong private password
-- Auto Confirm User: enabled for this administrator account
-- User metadata `full_name`: `IIPM Super Administrator` when the dashboard provides a metadata field
+- Role: `super_admin`
 
-After the Auth user exists, run:
-
-`supabase/migrations/202607200003_bootstrap_super_admin.sql`
-
-The script will stop with a clear error if the Auth user has not yet been created. Public registration cannot assign staff or administrator roles.
+Public registration cannot assign staff or administrator roles.
 
 ## 4. Frontend configuration
 
@@ -52,23 +55,36 @@ Only the publishable browser key may be used in the frontend. Never expose a Sup
 
 The integration branch now includes:
 
-- Candidate registration through Supabase Auth
-- Candidate email/password login
-- Authorised staff email/password login
-- Password reset
-- Persistent session restoration
+- Candidate registration and email/password login
+- Authorised staff login
+- Password reset and persistent sessions
 - Supabase sign-out
 - Disabled public auditor registration
+- Supabase examination catalogue and attempt history
+- Secure start and submit operations
+- Server-side grading with protected answer keys
+- Staff assignment RPC
+- HRMFC pilot examination
 
-## 5. Remaining integration order
+## 5. Pilot acceptance test
 
-1. Add protected `start-exam` and `submit-exam` Edge Functions.
-2. Move questions and grading from the in-memory Express server to Supabase.
-3. Add examination assignment management and the auditor dashboard.
-4. Add proctor-event submission and evidence storage.
-5. Add certificate issuance and public verification.
+1. Create a separate candidate account through the portal or **Authentication → Users**.
+2. Confirm the candidate email.
+3. Sign in as the candidate.
+4. Open the HRMFC pilot examination.
+5. Submit answers and confirm the score persists after logout and login.
+6. Sign in as the Super Admin and confirm the attempt appears in the Control Hub.
+7. Confirm a candidate cannot read `question_answer_keys` or another candidate’s attempt.
+
+## 6. Remaining production work
+
+1. Add a full examination-authoring and assignment interface.
+2. Migrate CHRMG, CHRMP and other approved question banks.
+3. Add secure administrator review/override persistence.
+4. Connect Gemini through a protected server function.
+5. Add evidence retention controls, certificate issuance and public verification.
 6. Complete multi-user, RLS and security acceptance testing.
 
-## 6. Production rule
+## 7. Production rule
 
-The current GitHub Pages demo must remain live until Supabase authentication, RLS isolation, secure grading and multi-user persistence pass acceptance testing on the integration branch.
+The current GitHub Pages demo must remain live until Supabase authentication, secure grading, RLS isolation and multi-user persistence pass acceptance testing on the integration branch.
