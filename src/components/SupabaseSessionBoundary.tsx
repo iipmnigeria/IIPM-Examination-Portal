@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getCurrentPortalUser, signOut as signOutPortalUser } from '../services/authService';
+import { getCurrentPortalUser } from '../services/authService';
 import { supabase } from '../lib/supabase';
 
 interface SupabaseSessionBoundaryProps {
@@ -53,22 +53,9 @@ export default function SupabaseSessionBoundary({ children }: SupabaseSessionBou
       }
     });
 
-    const handlePortalLogout = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      const button = target?.closest('button');
-      if (!button || button.textContent?.trim() !== 'Logout') return;
-
-      signOutPortalUser().catch((error) => {
-        console.error('Supabase sign-out failed:', error);
-      });
-    };
-
-    document.addEventListener('click', handlePortalLogout, true);
-
     return () => {
       isMounted = false;
       authListener.subscription.unsubscribe();
-      document.removeEventListener('click', handlePortalLogout, true);
     };
   }, []);
 
