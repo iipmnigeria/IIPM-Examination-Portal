@@ -2,7 +2,7 @@ export interface Question {
   id: string;
   text: string;
   options: string[];
-  correctOptionIndex: number;
+  correctOptionIndex?: number;
 }
 
 export interface Test {
@@ -13,6 +13,9 @@ export interface Test {
   questionCount: number;
   description: string;
   questions: Question[];
+  sessionId?: string;
+  assignmentId?: string;
+  expiresAt?: string;
 }
 
 export type ProctorEventType =
@@ -28,11 +31,11 @@ export type ProctorEventType =
 
 export interface ProctorLogEvent {
   id: string;
-  timestamp: string; // ISO string
+  timestamp: string;
   type: ProctorEventType;
   severity: 'low' | 'medium' | 'high';
   message: string;
-  snapshotUrl?: string; // base64 format for visualization
+  snapshotUrl?: string;
 }
 
 export interface Attempt {
@@ -40,18 +43,18 @@ export interface Attempt {
   studentName: string;
   testId: string;
   testTitle: string;
-  startTime: string; // ISO string
-  endTime?: string; // ISO string
-  answers: Record<string, number>; // questionId -> selectedOptionIndex
-  score?: number; // percentage (0-100)
+  startTime: string;
+  endTime?: string;
+  answers: Record<string, number>;
+  score?: number;
   logs: ProctorLogEvent[];
   status: 'ongoing' | 'submitted' | 'flagged' | 'terminated';
-  suspiciousScore: number; // 0 to 100 index
+  suspiciousScore: number;
 }
 
 export interface ProctorAnalysisResult {
   isSuspicious: boolean;
-  confidence: number; // 0 to 1
+  confidence: number;
   reason: string;
   detections: string[];
 }
