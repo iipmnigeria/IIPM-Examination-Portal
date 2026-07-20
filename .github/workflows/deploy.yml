@@ -34,3 +34,6 @@ jobs:
         with:
           folder: dist
           branch: gh-pages
+          clean-exclude: |
+            supabase-preview
+            supabase-preview/**
