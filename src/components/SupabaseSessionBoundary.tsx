@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getCurrentPortalUser, signOutPortalUser } from '../services/authService';
+import { getCurrentPortalUser, signOut as signOutPortalUser } from '../services/authService';
 import { supabase } from '../lib/supabase';
 
 interface SupabaseSessionBoundaryProps {
