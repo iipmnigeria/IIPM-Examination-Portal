@@ -1,248 +1,191 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  GraduationCap, 
-  ShieldCheck, 
-  ShieldAlert, 
-  LayoutDashboard, 
-  FileCheck, 
-  Info,
-  ChevronRight,
-  ClipboardList
-} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { GraduationCap, LayoutDashboard, ShieldCheck } from 'lucide-react';
 import StudentDashboard from './components/StudentDashboard';
 import ExamScreen from './components/ExamScreen';
 import AdminPortal from './components/AdminPortal';
 import LoginPortal from './components/LoginPortal';
-import { Test, Attempt, ProctorLogEvent } from './types';
-
-// Dynamically determine API Base URL.
-// When running in a custom deployed frontend (such as GitHub Pages or local preview targeting remote server),
-// we route requests to the deployed live container backend endpoint.
-const API_BASE = (() => {
-  if (typeof window === 'undefined') return '';
-  const hostname = window.location.hostname;
-  if (
-    hostname.includes('localhost') ||
-    hostname.includes('run.app') ||
-    hostname.includes('0.0.0.0') ||
-    hostname.includes('127.0.0.1')
-  ) {
-    return '';
-  }
-  // If we are hosted on GitHub Pages, we direct to the production/preview container backend.
-  if (hostname.includes('github.io')) {
-    return 'https://ais-pre-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
-  }
-  // Otherwise, if we are in an iframe in AI Studio, we direct to the development server container.
-  return 'https://ais-dev-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
-})();
+import { signOut as signOutPortalUser } from './services/authService';
+import {
+  getAvailableTests,
+  getPortalAttempts,
+  startSecureExam,
+  submitSecureExam,
+} from './services/examService';
+import type { Attempt, ProctorLogEvent, Test } from './types';
 
 export default function App() {
-  // User Authentication & Session States
   const [userRole, setUserRole] = useState<'student' | 'admin' | null>(() => {
     return (localStorage.getItem('aura_logged_role') as 'student' | 'admin') || null;
   });
-
   const [studentName, setStudentName] = useState(() => {
     return localStorage.getItem('aura_student_name') || '';
   });
-
-  // Navigation & Workspace view
   const [view, setView] = useState<'dashboard' | 'exam' | 'admin'>(() => {
-    const savedRole = localStorage.getItem('aura_logged_role');
-    return savedRole === 'admin' ? 'admin' : 'dashboard';
+    return localStorage.getItem('aura_logged_role') === 'admin' ? 'admin' : 'dashboard';
   });
-  
-  // App Core Data states
+
   const [tests, setTests] = useState<Test[]>([]);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [selectedTest, setSelectedTest] = useState<Test | null>(null);
   const [simType, setSimType] = useState('none');
   const [isLoading, setIsLoading] = useState(true);
+  const [portalError, setPortalError] = useState('');
   const [justCompletedAttempt, setJustCompletedAttempt] = useState<Attempt | null>(null);
 
-  // Persistence of legal name
   useEffect(() => {
-    if (studentName) {
-      localStorage.setItem('aura_student_name', studentName);
-    } else {
-      localStorage.removeItem('aura_student_name');
-    }
+    if (studentName) localStorage.setItem('aura_student_name', studentName);
+    else localStorage.removeItem('aura_student_name');
   }, [studentName]);
 
-  // Load available exams catalog & past attempts from Express API based on active role
   const fetchPortalData = async () => {
-    if (userRole === null) {
+    if (!userRole) {
       setIsLoading(false);
       return;
     }
-    
+
     try {
       setIsLoading(true);
-      
-      // If student, pull ONLY their own attempts for confidentiality. If admin, pull all.
-      const attemptsUrl = userRole === 'student'
-        ? `${API_BASE}/api/attempts?studentName=${encodeURIComponent(studentName)}`
-        : `${API_BASE}/api/attempts`;
-
-      const [testsRes, attemptsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/tests`),
-        fetch(attemptsUrl)
+      setPortalError('');
+      const [testCatalogue, attemptHistory] = await Promise.all([
+        getAvailableTests(),
+        getPortalAttempts(),
       ]);
-
-      if (testsRes.ok && attemptsRes.ok) {
-        const testsData = await testsRes.json();
-        const attemptsData = await attemptsRes.json();
-        setTests(testsData);
-        setAttempts(attemptsData);
-      }
-    } catch (error) {
-      console.error('Error synchronizing portal catalogs:', error);
+      setTests(testCatalogue);
+      setAttempts(attemptHistory);
+    } catch (error: any) {
+      console.error('Supabase portal synchronisation failed:', error);
+      setPortalError(error?.message || 'Unable to synchronise examination data.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Re-fetch when user logs in or role changes
   useEffect(() => {
-    fetchPortalData();
-  }, [userRole, studentName]);
+    void fetchPortalData();
+  }, [userRole]);
 
-  // Handle Authenticated Session Entry
   const handleLoginSuccess = (name: string, role: 'student' | 'admin') => {
     localStorage.setItem('aura_logged_role', role);
+    localStorage.setItem('aura_student_name', name);
     setUserRole(role);
-    if (role === 'student') {
-      setStudentName(name);
-      localStorage.setItem('aura_student_name', name);
+    setStudentName(name);
+    setView(role === 'admin' ? 'admin' : 'dashboard');
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOutPortalUser();
+    } catch (error) {
+      console.error('Supabase sign-out failed:', error);
+    } finally {
+      localStorage.removeItem('aura_logged_role');
+      localStorage.removeItem('aura_student_name');
+      setUserRole(null);
+      setStudentName('');
+      setTests([]);
+      setAttempts([]);
+      setSelectedTest(null);
       setView('dashboard');
-    } else {
-      setStudentName('Administrator');
-      localStorage.setItem('aura_student_name', 'Administrator');
-      setView('admin');
     }
   };
 
-  // Terminate Active Session
-  const handleLogout = () => {
-    localStorage.removeItem('aura_logged_role');
-    localStorage.removeItem('aura_student_name');
-    setUserRole(null);
-    setStudentName('');
-    setAttempts([]);
-    setView('dashboard');
-  };
-
-  // Launch the exam screen
-  const handleStartExam = (testId: string) => {
-    const test = tests.find(t => t.id === testId);
-    if (test) {
-      setSelectedTest(test);
-      setView('exam');
+  const handleStartExam = async (testId: string) => {
+    if (userRole !== 'student') {
+      setPortalError('Staff accounts may review the catalogue but cannot begin candidate examinations.');
+      return;
     }
-  };
-
-  // Submit test answers to server-side secure grading
-  const handleSubmitExam = async (
-    answers: Record<string, number>, 
-    logs: ProctorLogEvent[], 
-    tabAwayCount: number
-  ) => {
-    if (!selectedTest) return;
 
     try {
-      const response = await fetch(`${API_BASE}/api/tests/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          studentName,
-          testId: selectedTest.id,
-          answers,
-          logs,
-          tabAwayCount,
-          startTime: new Date(Date.now() - selectedTest.durationMinutes * 60 * 1000).toISOString()
-        })
-      });
-
-      if (response.ok) {
-        const newAttempt = await response.json();
-        // Update state and attempts
-        setAttempts((prev) => [newAttempt, ...prev]);
-        setView('dashboard');
-        setSelectedTest(null);
-        setJustCompletedAttempt(newAttempt);
-      }
-    } catch (err) {
-      console.error('Error submitting exam answers:', err);
-      alert('Network failure submitting assessment. Local progress has been cached.');
+      setIsLoading(true);
+      setPortalError('');
+      const liveTest = await startSecureExam(testId);
+      setSelectedTest(liveTest);
+      setView('exam');
+    } catch (error: any) {
+      console.error('Unable to start examination:', error);
+      setPortalError(error?.message || 'The examination session could not be started.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Admin Override Control
-  const handleOverrideStatus = async (attemptId: string, newStatus: 'submitted' | 'flagged' | 'terminated') => {
-    // Modify in-memory state for local audit preview
-    setAttempts((prev) => 
-      prev.map(attempt => {
-        if (attempt.id === attemptId) {
-          // Adjust suspicion scores to match override for visual consistency
-          const newSuspicion = newStatus === 'submitted' ? 15 : 75;
-          return {
-            ...attempt,
-            status: newStatus,
-            suspiciousScore: newSuspicion
-          };
-        }
-        return attempt;
-      })
+  const handleSubmitExam = async (
+    answers: Record<string, number>,
+    logs: ProctorLogEvent[],
+    tabAwayCount: number,
+  ) => {
+    if (!selectedTest?.sessionId) {
+      setPortalError('The secure examination session identifier is missing.');
+      return;
+    }
+
+    try {
+      setPortalError('');
+      const newAttempt = await submitSecureExam({
+        sessionId: selectedTest.sessionId,
+        answers,
+        logs,
+        tabAwayCount,
+      });
+
+      localStorage.removeItem(`aura_exam_answers_${selectedTest.id}`);
+      localStorage.removeItem(`aura_exam_flags_${selectedTest.id}`);
+      localStorage.removeItem(`aura_exam_time_${selectedTest.id}`);
+
+      setAttempts((previous) => [newAttempt, ...previous]);
+      setJustCompletedAttempt(newAttempt);
+      setSelectedTest(null);
+      setView('dashboard');
+      void fetchPortalData();
+    } catch (error: any) {
+      console.error('Secure assessment submission failed:', error);
+      setPortalError(
+        error?.message || 'The assessment could not be submitted. Your local answer cache remains available.',
+      );
+    }
+  };
+
+  const handleOverrideStatus = (
+    attemptId: string,
+    newStatus: 'submitted' | 'flagged' | 'terminated',
+  ) => {
+    setAttempts((previous) =>
+      previous.map((attempt) =>
+        attempt.id === attemptId
+          ? {
+              ...attempt,
+              status: newStatus,
+              suspiciousScore: newStatus === 'submitted' ? 15 : 75,
+            }
+          : attempt,
+      ),
     );
   };
 
-  // View specific past security transcript directly
-  const handleViewAttemptDetails = (attempt: Attempt) => {
-    if (userRole === 'admin') {
-      setView('admin');
-    }
+  const handleViewAttemptDetails = (_attempt: Attempt) => {
+    if (userRole === 'admin') setView('admin');
   };
 
-  // Unauthenticated Gateway view
-  if (userRole === null) {
+  if (!userRole) {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col">
         <header className="bg-slate-950 text-white border-b border-slate-900 sticky top-0 z-40">
-          <div className="max-w-7xl mx-auto px-4 py-3 md:py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center text-white font-black shadow-inner">
-                <GraduationCap className="w-5.5 h-5.5 text-white" />
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-extrabold text-sm tracking-tight text-white uppercase">AURA Portal</span>
-                  <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[8px] font-bold uppercase tracking-wide rounded">
-                    PROCTOR V2
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-400">Institutional Examination Console</p>
-              </div>
+          <div className="max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
+            <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center shadow-inner">
+              <GraduationCap className="w-5.5 h-5.5 text-white" />
+            </div>
+            <div>
+              <span className="font-extrabold text-sm tracking-tight uppercase">IIPM Examination Portal</span>
+              <p className="text-[10px] text-slate-400">Supabase-secured institutional assessment console</p>
             </div>
           </div>
         </header>
-
         <main className="flex-1">
           <LoginPortal onLoginSuccess={handleLoginSuccess} />
         </main>
-
-        <footer className="bg-slate-100 border-t border-slate-200 py-6 text-center text-xs text-slate-500 font-medium">
-          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p>© 2026 AURA Security Systems. All rights reserved.</p>
-            <div className="flex items-center gap-4 text-slate-400">
-              <span className="hover:text-slate-600 transition cursor-pointer">Security Standards</span>
-              <span>•</span>
-              <span className="hover:text-slate-600 transition cursor-pointer">GDPR Compliance</span>
-              <span>•</span>
-              <span className="hover:text-slate-600 transition cursor-pointer">API Integration</span>
-            </div>
-          </div>
+        <footer className="bg-slate-100 border-t border-slate-200 py-6 text-center text-xs text-slate-500">
+          © 2026 Integrated Institute of Professional Management
         </footer>
       </div>
     );
@@ -251,103 +194,86 @@ export default function App() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4 text-slate-100">
-        <div className="w-12 h-12 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-sm font-bold uppercase tracking-widest text-slate-400">Loading AI Proctor Portals...</p>
+        <div className="w-12 h-12 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm font-bold uppercase tracking-widest text-slate-400">
+          Synchronising secure examination records...
+        </p>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col">
-      
-      {/* Dynamic Header Navbar (Hidden when inside active exam screen to maximize screen lock layout) */}
       {view !== 'exam' && (
         <header className="bg-slate-950 text-white border-b border-slate-900 sticky top-0 z-40">
-          <div className="max-w-7xl mx-auto px-4 py-3 md:py-4 flex items-center justify-between">
-            {/* Logo and name */}
+          <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center text-slate-950 font-black shadow-inner">
+              <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center shadow-inner">
                 <GraduationCap className="w-5.5 h-5.5 text-white" />
               </div>
               <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-extrabold text-sm tracking-tight text-white uppercase">AURA Portal</span>
-                  <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[8px] font-bold uppercase tracking-wide rounded">
-                    PROCTOR V2
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-400">Institutional Examination Console</p>
+                <span className="font-extrabold text-sm tracking-tight uppercase">IIPM Examination Portal</span>
+                <p className="text-[10px] text-slate-400">Supabase Secure Runtime</p>
               </div>
             </div>
 
-            {/* Navigation Tabs between Student Portal & Administrator Dashboard (Admins can see both, Students are strictly bound to dashboard only) */}
             <div className="flex items-center gap-4">
               {userRole === 'admin' && (
                 <nav className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl">
                   <button
                     onClick={() => setView('dashboard')}
-                    className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                      view === 'dashboard'
-                        ? 'bg-slate-800 text-white shadow font-extrabold'
-                        : 'text-slate-400 hover:text-white'
+                    className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${
+                      view === 'dashboard' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    <LayoutDashboard className="w-3.5 h-3.5" /> Candidate Workspace
+                    <LayoutDashboard className="w-3.5 h-3.5" /> Catalogue
                   </button>
-                  
                   <button
                     onClick={() => setView('admin')}
-                    className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                      view === 'admin'
-                        ? 'bg-slate-800 text-white shadow font-extrabold'
-                        : 'text-slate-400 hover:text-white'
+                    className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${
+                      view === 'admin' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Proctor Control Hub
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Control Hub
                   </button>
                 </nav>
               )}
 
-              {/* Session Profile Badge and Secure Logout */}
-              <div className="flex items-center gap-3 border-l border-slate-800 pl-4">
-                <div className="hidden sm:flex flex-col items-end text-right">
-                  <span className="text-xs font-bold text-slate-200">
-                    {userRole === 'admin' ? 'Administrator' : studentName}
-                  </span>
-                  <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
-                    {userRole === 'admin' ? 'Auditor Active' : 'Candidate Active'}
-                  </span>
-                </div>
-                
-                <button
-                  onClick={handleLogout}
-                  className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-rose-200 border border-rose-800/30 text-xs font-bold rounded-lg transition"
-                >
-                  Logout
-                </button>
+              <div className="hidden sm:flex flex-col items-end">
+                <span className="text-xs font-bold text-slate-200">{studentName}</span>
+                <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
+                  {userRole === 'admin' ? 'Staff Session' : 'Candidate Session'}
+                </span>
               </div>
+              <button
+                onClick={() => void handleLogout()}
+                className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/30 text-xs font-bold rounded-lg"
+              >
+                Logout
+              </button>
             </div>
           </div>
         </header>
       )}
 
-      {/* Primary Workspace View Area */}
+      {portalError && view !== 'exam' && (
+        <div className="max-w-7xl w-full mx-auto px-4 pt-4">
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+            {portalError}
+          </div>
+        </div>
+      )}
+
       <div className="flex-1">
         <AnimatePresence mode="wait">
           {view === 'dashboard' && (
-            <motion.div
-              key="dashboard"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.18 }}
-            >
+            <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <StudentDashboard
                 studentName={studentName}
                 setStudentName={setStudentName}
                 tests={tests}
                 attempts={attempts}
-                onStartExam={handleStartExam}
+                onStartExam={(testId) => void handleStartExam(testId)}
                 onViewAttemptDetails={handleViewAttemptDetails}
                 simType={simType}
                 setSimType={setSimType}
@@ -358,34 +284,22 @@ export default function App() {
           )}
 
           {view === 'exam' && selectedTest && (
-            <motion.div
-              key="exam"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col h-screen"
-            >
+            <motion.div key="exam" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <ExamScreen
                 test={selectedTest}
                 studentName={studentName}
                 simType={simType}
                 onSubmitExam={handleSubmitExam}
                 onExitExam={() => {
-                  setView('dashboard');
                   setSelectedTest(null);
+                  setView('dashboard');
                 }}
               />
             </motion.div>
           )}
 
           {view === 'admin' && (
-            <motion.div
-              key="admin"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.18 }}
-            >
+            <motion.div key="admin" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <AdminPortal
                 attempts={attempts}
                 onBackToDashboard={() => setView('dashboard')}
@@ -396,22 +310,11 @@ export default function App() {
         </AnimatePresence>
       </div>
 
-      {/* Footer credits */}
       {view !== 'exam' && (
-        <footer className="bg-slate-100 border-t border-slate-200 py-6 text-center text-xs text-slate-500 font-medium">
-          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p>© 2026 AURA Security Systems. All rights reserved.</p>
-            <div className="flex items-center gap-4 text-slate-400">
-              <span className="hover:text-slate-600 transition cursor-pointer">Security Standards</span>
-              <span>•</span>
-              <span className="hover:text-slate-600 transition cursor-pointer">GDPR Compliance</span>
-              <span>•</span>
-              <span className="hover:text-slate-600 transition cursor-pointer">API Integration</span>
-            </div>
-          </div>
+        <footer className="bg-slate-100 border-t border-slate-200 py-6 text-center text-xs text-slate-500">
+          © 2026 Integrated Institute of Professional Management
         </footer>
       )}
-
     </div>
   );
 }
