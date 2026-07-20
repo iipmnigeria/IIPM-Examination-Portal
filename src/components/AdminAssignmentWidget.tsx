@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { ClipboardPlus, Loader2, Mail, ShieldCheck, X } from 'lucide-react';
 import { getCurrentPortalUser } from '../services/authService';
 import { assignExamToCandidate, getAvailableTests } from '../services/examService';
@@ -53,7 +53,7 @@ export default function AdminAssignmentWidget() {
     [tests, examinationId],
   );
 
-  const handleAssign = async (event: React.FormEvent) => {
+  const handleAssign = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
     setMessage('');
