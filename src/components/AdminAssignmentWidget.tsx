@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { ClipboardPlus, Loader2, Mail, ShieldCheck, X } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 import { getCurrentPortalUser } from '../services/authService';
 import { assignExamToCandidate, getAvailableTests } from '../services/examService';
 import type { Test } from '../types';
@@ -19,17 +20,36 @@ export default function AdminAssignmentWidget() {
   useEffect(() => {
     let active = true;
 
-    getCurrentPortalUser()
-      .then((current) => {
-        if (!active || !current) return;
-        setIsAuthorised(['exam_admin', 'super_admin'].includes(current.profile.role));
-      })
-      .catch((authError) => {
+    const refreshAuthorisation = async () => {
+      try {
+        const current = await getCurrentPortalUser();
+        if (!active) return;
+        setIsAuthorised(
+          Boolean(current && ['exam_admin', 'super_admin'].includes(current.profile.role)),
+        );
+      } catch (authError) {
         console.error('Unable to initialise assignment control:', authError);
-      });
+        if (active) setIsAuthorised(false);
+      }
+    };
+
+    void refreshAuthorisation();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        setIsAuthorised(false);
+        setIsOpen(false);
+        return;
+      }
+
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        window.setTimeout(() => void refreshAuthorisation(), 0);
+      }
+    });
 
     return () => {
       active = false;
+      listener.subscription.unsubscribe();
     };
   }, []);
 
