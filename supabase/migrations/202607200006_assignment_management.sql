@@ -1,5 +1,9 @@
 begin;
 
+-- Assignments are created only through the protected RPC below.
+revoke insert, update, delete on public.exam_assignments from authenticated;
+grant select on public.exam_assignments to authenticated;
+
 create or replace function public.assign_exam_to_candidate(
   p_examination_id uuid,
   p_candidate_email text,
@@ -16,8 +20,8 @@ declare
   v_candidate public.profiles%rowtype;
   v_assignment public.exam_assignments%rowtype;
 begin
-  if not public.is_exam_staff() then
-    raise exception 'Only authorised examination staff may assign examinations.';
+  if not public.is_exam_admin() then
+    raise exception 'Only an examination administrator or Super Administrator may assign examinations.';
   end if;
   if p_max_attempts is not null and (p_max_attempts < 1 or p_max_attempts > 10) then
     raise exception 'Maximum attempts must be between 1 and 10.';
