@@ -1,4 +1,4 @@
-# Deployment revision: 2026-07-21.6 — approved Akor and Nwachukwu signatures
+# Deployment revision: 2026-07-21.7 — Node 24 only, approved certificate signatures
 name: Deploy Supabase Examination Portal
 
 on:
