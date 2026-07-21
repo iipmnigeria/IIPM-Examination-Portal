@@ -1,3 +1,4 @@
+# Recovery revision: 2026-07-21.2 — remove certificate startup import and add error boundary
 name: Recover IIPM Examination Portal
 
 on:
