@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import AdminAssignmentWidget from './components/AdminAssignmentWidget';
+import AdminCommerceConsole from './components/AdminCommerceConsole';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
 import PaymentReturnHandler from './components/PaymentReturnHandler';
 import SupabaseSessionBoundary from './components/SupabaseSessionBoundary';
@@ -78,6 +79,7 @@ createRoot(rootElement).render(
       <App />
       <CandidateCommerceOverlay />
       <PaymentReturnHandler />
+      <AdminCommerceConsole />
       <AdminAssignmentWidget />
     </SupabaseSessionBoundary>
   </StrictMode>,
