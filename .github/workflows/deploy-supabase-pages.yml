@@ -1,4 +1,4 @@
-# Deployment revision: 2026-07-21.7 — Node 24 only, approved certificate signatures
+# Deployment revision: 2026-07-21.8 — blob-decoded approved certificate signatures
 name: Deploy Supabase Examination Portal
 
 on:
