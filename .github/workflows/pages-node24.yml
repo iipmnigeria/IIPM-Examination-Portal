@@ -39,4 +39,7 @@ jobs:
           branch: gh-pages
           folder: dist
           clean: true
-          single-commit: true
+          clean-exclude: |
+            supabase-preview/**
+          force: false
+          commit-message: Restore IIPM examination root portal
