@@ -29,7 +29,42 @@ export interface ExamOrder {
   payableAmountMinor?: number;
   status: string;
   canLaunch?: boolean;
+  paymentRequired?: boolean;
+  authorizationUrl?: string | null;
+  accessCode?: string | null;
   expiresAt?: string;
+}
+
+export interface PaymentVerification {
+  orderId?: string;
+  reference?: string;
+  examinationId?: string;
+  assignmentId?: string;
+  status: string;
+  canLaunch: boolean;
+  verified?: boolean;
+  alreadyFulfilled?: boolean;
+}
+
+async function functionErrorMessage(error: any, fallback: string): Promise<string> {
+  const context = error?.context;
+
+  if (context instanceof Response) {
+    try {
+      const payload = await context.clone().json();
+      if (payload?.error) return String(payload.error);
+      if (payload?.message) return String(payload.message);
+    } catch {
+      try {
+        const text = await context.clone().text();
+        if (text.trim()) return text.trim();
+      } catch {
+        // Use the normal error message below.
+      }
+    }
+  }
+
+  return error?.message || fallback;
 }
 
 export async function quoteExamPurchase(input: {
@@ -56,16 +91,48 @@ export async function createExamOrder(input: {
   currency: string;
   couponCode?: string;
 }): Promise<ExamOrder> {
-  const { data, error } = await supabase.rpc('create_exam_order', {
-    p_examination_id: input.examinationId,
-    p_currency: input.currency,
-    p_coupon_code: input.couponCode?.trim() || null,
+  const { data, error } = await supabase.functions.invoke('initialize-exam-payment', {
+    body: {
+      examinationId: input.examinationId,
+      currency: input.currency,
+      couponCode: input.couponCode?.trim() || null,
+    },
   });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    throw new Error(await functionErrorMessage(error, 'The secure payment session could not be initialized.'));
+  }
   if (!data || typeof data !== 'object') {
-    throw new Error('The examination order was not returned.');
+    throw new Error('The examination payment order was not returned.');
   }
 
-  return data as ExamOrder;
+  const order = data as ExamOrder;
+
+  if (order.reference) {
+    sessionStorage.setItem('iipm_pending_payment_reference', order.reference);
+  }
+
+  if (order.authorizationUrl) {
+    window.location.assign(order.authorizationUrl);
+  }
+
+  return order;
+}
+
+export async function verifyExamPayment(reference: string): Promise<PaymentVerification> {
+  const cleanReference = reference.trim();
+  if (!cleanReference) throw new Error('The payment reference is missing.');
+
+  const { data, error } = await supabase.functions.invoke('verify-exam-payment', {
+    body: { reference: cleanReference },
+  });
+
+  if (error) {
+    throw new Error(await functionErrorMessage(error, 'The Paystack transaction could not be verified.'));
+  }
+  if (!data || typeof data !== 'object') {
+    throw new Error('The payment verification result was not returned.');
+  }
+
+  return data as PaymentVerification;
 }
