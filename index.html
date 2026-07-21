@@ -3,13 +3,69 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="aura-build" content="2026-07-19.3" />
+    <meta name="aura-build" content="root-router-2026-07-21.2" />
+    <meta http-equiv="refresh" content="1; url=./supabase-preview/" />
     <title>IIPM Examination Portal</title>
-    <script src="./github-pages-demo-bootstrap.js"></script>
-    <script type="module" crossorigin src="./assets/index-C93K_wyt.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-D_jZ5LKe.css">
+    <style>
+      :root { color-scheme: light; font-family: Inter, Arial, sans-serif; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #020617;
+        color: #f8fafc;
+        padding: 24px;
+      }
+      main {
+        width: min(560px, 100%);
+        border: 1px solid #1e293b;
+        border-radius: 20px;
+        background: #0f172a;
+        padding: 32px;
+        box-shadow: 0 25px 60px rgba(0,0,0,.35);
+        text-align: center;
+      }
+      .mark {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto 18px;
+        border-radius: 16px;
+        display: grid;
+        place-items: center;
+        background: #059669;
+        font-weight: 900;
+        letter-spacing: .06em;
+      }
+      h1 { margin: 0; font-size: 24px; }
+      p { color: #cbd5e1; line-height: 1.6; }
+      a {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 12px 18px;
+        border-radius: 12px;
+        background: #059669;
+        color: white;
+        text-decoration: none;
+        font-weight: 800;
+      }
+    </style>
+    <script>
+      (function () {
+        var target = new URL('./supabase-preview/', window.location.href);
+        window.setTimeout(function () {
+          window.location.replace(target.href);
+        }, 250);
+      })();
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <main>
+      <div class="mark">IIPM</div>
+      <h1>Opening the secure examination portal</h1>
+      <p>You are being transferred to the Supabase-secured examination environment.</p>
+      <a href="./supabase-preview/">Open Examination Portal</a>
+    </main>
   </body>
 </html>
