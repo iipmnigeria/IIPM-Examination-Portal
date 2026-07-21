@@ -1,96 +1,138 @@
 import { jsPDF } from 'jspdf';
 import drAkorSignature from './assets/drAkorSignature';
+import nwachukwuSignature from './assets/nwachukwuSignature';
 
 type PatchedJsPdf = {
-  __iipmDrAkorLinesToSkip?: number;
+  __iipmSignatureLinesToSkip?: number;
   addImage: (...args: unknown[]) => unknown;
 };
 
 type JsPdfApi = Record<string, unknown> & {
   line?: (...args: unknown[]) => unknown;
-  __iipmDrAkorSignatureInstalled?: boolean;
+  __iipmCertificateSignaturesInstalled?: boolean;
 };
 
 const nearlyEqual = (left: unknown, right: number): boolean =>
   typeof left === 'number' && Math.abs(left - right) < 0.01;
 
-function installPdfSignature(): void {
+function installPdfSignatures(): void {
   const api = jsPDF.API as unknown as JsPdfApi;
-  if (api.__iipmDrAkorSignatureInstalled || typeof api.line !== 'function') return;
+  if (api.__iipmCertificateSignaturesInstalled || typeof api.line !== 'function') return;
 
   const originalLine = api.line;
 
   api.line = function patchedCertificateLine(this: PatchedJsPdf, ...args: unknown[]) {
-    const remaining = this.__iipmDrAkorLinesToSkip || 0;
+    const remaining = this.__iipmSignatureLinesToSkip || 0;
     if (remaining > 0) {
-      this.__iipmDrAkorLinesToSkip = remaining - 1;
+      this.__iipmSignatureLinesToSkip = remaining - 1;
       return this;
     }
 
     const [x1, y1, x2, y2] = args;
-    const isFirstAkorVectorLine =
+    const isAkorVectorLine =
       nearlyEqual(x1, 38) &&
       nearlyEqual(y1, 166) &&
       nearlyEqual(x2, 42) &&
       nearlyEqual(y2, 154);
 
-    if (isFirstAkorVectorLine) {
+    const isNwachukwuVectorLine =
+      nearlyEqual(x1, 210) &&
+      nearlyEqual(y1, 160) &&
+      nearlyEqual(x2, 220) &&
+      nearlyEqual(y2, 153);
+
+    if (isAkorVectorLine) {
       this.addImage(
         drAkorSignature,
         'PNG',
-        38,
+        35,
         145.5,
-        44,
-        24.8,
+        45,
+        25.6,
         'iipm-dr-akor-signature',
         'FAST',
       );
-      // The original certificate draws eight additional vector lines after this one.
-      this.__iipmDrAkorLinesToSkip = 8;
+      this.__iipmSignatureLinesToSkip = 8;
+      return this;
+    }
+
+    if (isNwachukwuVectorLine) {
+      this.addImage(
+        nwachukwuSignature,
+        'PNG',
+        204,
+        146,
+        44,
+        24,
+        'iipm-nwachukwu-signature',
+        'FAST',
+      );
+      this.__iipmSignatureLinesToSkip = 8;
       return this;
     }
 
     return originalLine.apply(this, args);
   };
 
-  api.__iipmDrAkorSignatureInstalled = true;
+  api.__iipmCertificateSignaturesInstalled = true;
 }
 
-function replaceVisibleSignature(): void {
+function replaceVisibleSignature(
+  labelText: string,
+  signatureDataUri: string,
+  signatureKey: string,
+  widthPx: number,
+  heightPx: number,
+): void {
   const nameLabels = Array.from(document.querySelectorAll('p')).filter(
-    (element) => element.textContent?.trim() === 'Dr. Kashim Akor',
+    (element) => element.textContent?.trim() === labelText,
   );
 
   nameLabels.forEach((nameLabel) => {
     const signatureBlock = nameLabel.parentElement;
-    if (!signatureBlock || signatureBlock.querySelector('[data-dr-akor-signature]')) return;
+    if (!signatureBlock) return;
 
-    const existingVector = signatureBlock.querySelector('svg');
-    if (!existingVector) return;
+    const existingSignature = signatureBlock.querySelector(`[data-signature-key="${signatureKey}"]`);
+    if (existingSignature) return;
+
+    const currentVisual = signatureBlock.firstElementChild;
+    if (!currentVisual) return;
 
     const signatureImage = document.createElement('img');
-    signatureImage.src = drAkorSignature;
-    signatureImage.alt = 'Dr. Kashim Akor signature';
+    signatureImage.src = signatureDataUri;
+    signatureImage.alt = `${labelText} signature`;
     signatureImage.draggable = false;
-    signatureImage.dataset.drAkorSignature = 'true';
+    signatureImage.dataset.signatureKey = signatureKey;
     signatureImage.style.display = 'block';
-    signatureImage.style.width = '132px';
-    signatureImage.style.height = '58px';
+    signatureImage.style.width = `${widthPx}px`;
+    signatureImage.style.height = `${heightPx}px`;
     signatureImage.style.objectFit = 'contain';
     signatureImage.style.margin = '0 auto';
-    signatureImage.style.opacity = '0.96';
+    signatureImage.style.opacity = '0.98';
     signatureImage.style.userSelect = 'none';
+    signatureImage.style.pointerEvents = 'none';
 
-    existingVector.replaceWith(signatureImage);
+    currentVisual.replaceWith(signatureImage);
   });
 }
 
-function installVisibleSignature(): void {
+function installVisibleSignatures(): void {
   if (typeof document === 'undefined') return;
 
+  const applyVisibleSignatures = () => {
+    replaceVisibleSignature('Dr. Kashim Akor', drAkorSignature, 'dr-akor', 138, 62);
+    replaceVisibleSignature(
+      'Barr. Peter N. Nwachukwu',
+      nwachukwuSignature,
+      'peter-nwachukwu',
+      144,
+      58,
+    );
+  };
+
   const initialise = () => {
-    replaceVisibleSignature();
-    const observer = new MutationObserver(() => replaceVisibleSignature());
+    applyVisibleSignatures();
+    const observer = new MutationObserver(() => applyVisibleSignatures());
     observer.observe(document.documentElement, { childList: true, subtree: true });
   };
 
@@ -101,5 +143,5 @@ function installVisibleSignature(): void {
   }
 }
 
-installPdfSignature();
-installVisibleSignature();
+installPdfSignatures();
+installVisibleSignatures();
