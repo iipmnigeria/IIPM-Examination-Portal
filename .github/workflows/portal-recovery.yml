@@ -1,4 +1,4 @@
-# Recovery revision: 2026-07-21.2 — remove certificate startup import and add error boundary
+# Recovery revision: 2026-07-21.3 — TypeScript-safe browser startup diagnostics
 name: Recover IIPM Examination Portal
 
 on:
