@@ -1,4 +1,4 @@
-# Deployment revision: 2026-07-21.4 — Dr. Akor signature
+# Deployment revision: 2026-07-21.5 — fixed Dr. Akor signature asset
 name: Deploy Supabase Examination Portal
 
 on:
