@@ -4,6 +4,11 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Question, Test, Attempt, ProctorLogEvent, ProctorAnalysisResult } from './src/types';
 import { chrmpQuestions } from './src/chrmpQuestions';
+import { pmQuestions } from './src/pmQuestions';
+import { pcitQuestions } from './src/pcitQuestions';
+import { rmpQuestions } from './src/rmpQuestions';
+import { qmpQuestions } from './src/qmpQuestions';
+import { pcmQuestions } from './src/pcmQuestions';
 
 const app = express();
 const PORT = 3000;
@@ -11,7 +16,7 @@ const PORT = 3000;
 // Set up CORS headers to support cross-origin requests from custom hosted environments (e.g. GitHub Pages)
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, *');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
@@ -357,6 +362,51 @@ const examsDatabase: Test[] = [
     questionCount: 75,
     description: 'This advanced executive-level examination validates proficiency in Strategic HRM, succession planning, workforce analytics, change management frameworks, and the alignment of human capital with business strategy.',
     questions: chrmpQuestions
+  },
+  {
+    id: 'pm-201',
+    title: 'Performance Management',
+    course: 'Performance Management (PM)',
+    durationMinutes: 60,
+    questionCount: 50,
+    description: 'Evaluates key capabilities in strategic goal alignment, OKRs, continuous feedback loops, professional coaching, appraisal systems, and performance improvement structures.',
+    questions: pmQuestions
+  },
+  {
+    id: 'pcit-301',
+    title: 'Project Communication and Information Technology',
+    course: 'Project Communication and Information Technology (PCIT)',
+    durationMinutes: 120,
+    questionCount: 75,
+    description: 'Evaluates competencies in project stakeholder communication, collaboration models, agile team reporting, information architecture, and enterprise IT governance.',
+    questions: pcitQuestions
+  },
+  {
+    id: 'rmp-301',
+    title: 'Risk Management Professional',
+    course: 'Risk Management Professional (RMP)',
+    durationMinutes: 120,
+    questionCount: 75,
+    description: 'Evaluates proficiency in risk planning, qualitative and quantitative risk analysis, risk response strategies, contingency planning, and enterprise risk management (ERM).',
+    questions: rmpQuestions
+  },
+  {
+    id: 'qmp-301',
+    title: 'Quality Management Professional',
+    course: 'Quality Management Professional (QMP)',
+    durationMinutes: 120,
+    questionCount: 75,
+    description: 'Evaluates expertise in quality assurance, quality control frameworks, Lean, Six Sigma DMAIC, ISO 9001 standards, statistical process control, and total quality management.',
+    questions: qmpQuestions
+  },
+  {
+    id: 'pcm-301',
+    title: 'Procurement and Contract Management',
+    course: 'Procurement and Contract Management (PCM)',
+    durationMinutes: 120,
+    questionCount: 75,
+    description: 'Evaluates capabilities in procurement planning, contract type selection, bidding processes, vendor negotiations, contract administration, and legal/dispute resolution.',
+    questions: pcmQuestions
   }
 ];
 
@@ -419,11 +469,6 @@ if (API_KEY && API_KEY !== 'MY_GEMINI_API_KEY' && API_KEY.trim() !== '') {
 // ----------------------------------------------------
 // API ROUTES
 // ----------------------------------------------------
-
-// 0. Lightweight health / ping check for latency tracking
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: Date.now() });
-});
 
 // 1. Get list of exams (sanitize and hide correct answers to prevent source-code viewing)
 app.get('/api/tests', (req, res) => {

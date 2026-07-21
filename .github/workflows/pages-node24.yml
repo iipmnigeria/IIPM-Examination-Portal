@@ -1,0 +1,42 @@
+name: IIPM Pages — Node 24
+
+on:
+  push:
+    branches:
+      - pages-deploy
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: iipm-examination-pages-node24
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout pages-deploy branch
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build static Vite frontend
+        run: npx vite build
+
+      - name: Publish compiled site to gh-pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: dist
+          clean: true
+          single-commit: true

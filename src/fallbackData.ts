@@ -1,5 +1,11 @@
 import { Test } from './types';
 import { chrmpQuestions } from './chrmpQuestions';
+import { chrmgQuestions } from './chrmgQuestions';
+import { pmQuestions } from './pmQuestions';
+import { pcitQuestions } from './pcitQuestions';
+import { rmpQuestions } from './rmpQuestions';
+import { qmpQuestions } from './qmpQuestions';
+import { pcmQuestions } from './pcmQuestions';
 
 export const fallbackExams: Test[] = [
   {
@@ -266,66 +272,10 @@ export const fallbackExams: Test[] = [
     id: 'chrmg-201',
     title: 'Certified Human Resource Management Generalist (CHRMG)',
     course: 'CHRMG',
-    durationMinutes: 10,
-    questionCount: 5,
-    description: 'This assessment tests professional competence required of an HR Generalist, focusing on employee relations, goal-setting methodologies, total rewards systems, conflict resolution, and performance improvement structures.',
-    questions: [
-      {
-        id: 'chrmg-q1',
-        text: 'When a formal employee relations grievance is filed, which of the following is considered the most critical initial step for an HR Generalist?',
-        options: [
-          'Issue an immediate formal disciplinary action to the accused party to prevent escalation.',
-          'Initiate an objective, prompt, and thoroughly documented fact-finding investigation.',
-          'Advise the reporting employee to resolve the matter independently with their supervisor.',
-          'Disclose the details of the complaint to the entire department to ensure transparency.'
-        ],
-        correctOptionIndex: 1
-      },
-      {
-        id: 'chrmg-q2',
-        text: 'In professional performance management, what does the "SMART" goal-setting acronym stand for?',
-        options: [
-          'Strategic, Managed, Actionable, Resourceful, Timely',
-          'Specific, Measurable, Achievable, Relevant, Time-bound',
-          'Systematic, Multidisciplinary, Active, Robust, Tracked',
-          'Standardized, Monitored, Approved, Realistic, Targeted'
-        ],
-        correctOptionIndex: 1
-      },
-      {
-        id: 'chrmg-q3',
-        text: 'Which of the following describes the core framework of a "Total Rewards" strategy in Human Resources?',
-        options: [
-          'Enforcing strict overtime restrictions coupled with public recognition awards.',
-          'The holistic integration of base pay, benefits, performance recognition, work-life balance, and talent development opportunities.',
-          'Setting equal compensation rates across all departments regardless of seniority.',
-          'Providing complimentary lunch vouchers and gym memberships as the primary compensation.'
-        ],
-        correctOptionIndex: 1
-      },
-      {
-        id: 'chrmg-q4',
-        text: 'Which conflict management style is characterized by a high concern for both self and others, aiming for a collaborative, win-win resolution?',
-        options: [
-          'Avoiding (Withdrawal)',
-          'Collaborating (Integrating)',
-          'Competing (Forcing)',
-          'Accommodating (Smoothing)'
-        ],
-        correctOptionIndex: 1
-      },
-      {
-        id: 'chrmg-q5',
-        text: 'What is the primary operational goal of implementing a structured "Performance Improvement Plan" (PIP)?',
-        options: [
-          'To generate a swift legal record to justify immediate termination without notice.',
-          'To provide a constructive, documented roadmap with clear benchmarks to assist an underperforming employee in meeting job expectations.',
-          'To re-negotiate and reduce the employee\'s base compensation rate.',
-          'To automatically transition the employee to an external consulting role.'
-        ],
-        correctOptionIndex: 1
-      }
-    ]
+    durationMinutes: 60,
+    questionCount: 50,
+    description: 'This assessment tests professional competence required of an HR Generalist, focusing on employee relations, goal-setting methodologies, recruitment, total rewards, performance management, and compliance.',
+    questions: chrmgQuestions
   },
   {
     id: 'chrmp-301',
@@ -335,5 +285,50 @@ export const fallbackExams: Test[] = [
     questionCount: 75,
     description: 'This advanced executive-level examination validates proficiency in Strategic HRM, succession planning, workforce analytics, change management frameworks, and the alignment of human capital with business strategy.',
     questions: chrmpQuestions
+  },
+  {
+    id: 'pm-201',
+    title: 'Performance Management',
+    course: 'Performance Management (PM)',
+    durationMinutes: 60,
+    questionCount: 50,
+    description: 'Evaluates key capabilities in strategic goal alignment, OKRs, continuous feedback loops, professional coaching, appraisal systems, and performance improvement structures.',
+    questions: pmQuestions
+  },
+  {
+    id: 'pcit-301',
+    title: 'Project Communication and Information Technology',
+    course: 'Project Communication and Information Technology (PCIT)',
+    durationMinutes: 120,
+    questionCount: 75,
+    description: 'Evaluates competencies in project stakeholder communication, collaboration models, agile team reporting, information architecture, and enterprise IT governance.',
+    questions: pcitQuestions
+  },
+  {
+    id: 'rmp-301',
+    title: 'Risk Management Professional',
+    course: 'Risk Management Professional (RMP)',
+    durationMinutes: 120,
+    questionCount: 75,
+    description: 'Evaluates proficiency in risk planning, qualitative and quantitative risk analysis, risk response strategies, contingency planning, and enterprise risk management (ERM).',
+    questions: rmpQuestions
+  },
+  {
+    id: 'qmp-301',
+    title: 'Quality Management Professional',
+    course: 'Quality Management Professional (QMP)',
+    durationMinutes: 120,
+    questionCount: 75,
+    description: 'Evaluates expertise in quality assurance, quality control frameworks, Lean, Six Sigma DMAIC, ISO 9001 standards, statistical process control, and total quality management.',
+    questions: qmpQuestions
+  },
+  {
+    id: 'pcm-301',
+    title: 'Procurement and Contract Management',
+    course: 'Procurement and Contract Management (PCM)',
+    durationMinutes: 120,
+    questionCount: 75,
+    description: 'Evaluates capabilities in procurement planning, contract type selection, bidding processes, vendor negotiations, contract administration, and legal/dispute resolution.',
+    questions: pcmQuestions
   }
 ];

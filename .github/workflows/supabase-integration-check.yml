@@ -1,0 +1,35 @@
+name: Supabase Integration Check
+
+on:
+  push:
+    branches:
+      - supabase-integration
+  pull_request:
+    branches:
+      - pages-deploy
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Build Vite frontend
+        run: npx vite build

@@ -1,0 +1,47 @@
+name: Deploy Supabase Preview
+
+on:
+  push:
+    branches:
+      - supabase-integration
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: iipm-supabase-preview
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy-preview:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Supabase integration branch
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate TypeScript
+        run: npm run lint
+
+      - name: Build Supabase preview
+        run: npx vite build
+
+      - name: Publish only the preview folder
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: dist
+          target-folder: supabase-preview
+          clean: true
+          force: false
+          commit-message: Deploy Supabase examination preview
