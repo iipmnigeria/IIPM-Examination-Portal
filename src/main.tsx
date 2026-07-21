@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import AdminAssignmentWidget from './components/AdminAssignmentWidget';
 import SupabaseSessionBoundary from './components/SupabaseSessionBoundary';
+import './certificateSignatureInstaller';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
