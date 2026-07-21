@@ -2,6 +2,11 @@ import { jsPDF } from 'jspdf';
 import drAkorSignature from './assets/drAkorSignature';
 import nwachukwuSignature from './assets/nwachukwuSignature';
 
+type SignatureAsset = {
+  bytes: Uint8Array;
+  blobUrl: string;
+};
+
 type PatchedJsPdf = {
   __iipmSignatureLinesToSkip?: number;
   addImage: (...args: unknown[]) => unknown;
@@ -14,6 +19,48 @@ type JsPdfApi = Record<string, unknown> & {
 
 const nearlyEqual = (left: unknown, right: number): boolean =>
   typeof left === 'number' && Math.abs(left - right) < 0.01;
+
+function decodePngDataUri(dataUri: string, label: string): SignatureAsset | null {
+  if (typeof window === 'undefined' || typeof window.atob !== 'function') return null;
+
+  try {
+    const separatorIndex = dataUri.indexOf(',');
+    if (separatorIndex < 0) throw new Error('Missing data URI separator.');
+
+    const base64Payload = dataUri
+      .slice(separatorIndex + 1)
+      .replace(/\s+/g, '');
+    const binary = window.atob(base64Payload);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+
+    const isPng =
+      bytes.length > 8 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47;
+
+    if (!isPng) throw new Error('Decoded signature is not a PNG image.');
+
+    return {
+      bytes,
+      blobUrl: URL.createObjectURL(new Blob([bytes], { type: 'image/png' })),
+    };
+  } catch (error) {
+    console.error(`Unable to decode ${label} signature asset.`, error);
+    return null;
+  }
+}
+
+const drAkorAsset = decodePngDataUri(drAkorSignature, 'Dr. Kashim Akor');
+const nwachukwuAsset = decodePngDataUri(
+  nwachukwuSignature,
+  'Barr. Peter N. Nwachukwu',
+);
 
 function installPdfSignatures(): void {
   const api = jsPDF.API as unknown as JsPdfApi;
@@ -41,9 +88,9 @@ function installPdfSignatures(): void {
       nearlyEqual(x2, 220) &&
       nearlyEqual(y2, 153);
 
-    if (isAkorVectorLine) {
+    if (isAkorVectorLine && drAkorAsset) {
       this.addImage(
-        drAkorSignature,
+        drAkorAsset.bytes,
         'PNG',
         35,
         145.5,
@@ -56,9 +103,9 @@ function installPdfSignatures(): void {
       return this;
     }
 
-    if (isNwachukwuVectorLine) {
+    if (isNwachukwuVectorLine && nwachukwuAsset) {
       this.addImage(
-        nwachukwuSignature,
+        nwachukwuAsset.bytes,
         'PNG',
         204,
         146,
@@ -79,11 +126,13 @@ function installPdfSignatures(): void {
 
 function replaceVisibleSignature(
   labelText: string,
-  signatureDataUri: string,
+  signatureAsset: SignatureAsset | null,
   signatureKey: string,
   widthPx: number,
   heightPx: number,
 ): void {
+  if (!signatureAsset) return;
+
   const nameLabels = Array.from(document.querySelectorAll('p')).filter(
     (element) => element.textContent?.trim() === labelText,
   );
@@ -92,14 +141,16 @@ function replaceVisibleSignature(
     const signatureBlock = nameLabel.parentElement;
     if (!signatureBlock) return;
 
-    const existingSignature = signatureBlock.querySelector(`[data-signature-key="${signatureKey}"]`);
+    const existingSignature = signatureBlock.querySelector(
+      `[data-signature-key="${signatureKey}"]`,
+    );
     if (existingSignature) return;
 
     const currentVisual = signatureBlock.firstElementChild;
     if (!currentVisual) return;
 
     const signatureImage = document.createElement('img');
-    signatureImage.src = signatureDataUri;
+    signatureImage.src = signatureAsset.blobUrl;
     signatureImage.alt = `${labelText} signature`;
     signatureImage.draggable = false;
     signatureImage.dataset.signatureKey = signatureKey;
@@ -108,9 +159,17 @@ function replaceVisibleSignature(
     signatureImage.style.height = `${heightPx}px`;
     signatureImage.style.objectFit = 'contain';
     signatureImage.style.margin = '0 auto';
-    signatureImage.style.opacity = '0.98';
+    signatureImage.style.opacity = '1';
     signatureImage.style.userSelect = 'none';
     signatureImage.style.pointerEvents = 'none';
+
+    signatureImage.addEventListener(
+      'error',
+      () => {
+        signatureImage.replaceWith(currentVisual);
+      },
+      { once: true },
+    );
 
     currentVisual.replaceWith(signatureImage);
   });
@@ -120,10 +179,10 @@ function installVisibleSignatures(): void {
   if (typeof document === 'undefined') return;
 
   const applyVisibleSignatures = () => {
-    replaceVisibleSignature('Dr. Kashim Akor', drAkorSignature, 'dr-akor', 138, 62);
+    replaceVisibleSignature('Dr. Kashim Akor', drAkorAsset, 'dr-akor', 138, 62);
     replaceVisibleSignature(
       'Barr. Peter N. Nwachukwu',
-      nwachukwuSignature,
+      nwachukwuAsset,
       'peter-nwachukwu',
       144,
       58,
