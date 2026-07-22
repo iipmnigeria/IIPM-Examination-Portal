@@ -1,4 +1,4 @@
-# Recovery revision: 2026-07-22.1 — storage-safe startup and non-destructive diagnostics
+# Recovery revision: 2026-07-22.2 — permanent non-blank startup shell
 name: Deploy to GitHub Pages
 
 on:
