@@ -1,4 +1,4 @@
-# Recovery revision: 2026-07-22.2 — permanent non-blank startup shell
+# Recovery revision: 2026-07-22.3 — re-publish permanent non-blank startup shell
 name: Deploy to GitHub Pages
 
 on:
