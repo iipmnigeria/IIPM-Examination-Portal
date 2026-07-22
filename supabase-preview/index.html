@@ -3,12 +3,140 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="aura-build" content="supabase-preview-2026-07-20" />
-    <title>IIPM Examination Portal — Supabase Preview</title>
+    <meta name="theme-color" content="#020617" />
+    <meta name="aura-build" content="production-nonblank-shell-2026-07-22" />
+    <title>IIPM Examination Portal</title>
+    <style>
+      html,
+      body,
+      #root {
+        min-height: 100%;
+        margin: 0;
+      }
+
+      body {
+        background: #f8fafc;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      .iipm-boot-shell {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        box-sizing: border-box;
+        padding: 24px;
+        background:
+          radial-gradient(circle at top right, rgba(5, 150, 105, 0.18), transparent 34%),
+          linear-gradient(145deg, #020617, #0f172a 58%, #111827);
+        color: #ffffff;
+      }
+
+      .iipm-boot-card {
+        width: min(100%, 520px);
+        box-sizing: border-box;
+        padding: 32px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 20px;
+        background: rgba(2, 6, 23, 0.78);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+        text-align: center;
+      }
+
+      .iipm-boot-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 48px;
+        height: 48px;
+        margin-bottom: 18px;
+        border-radius: 14px;
+        background: #f59e0b;
+        color: #020617;
+        font-size: 24px;
+        font-weight: 800;
+      }
+
+      .iipm-boot-card h1 {
+        margin: 0 0 10px;
+        font-size: clamp(24px, 5vw, 34px);
+      }
+
+      .iipm-boot-card p {
+        margin: 0;
+        color: #cbd5e1;
+        line-height: 1.6;
+      }
+
+      .iipm-boot-status {
+        margin-top: 20px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #e2e8f0;
+        font-size: 14px;
+      }
+
+      .iipm-boot-reload {
+        display: none;
+        margin: 18px auto 0;
+        padding: 11px 18px;
+        border: 0;
+        border-radius: 10px;
+        background: #10b981;
+        color: #ffffff;
+        font-weight: 700;
+        cursor: pointer;
+      }
+    </style>
+    <script>
+      (function () {
+        function showBootFailure(message) {
+          var status = document.getElementById('iipm-boot-status');
+          var reload = document.getElementById('iipm-boot-reload');
+          if (status) {
+            status.textContent = message || 'The portal could not complete startup. Please reload the page.';
+            status.style.color = '#fecaca';
+            status.style.background = 'rgba(190, 24, 93, 0.18)';
+          }
+          if (reload) reload.style.display = 'inline-block';
+        }
+
+        window.addEventListener('error', function (event) {
+          showBootFailure(event.message || 'A portal startup error occurred.');
+        });
+
+        window.addEventListener('unhandledrejection', function () {
+          showBootFailure('The portal could not complete startup. Please reload the page.');
+        });
+
+        window.setTimeout(function () {
+          if (document.getElementById('iipm-boot-shell')) {
+            showBootFailure('The portal is taking longer than expected to load. Please reload the page.');
+          }
+        }, 15000);
+      })();
+    </script>
     <script type="module" crossorigin src="./assets/index-CZPlyzq2.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-CKbC2I4_.css">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main id="iipm-boot-shell" class="iipm-boot-shell" role="status" aria-live="polite">
+        <section class="iipm-boot-card">
+          <div class="iipm-boot-badge" aria-hidden="true">✓</div>
+          <h1>IIPM Examination Portal</h1>
+          <p>Secure professional examination access, payment verification and candidate assessment.</p>
+          <div id="iipm-boot-status" class="iipm-boot-status">Loading secure portal…</div>
+          <button id="iipm-boot-reload" class="iipm-boot-reload" type="button" onclick="window.location.reload()">
+            Reload Portal
+          </button>
+        </section>
+      </main>
+    </div>
+    <noscript>
+      <div style="padding:24px;font-family:Arial,sans-serif">
+        JavaScript is required to use the IIPM Examination Portal.
+      </div>
+    </noscript>
   </body>
 </html>
