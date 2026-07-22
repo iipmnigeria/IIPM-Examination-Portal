@@ -1,0 +1,50 @@
+name: Phase 5 Production Readiness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v6
+        with:
+          ref: supabase-integration
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate TypeScript
+        run: npm run lint
+
+      - name: Build GitHub Pages portal
+        run: npx vite build
+
+      - name: Scan repository for committed payment secrets
+        shell: bash
+        run: |
+          if grep -RIE --exclude-dir=node_modules --exclude-dir=.git --exclude='*.md' "sk_(test|live)_[A-Za-z0-9]+|sbp_[A-Za-z0-9_-]+" .; then
+            echo "A secret-shaped credential was found in the repository."
+            exit 1
+          fi
+
+      - name: Validate compiled production bundle
+        run: node scripts/phase5-readiness.mjs
+
+      - name: Upload validated production artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5-validated-portal
+          path: dist
+          if-no-files-found: error
+          retention-days: 7
