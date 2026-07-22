@@ -29,6 +29,41 @@ type ExamOrder = {
   fulfilled_at: string | null;
 };
 
+const legacyWebhookUrl = (
+  Deno.env.get('LEGACY_PAYSTACK_WEBHOOK_URL') ||
+  'https://iipmi.org/wc-api/Tbz_WC_Paystack_Webhook/'
+).trim();
+
+async function forwardToLegacyWebhook(rawBody: string, signature: string) {
+  if (!legacyWebhookUrl) {
+    throw new Error('The legacy Paystack webhook URL is not configured.');
+  }
+
+  const response = await fetch(legacyWebhookUrl, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-paystack-signature': signature,
+      'x-iipm-webhook-router': 'supabase-examination-portal',
+    },
+    body: rawBody,
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text().catch(() => '');
+    throw new Error(
+      `Legacy Paystack webhook returned ${response.status}${responseText ? `: ${responseText.slice(0, 300)}` : ''}.`,
+    );
+  }
+
+  return {
+    received: true,
+    forwarded: true,
+    destination: 'legacy_woocommerce',
+    status: response.status,
+  };
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return preflightResponse(request);
   if (request.method !== 'POST') {
@@ -53,12 +88,17 @@ Deno.serve(async (request: Request) => {
     }
 
     if (event.event !== 'charge.success') {
-      return jsonResponse(request, { received: true, ignored: true });
+      const forwarded = await forwardToLegacyWebhook(rawBody, suppliedSignature);
+      return jsonResponse(request, forwarded);
     }
 
     const reference = String(event.data?.reference || '').trim();
     if (!reference) {
-      return jsonResponse(request, { received: true, ignored: true, reason: 'missing_reference' });
+      const forwarded = await forwardToLegacyWebhook(rawBody, suppliedSignature);
+      return jsonResponse(request, {
+        ...forwarded,
+        reason: 'missing_examination_reference',
+      });
     }
 
     const admin = adminClient();
@@ -70,8 +110,12 @@ Deno.serve(async (request: Request) => {
 
     if (orderError) throw new Error(orderError.message);
     if (!orderData) {
-      console.warn(`Paystack webhook reference ${reference} does not match an examination order.`);
-      return jsonResponse(request, { received: true, ignored: true, reason: 'unknown_order' });
+      console.info(`Routing non-examination Paystack reference ${reference} to WooCommerce.`);
+      const forwarded = await forwardToLegacyWebhook(rawBody, suppliedSignature);
+      return jsonResponse(request, {
+        ...forwarded,
+        reference,
+      });
     }
 
     const order = orderData as ExamOrder;
@@ -145,6 +189,6 @@ Deno.serve(async (request: Request) => {
   } catch (error) {
     console.error('paystack-webhook failed:', error);
     const message = error instanceof Error ? error.message : 'Webhook processing failed.';
-    return jsonResponse(request, { error: message }, 400);
+    return jsonResponse(request, { error: message }, 502);
   }
 });
