@@ -5,6 +5,7 @@ export interface PaystackTransactionData {
   status?: string;
   reference?: string;
   amount?: number;
+  requested_amount?: number;
   currency?: string;
   authorization_url?: string;
   access_code?: string;
@@ -25,6 +26,15 @@ export function paystackSecretKey(): string {
   const value = Deno.env.get('PAYSTACK_SECRET_KEY')?.trim();
   if (!value) throw new Error('PAYSTACK_SECRET_KEY is not configured.');
   return value;
+}
+
+export function paystackRequestedAmount(transaction: PaystackTransactionData): number {
+  const requestedAmount = Number(transaction.requested_amount);
+  if (Number.isSafeInteger(requestedAmount) && requestedAmount >= 0) {
+    return requestedAmount;
+  }
+
+  return Number(transaction.amount);
 }
 
 export async function paystackRequest(
