@@ -1,6 +1,12 @@
+# Revision 2026-07-22.1 — accept safe relative Vite asset paths
 name: Phase 5 Production Readiness
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/phase5-production-readiness.yml
   workflow_dispatch:
 
 permissions:
