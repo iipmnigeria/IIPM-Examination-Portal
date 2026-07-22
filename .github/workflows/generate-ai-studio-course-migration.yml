@@ -1,0 +1,81 @@
+name: Generate AI Studio Course Migration
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - src/fallbackData.ts
+      - src/*Questions.ts
+      - scripts/generate-ai-studio-course-migration.mjs
+      - .github/workflows/generate-ai-studio-course-migration.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: generate-ai-studio-course-migration
+  cancel-in-progress: true
+
+jobs:
+  generate-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Google AI Studio source branch
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Generate complete Supabase migration
+        run: |
+          node scripts/generate-ai-studio-course-migration.mjs \
+            /tmp/202607220014_ai_studio_course_catalogue.sql
+
+      - name: Validate generated course coverage
+        run: |
+          migration=/tmp/202607220014_ai_studio_course_catalogue.sql
+          test -s "$migration"
+          for code in AIML CYBER SWEETH HRMFC CHRMG CHRMP PM PCIT RMP QMP PCM; do
+            grep -q -- "-- $code:" "$migration" || {
+              echo "Missing generated course: $code"
+              exit 1
+            }
+          done
+          if grep -qi "CIPMN" "$migration"; then
+            # The generator contains an explanatory exclusion comment only.
+            matches=$(grep -i "CIPMN" "$migration" | grep -v "excludes any separate CIPMN-branded catalogue" || true)
+            if [ -n "$matches" ]; then
+              echo "Unexpected CIPMN catalogue content found in generated migration."
+              echo "$matches"
+              exit 1
+            fi
+          fi
+
+      - name: Commit generated migration to Supabase integration branch
+        run: |
+          git fetch origin supabase-integration
+          git checkout supabase-integration
+          mkdir -p supabase/migrations
+          cp /tmp/202607220014_ai_studio_course_catalogue.sql \
+            supabase/migrations/202607220014_ai_studio_course_catalogue.sql
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/migrations/202607220014_ai_studio_course_catalogue.sql
+
+          if git diff --cached --quiet; then
+            echo "The generated migration is already current."
+            exit 0
+          fi
+
+          git commit -m "Migrate complete AI Studio examination catalogue"
+          git push origin supabase-integration
