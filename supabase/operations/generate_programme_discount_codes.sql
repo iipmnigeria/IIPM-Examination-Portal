@@ -1,6 +1,8 @@
 -- Run manually in Supabase SQL Editor after migration 202607220015.
 -- Actual coupon codes are generated inside Supabase and are therefore not exposed
 -- in this public repository. One 88% code and one 100% code are created per programme.
+-- Codes start INACTIVE for security. Activate only selected programmes after setting
+-- appropriate redemption limits and expiry dates in the Commerce Console.
 
 with programme_targets as (
   select id, code, name
@@ -64,11 +66,11 @@ select
   null,
   0,
   null,
-  now(),
+  null,
   null,
   null,
   1,
-  true
+  false
 from desired
 where not exists (
   select 1
@@ -88,10 +90,11 @@ select
   c.is_active,
   c.starts_at,
   c.expires_at,
+  c.maximum_redemptions,
   c.per_candidate_limit,
   case
-    when c.discount_value = 100 then 'Unlocks without Paystack after validation'
-    when c.discount_value = 88 then 'Candidate pays 12% of the configured fee'
+    when c.discount_value = 100 then 'After activation: unlocks without Paystack after validation'
+    when c.discount_value = 88 then 'After activation: candidate pays 12% of the configured fee'
     else 'Percentage discount'
   end as effect
 from public.coupons c
