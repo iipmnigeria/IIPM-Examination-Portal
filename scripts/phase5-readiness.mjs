@@ -6,14 +6,30 @@ const distDir = join(projectRoot, 'dist');
 const indexPath = join(distDir, 'index.html');
 
 const failures = [];
+let detectedAssetMode = 'unknown';
 
 if (!existsSync(indexPath)) {
   failures.push('dist/index.html was not generated.');
 } else {
   const indexHtml = readFileSync(indexPath, 'utf8');
-  if (!indexHtml.includes('/IIPM-Examination-Portal/assets/')) {
+
+  const hasProjectAbsoluteAssets = indexHtml.includes('/IIPM-Examination-Portal/assets/');
+  const hasDotRelativeAssets = indexHtml.includes('./assets/');
+  const hasRelativeAssets = /(?:src|href)=["']assets\//i.test(indexHtml);
+  const hasBrokenRootAssets = /(?:src|href)=["']\/assets\//i.test(indexHtml);
+
+  if (hasProjectAbsoluteAssets) detectedAssetMode = 'project-absolute';
+  else if (hasDotRelativeAssets || hasRelativeAssets) detectedAssetMode = 'relative';
+
+  if (!hasProjectAbsoluteAssets && !hasDotRelativeAssets && !hasRelativeAssets) {
     failures.push(
-      'The production HTML does not reference the expected /IIPM-Examination-Portal/assets/ base path.',
+      'The production HTML does not contain a GitHub Pages-safe asset reference.',
+    );
+  }
+
+  if (hasBrokenRootAssets) {
+    failures.push(
+      'The production HTML contains root-level /assets/ links, which would break under the GitHub project Pages path.',
     );
   }
 }
@@ -57,6 +73,6 @@ if (failures.length > 0) {
 
 console.log('Phase 5 readiness checks passed.');
 console.log('- Production index exists.');
-console.log('- GitHub Pages base path is correct.');
+console.log(`- GitHub Pages-safe asset mode detected: ${detectedAssetMode}.`);
 console.log('- No Paystack secret keys are present in the compiled frontend.');
 console.log('- No Supabase service-role credentials are present in the compiled frontend.');
