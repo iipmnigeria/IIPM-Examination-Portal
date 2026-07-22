@@ -1,5 +1,8 @@
 import { jsonResponse, preflightResponse } from '../_shared/http.ts';
-import { verifyPaystackTransaction } from '../_shared/paystack.ts';
+import {
+  paystackRequestedAmount,
+  verifyPaystackTransaction,
+} from '../_shared/paystack.ts';
 import { adminClient, requireAuthenticatedUser } from '../_shared/supabase.ts';
 
 type VerifyRequest = {
@@ -64,7 +67,7 @@ Deno.serve(async (request: Request) => {
     const transaction = await verifyPaystackTransaction(reference);
     const transactionReference = String(transaction.reference || '');
     const transactionCurrency = String(transaction.currency || '').toUpperCase();
-    const transactionAmount = Number(transaction.amount);
+    const requestedAmount = paystackRequestedAmount(transaction);
     const transactionStatus = String(transaction.status || '').toLowerCase();
     const transactionEmail = String(transaction.customer?.email || '').toLowerCase();
 
@@ -77,7 +80,7 @@ Deno.serve(async (request: Request) => {
     if (transactionCurrency !== order.currency.toUpperCase()) {
       throw new Error('The Paystack transaction currency does not match the order.');
     }
-    if (transactionAmount !== Number(order.payable_amount_minor)) {
+    if (requestedAmount !== Number(order.payable_amount_minor)) {
       throw new Error('The Paystack transaction amount does not match the order.');
     }
     if (transactionEmail && user.email && transactionEmail !== user.email.toLowerCase()) {
