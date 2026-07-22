@@ -8,23 +8,77 @@ import PaymentReturnHandler from './components/PaymentReturnHandler';
 import SupabaseSessionBoundary from './components/SupabaseSessionBoundary';
 import './index.css';
 
+const createMemoryStorage = (): Storage => {
+  const values = new Map<string, string>();
+
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => Array.from(values.keys())[index] ?? null,
+    removeItem: (key: string) => values.delete(key),
+    setItem: (key: string, value: string) => values.set(key, String(value)),
+  };
+};
+
+const ensureUsableBrowserStorage = () => {
+  const testKey = '__iipm_storage_test__';
+
+  try {
+    window.localStorage.setItem(testKey, '1');
+    window.localStorage.removeItem(testKey);
+    return;
+  } catch (storageError) {
+    console.warn('Browser storage is unavailable; using temporary in-memory storage.', storageError);
+  }
+
+  try {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: createMemoryStorage(),
+    });
+  } catch (replacementError) {
+    console.error('Unable to install temporary browser storage:', replacementError);
+  }
+};
+
+ensureUsableBrowserStorage();
+
 const rootElement = document.getElementById('root');
 
 if (!rootElement) {
   throw new Error('The portal root element was not found.');
 }
 
-const showStartupError = (message: string) => {
-  rootElement.replaceChildren();
+const diagnosticOverlay = document.createElement('div');
+diagnosticOverlay.id = 'iipm-startup-diagnostic';
+diagnosticOverlay.setAttribute('role', 'alert');
+diagnosticOverlay.style.display = 'none';
+diagnosticOverlay.style.position = 'fixed';
+diagnosticOverlay.style.inset = '0';
+diagnosticOverlay.style.zIndex = '2147483647';
+diagnosticOverlay.style.overflow = 'auto';
+diagnosticOverlay.style.padding = '24px';
+diagnosticOverlay.style.background = '#f8fafc';
+diagnosticOverlay.style.color = '#0f172a';
+diagnosticOverlay.style.fontFamily = 'Arial, sans-serif';
+document.body.append(diagnosticOverlay);
 
-  const page = document.createElement('main');
-  page.style.minHeight = '100vh';
-  page.style.display = 'grid';
-  page.style.placeItems = 'center';
-  page.style.padding = '24px';
-  page.style.background = '#f8fafc';
-  page.style.color = '#0f172a';
-  page.style.fontFamily = 'Arial, sans-serif';
+const normaliseErrorMessage = (value: unknown): string => {
+  if (value instanceof Error) return value.message;
+  if (typeof value === 'string' && value.trim()) return value;
+  return 'An unexpected application error occurred.';
+};
+
+const showStartupError = (value: unknown) => {
+  const message = normaliseErrorMessage(value);
+  console.error('IIPM Examination Portal startup error:', value);
+
+  diagnosticOverlay.replaceChildren();
+  diagnosticOverlay.style.display = 'grid';
+  diagnosticOverlay.style.placeItems = 'center';
 
   const panel = document.createElement('section');
   panel.style.width = '100%';
@@ -42,12 +96,12 @@ const showStartupError = (message: string) => {
 
   const instruction = document.createElement('p');
   instruction.textContent =
-    'The portal could not complete startup. Refresh the page once. If the message remains, send a screenshot of this panel to the portal administrator.';
+    'The portal could not complete startup. Reload the page once. If this panel remains, send a screenshot of the diagnostic message to the portal administrator.';
   instruction.style.margin = '0 0 12px';
   instruction.style.lineHeight = '1.6';
 
   const diagnostic = document.createElement('code');
-  diagnostic.textContent = message || 'An unexpected application error occurred.';
+  diagnostic.textContent = message;
   diagnostic.style.display = 'block';
   diagnostic.style.padding = '12px';
   diagnostic.style.borderRadius = '8px';
@@ -55,22 +109,29 @@ const showStartupError = (message: string) => {
   diagnostic.style.color = '#be123c';
   diagnostic.style.overflowWrap = 'anywhere';
 
-  panel.append(heading, instruction, diagnostic);
-  page.append(panel);
-  rootElement.append(page);
+  const reloadButton = document.createElement('button');
+  reloadButton.type = 'button';
+  reloadButton.textContent = 'Reload Portal';
+  reloadButton.style.marginTop = '16px';
+  reloadButton.style.padding = '10px 16px';
+  reloadButton.style.border = '0';
+  reloadButton.style.borderRadius = '10px';
+  reloadButton.style.background = '#059669';
+  reloadButton.style.color = '#ffffff';
+  reloadButton.style.fontWeight = '700';
+  reloadButton.style.cursor = 'pointer';
+  reloadButton.addEventListener('click', () => window.location.reload());
+
+  panel.append(heading, instruction, diagnostic, reloadButton);
+  diagnosticOverlay.append(panel);
 };
 
 window.addEventListener('error', (event) => {
-  console.error('IIPM Examination Portal startup error:', event.error || event.message);
-  const message = event.error instanceof Error ? event.error.message : event.message;
-  showStartupError(message);
+  showStartupError(event.error || event.message);
 });
 
 window.addEventListener('unhandledrejection', (event) => {
-  console.error('IIPM Examination Portal unhandled rejection:', event.reason);
-  const message =
-    event.reason instanceof Error ? event.reason.message : String(event.reason || 'Unknown error');
-  showStartupError(message);
+  showStartupError(event.reason);
 });
 
 createRoot(rootElement).render(
