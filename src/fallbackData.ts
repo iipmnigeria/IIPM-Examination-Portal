@@ -274,7 +274,7 @@ export const fallbackExams: Test[] = [
     course: 'CHRMG',
     durationMinutes: 60,
     questionCount: 50,
-    description: 'This assessment tests professional competence required of an HR Generalist, focusing on employee relations, goal-setting methodologies, recruitment, total rewards, performance management, and compliance.',
+    description: '50 Scenario-Based Questions. Focus: Employee Relations, Recruitment, Total Rewards, Performance Management, and Labor Compliance.',
     questions: chrmgQuestions
   },
   {
@@ -283,52 +283,52 @@ export const fallbackExams: Test[] = [
     course: 'CHRMP',
     durationMinutes: 120,
     questionCount: 75,
-    description: 'This advanced executive-level examination validates proficiency in Strategic HRM, succession planning, workforce analytics, change management frameworks, and the alignment of human capital with business strategy.',
+    description: '75 Executive-Level Questions. Focus: Strategic HRM, Succession Planning, Workforce Analytics, and Change Management.',
     questions: chrmpQuestions
   },
   {
     id: 'pm-201',
-    title: 'Performance Management',
-    course: 'Performance Management (PM)',
+    title: 'Performance Management (PM)',
+    course: 'PM',
     durationMinutes: 60,
     questionCount: 50,
-    description: 'Evaluates key capabilities in strategic goal alignment, OKRs, continuous feedback loops, professional coaching, appraisal systems, and performance improvement structures.',
+    description: '50 Scenario-Based Questions. Focus: Strategic Goal Alignment, OKRs, Continuous Feedback Loops, Appraisal Systems, and PIP Structures.',
     questions: pmQuestions
   },
   {
     id: 'pcit-301',
-    title: 'Project Communication and Information Technology',
-    course: 'Project Communication and Information Technology (PCIT)',
+    title: 'Project Communication and Information Technology (PCIT)',
+    course: 'PCIT',
     durationMinutes: 120,
     questionCount: 75,
-    description: 'Evaluates competencies in project stakeholder communication, collaboration models, agile team reporting, information architecture, and enterprise IT governance.',
+    description: '75 Questions. Focus: Stakeholder Engagement, Agile Reporting, Information Architecture, and Enterprise IT Governance.',
     questions: pcitQuestions
   },
   {
     id: 'rmp-301',
-    title: 'Risk Management Professional',
-    course: 'Risk Management Professional (RMP)',
+    title: 'Risk Management Professional (RMP)',
+    course: 'RMP',
     durationMinutes: 120,
     questionCount: 75,
-    description: 'Evaluates proficiency in risk planning, qualitative and quantitative risk analysis, risk response strategies, contingency planning, and enterprise risk management (ERM).',
+    description: '75 Questions. Focus: Qualitative & Quantitative Risk Analysis (Monte Carlo), Risk Response Strategies, and ISO 31000 ERM.',
     questions: rmpQuestions
   },
   {
     id: 'qmp-301',
-    title: 'Quality Management Professional',
-    course: 'Quality Management Professional (QMP)',
+    title: 'Quality Management Professional (QMP)',
+    course: 'QMP',
     durationMinutes: 120,
     questionCount: 75,
-    description: 'Evaluates expertise in quality assurance, quality control frameworks, Lean, Six Sigma DMAIC, ISO 9001 standards, statistical process control, and total quality management.',
+    description: '75 Questions. Focus: Quality Assurance vs. Quality Control, Six Sigma DMAIC, Statistical Process Control (SPC), Lean Jidoka, and ISO 9001:2015.',
     questions: qmpQuestions
   },
   {
     id: 'pcm-301',
-    title: 'Procurement and Contract Management',
-    course: 'Procurement and Contract Management (PCM)',
+    title: 'Procurement and Contract Management (PCM)',
+    course: 'PCM',
     durationMinutes: 120,
     questionCount: 75,
-    description: 'Evaluates capabilities in procurement planning, contract type selection, bidding processes, vendor negotiations, contract administration, and legal/dispute resolution.',
+    description: '75 Questions. Focus: Contract Type Selection (FFP, CPIF, T&M), Make-or-Buy Analysis, Vendor Negotiations, Scope Modifications, and Lien Waivers.',
     questions: pcmQuestions
   }
 ];
