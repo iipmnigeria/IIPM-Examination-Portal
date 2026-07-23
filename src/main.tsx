@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import AdminAssignmentWidget from './components/AdminAssignmentWidget';
 import AdminCommerceConsole from './components/AdminCommerceConsole';
+import AgileCertCandidateWorkspace from './components/AgileCertCandidateWorkspace';
 import AgileCertCertificatePaymentReturnHandler from './components/AgileCertCertificatePaymentReturnHandler';
 import AgileCertCertificationOfferOverlay from './components/AgileCertCertificationOfferOverlay';
 import AgileCertLegacyCertificateGate from './components/AgileCertLegacyCertificateGate';
@@ -146,6 +147,7 @@ createRoot(rootElement).render(
       <AgileCertCertificationOfferOverlay />
       <AgileCertCertificatePaymentReturnHandler />
       <AgileCertLegacyCertificateGate />
+      <AgileCertCandidateWorkspace />
       <AdminCommerceConsole />
       <AdminAssignmentWidget />
     </SupabaseSessionBoundary>
