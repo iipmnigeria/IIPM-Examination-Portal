@@ -30,7 +30,9 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
+      BASELINE_VERSION: '202607230101'
       MIGRATION_VERSION: '202607230102'
+      BASELINE_FILE: supabase/migrations/202607230101_phase_2_candidate_profile_foundation.sql
       MIGRATION_FILE: supabase/migrations/202607230102_phase_2_candidate_profile_photo.sql
       SUPABASE_WORKDIR: /tmp/agilecert-phase-2-2a
 
@@ -51,8 +53,10 @@ jobs:
             echo 'SUPABASE_DB_PASSWORD repository secret is not configured.'
             exit 1
           fi
+          test -s "$BASELINE_FILE"
           test -s "$MIGRATION_FILE"
           grep -q "candidate-profile-photos" "$MIGRATION_FILE"
+          test "$BASELINE_VERSION" = '202607230101'
           test "$MIGRATION_VERSION" = '202607230102'
 
       - name: Set up Node.js 24
@@ -61,14 +65,16 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Prepare one-file Phase 2.2A workspace
+      - name: Prepare Phase 2 history workspace
         shell: bash
         run: |
           rm -rf "$SUPABASE_WORKDIR"
           mkdir -p "$SUPABASE_WORKDIR/supabase/migrations"
           cp supabase/config.toml "$SUPABASE_WORKDIR/supabase/config.toml"
+          cp "$BASELINE_FILE" "$SUPABASE_WORKDIR/supabase/migrations/"
           cp "$MIGRATION_FILE" "$SUPABASE_WORKDIR/supabase/migrations/"
-          test "$(find "$SUPABASE_WORKDIR/supabase/migrations" -maxdepth 1 -type f | wc -l)" -eq 1
+          test "$(find "$SUPABASE_WORKDIR/supabase/migrations" -maxdepth 1 -type f | wc -l)" -eq 2
+          test -s "$SUPABASE_WORKDIR/$BASELINE_FILE"
           test -s "$SUPABASE_WORKDIR/$MIGRATION_FILE"
 
       - name: Link isolated workspace to production Supabase
@@ -84,7 +90,7 @@ jobs:
         working-directory: /tmp/agilecert-phase-2-2a
         run: |
           set +e
-          dry_run_output="$(npx --yes supabase@latest db push --linked --include-all --password "$SUPABASE_DB_PASSWORD" --dry-run 2>&1)"
+          dry_run_output="$(npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD" --dry-run 2>&1)"
           dry_run_status=$?
           set -e
           printf '%s\n' "$dry_run_output" | tee "$RUNNER_TEMP/phase-2-2a-dry-run.log"
@@ -101,7 +107,7 @@ jobs:
             echo "Pending migration versions detected:"
             printf '%s\n' "$pending_versions"
             test "$pending_versions" = "$MIGRATION_VERSION"
-            printf 'Y\n' | npx --yes supabase@latest db push --linked --include-all --password "$SUPABASE_DB_PASSWORD"
+            printf 'Y\n' | npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD"
           fi
 
       - name: Verify remote migration history
@@ -110,6 +116,7 @@ jobs:
         run: |
           migration_list="$(npx --yes supabase@latest migration list --linked --password "$SUPABASE_DB_PASSWORD" 2>&1)"
           printf '%s\n' "$migration_list"
+          printf '%s\n' "$migration_list" | grep -q "$BASELINE_VERSION"
           printf '%s\n' "$migration_list" | grep -q "$MIGRATION_VERSION"
 
       - name: Upload sanitized dry-run diagnostic
