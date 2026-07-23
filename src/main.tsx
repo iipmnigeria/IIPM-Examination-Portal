@@ -3,6 +3,14 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import AdminAssignmentWidget from './components/AdminAssignmentWidget';
 import AdminCommerceConsole from './components/AdminCommerceConsole';
+import AgileCertAiAdviser from './components/AgileCertAiAdviser';
+import AgileCertCandidateWorkspace from './components/AgileCertCandidateWorkspace';
+import AgileCertCertificatePaymentReturnHandler from './components/AgileCertCertificatePaymentReturnHandler';
+import AgileCertCertificationOfferOverlay from './components/AgileCertCertificationOfferOverlay';
+import AgileCertCredentialAssetControls from './components/AgileCertCredentialAssetControls';
+import AgileCertCredentialVerificationPage from './components/AgileCertCredentialVerificationPage';
+import AgileCertIdentityVerificationPanel from './components/AgileCertIdentityVerificationPanel';
+import AgileCertLegacyCertificateGate from './components/AgileCertLegacyCertificateGate';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
 import PaymentReturnHandler from './components/PaymentReturnHandler';
 import SupabaseSessionBoundary from './components/SupabaseSessionBoundary';
@@ -24,7 +32,7 @@ const createMemoryStorage = (): Storage => {
 };
 
 const ensureUsableBrowserStorage = () => {
-  const testKey = '__iipm_storage_test__';
+  const testKey = '__agilecert_storage_test__';
 
   try {
     window.localStorage.setItem(testKey, '1');
@@ -49,11 +57,11 @@ ensureUsableBrowserStorage();
 const rootElement = document.getElementById('root');
 
 if (!rootElement) {
-  throw new Error('The portal root element was not found.');
+  throw new Error('The certification platform root element was not found.');
 }
 
 const diagnosticOverlay = document.createElement('div');
-diagnosticOverlay.id = 'iipm-startup-diagnostic';
+diagnosticOverlay.id = 'agilecert-startup-diagnostic';
 diagnosticOverlay.setAttribute('role', 'alert');
 diagnosticOverlay.style.display = 'none';
 diagnosticOverlay.style.position = 'fixed';
@@ -74,7 +82,7 @@ const normaliseErrorMessage = (value: unknown): string => {
 
 const showStartupError = (value: unknown) => {
   const message = normaliseErrorMessage(value);
-  console.error('IIPM Examination Portal startup error:', value);
+  console.error('AgileCert Global startup error:', value);
 
   diagnosticOverlay.replaceChildren();
   diagnosticOverlay.style.display = 'grid';
@@ -90,13 +98,13 @@ const showStartupError = (value: unknown) => {
   panel.style.boxShadow = '0 18px 50px rgba(15, 23, 42, 0.12)';
 
   const heading = document.createElement('h1');
-  heading.textContent = 'IIPM Examination Portal';
+  heading.textContent = 'AgileCert Global';
   heading.style.margin = '0 0 12px';
   heading.style.fontSize = '24px';
 
   const instruction = document.createElement('p');
   instruction.textContent =
-    'The portal could not complete startup. Reload the page once. If this panel remains, send a screenshot of the diagnostic message to the portal administrator.';
+    'The certification platform could not complete startup. Reload the page once. If this panel remains, send a screenshot of the diagnostic message to the platform administrator.';
   instruction.style.margin = '0 0 12px';
   instruction.style.lineHeight = '1.6';
 
@@ -111,7 +119,7 @@ const showStartupError = (value: unknown) => {
 
   const reloadButton = document.createElement('button');
   reloadButton.type = 'button';
-  reloadButton.textContent = 'Reload Portal';
+  reloadButton.textContent = 'Reload Platform';
   reloadButton.style.marginTop = '16px';
   reloadButton.style.padding = '10px 16px';
   reloadButton.style.border = '0';
@@ -140,6 +148,14 @@ createRoot(rootElement).render(
       <App />
       <CandidateCommerceOverlay />
       <PaymentReturnHandler />
+      <AgileCertCertificationOfferOverlay />
+      <AgileCertCertificatePaymentReturnHandler />
+      <AgileCertLegacyCertificateGate />
+      <AgileCertCandidateWorkspace />
+      <AgileCertCredentialAssetControls />
+      <AgileCertIdentityVerificationPanel />
+      <AgileCertCredentialVerificationPage />
+      <AgileCertAiAdviser />
       <AdminCommerceConsole />
       <AdminAssignmentWidget />
     </SupabaseSessionBoundary>

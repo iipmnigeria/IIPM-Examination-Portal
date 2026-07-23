@@ -1,0 +1,11 @@
+{
+  "nodeModulesDir": "auto",
+  "compilerOptions": {
+    "lib": ["deno.window", "dom", "dom.iterable", "esnext"],
+    "strict": true
+  },
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
+}
