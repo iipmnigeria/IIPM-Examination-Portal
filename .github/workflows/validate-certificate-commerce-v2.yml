@@ -8,7 +8,6 @@ on:
       - 'src/**'
       - 'supabase/**'
       - 'package.json'
-      - 'package-lock.json'
       - 'vite.config.*'
       - 'server.ts'
       - '.github/workflows/validate-certificate-commerce-v2.yml'
@@ -19,7 +18,6 @@ on:
       - 'src/**'
       - 'supabase/**'
       - 'package.json'
-      - 'package-lock.json'
       - 'vite.config.*'
       - 'server.ts'
       - '.github/workflows/validate-certificate-commerce-v2.yml'
@@ -45,10 +43,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: TypeScript validation
         run: npm run lint
