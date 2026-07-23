@@ -1,0 +1,3 @@
+Verify the published AgileCert portal after Phase 2.2A.
+Expected application commit: cdad9aac9248ba3d5bc422da4bce9c8ffb5e6e5c
+Live URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
