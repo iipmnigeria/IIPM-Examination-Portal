@@ -24,7 +24,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout protected development branch
@@ -59,7 +59,9 @@ jobs:
       - name: Check AgileCert Edge Functions
         run: |
           deno check supabase/functions/_shared/agilecertPaystack.ts
+          deno check supabase/functions/_shared/credentialAssets.ts
           deno check supabase/functions/initialize-certificate-payment/index.ts
           deno check supabase/functions/verify-certificate-payment/index.ts
           deno check supabase/functions/paystack-certificate-webhook/index.ts
           deno check supabase/functions/download-study-material/index.ts
+          deno check supabase/functions/download-credential-asset/index.ts
