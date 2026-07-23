@@ -48,13 +48,14 @@ jobs:
       - name: Build GitHub Pages portal
         run: npx vite build
 
-      - name: Validate non-blank production artifact
+      - name: Validate non-blank AgileCert production artifact
         shell: bash
         run: |
           test -s dist/index.html
           grep -q 'id="root"' dist/index.html
           grep -q 'iipm-boot-shell' dist/index.html
-          grep -q 'IIPM Examination Portal' dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          grep -q 'Powered by IIPM' dist/index.html
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
