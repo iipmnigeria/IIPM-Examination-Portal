@@ -3,6 +3,7 @@ import {
   agileCertPaystackRequestedAmount,
   verifyAgileCertPaystackTransaction,
 } from '../_shared/agilecertPaystack.ts';
+import { generateAgileCertCredentialAssets } from '../_shared/credentialAssets.ts';
 import { adminClient, requireAuthenticatedUser } from '../_shared/supabase.ts';
 
 type VerifyCertificateRequest = {
@@ -19,6 +20,21 @@ type CertificateOrder = {
   payable_amount_minor: number;
   status: string;
 };
+
+async function generateAssetsBestEffort(admin: ReturnType<typeof adminClient>, credentialId: string | null) {
+  if (!credentialId) {
+    return { assetsReady: false, assetsPending: true, assetError: 'credential_id_missing' };
+  }
+
+  try {
+    const assets = await generateAgileCertCredentialAssets(admin, credentialId);
+    return { assetsReady: true, assetsPending: false, assets };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Credential assets are pending.';
+    console.error('Credential was issued but asset generation is pending:', error);
+    return { assetsReady: false, assetsPending: true, assetError: message };
+  }
+}
 
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return preflightResponse(request);
@@ -57,6 +73,7 @@ Deno.serve(async (request: Request) => {
         .maybeSingle();
 
       if (credentialError) throw new Error(credentialError.message);
+      const assetResult = await generateAssetsBestEffort(admin, credential?.id || null);
 
       return jsonResponse(request, {
         orderId: order.id,
@@ -69,6 +86,7 @@ Deno.serve(async (request: Request) => {
         verificationSlug: credential?.verification_slug || null,
         verified: true,
         alreadyFulfilled: Boolean(credential),
+        ...assetResult,
       });
     }
 
@@ -110,12 +128,19 @@ Deno.serve(async (request: Request) => {
 
     if (fulfilmentError) throw new Error(fulfilmentError.message);
 
+    const fulfilmentPayload = (fulfilment || {}) as Record<string, unknown>;
+    const credentialId = typeof fulfilmentPayload.credentialId === 'string'
+      ? fulfilmentPayload.credentialId
+      : null;
+    const assetResult = await generateAssetsBestEffort(admin, credentialId);
+
     return jsonResponse(request, {
-      ...(fulfilment as Record<string, unknown>),
+      ...fulfilmentPayload,
       reference: order.reference,
       eligibilityId: order.eligibility_id,
       productCode: order.product_code,
       verified: true,
+      ...assetResult,
     });
   } catch (error) {
     console.error('verify-certificate-payment failed:', error);
