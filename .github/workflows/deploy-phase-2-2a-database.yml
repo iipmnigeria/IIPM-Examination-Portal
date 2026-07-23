@@ -53,7 +53,7 @@ jobs:
           fi
           test -s "$MIGRATION_FILE"
           grep -q "candidate-profile-photos" "$MIGRATION_FILE"
-          grep -q "202607230102" <(printf '%s' "$MIGRATION_VERSION")
+          test "$MIGRATION_VERSION" = '202607230102'
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v6
@@ -82,9 +82,16 @@ jobs:
         shell: bash
         working-directory: /tmp/agilecert-phase-2-2a
         run: |
-          set -o pipefail
+          set +e
           dry_run_output="$(npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD" --dry-run 2>&1)"
+          dry_run_status=$?
+          set -e
           printf '%s\n' "$dry_run_output"
+
+          if [ "$dry_run_status" -ne 0 ]; then
+            echo "Supabase dry run exited with status $dry_run_status. No migration was applied."
+            exit "$dry_run_status"
+          fi
 
           if printf '%s\n' "$dry_run_output" | grep -q "$MIGRATION_VERSION"; then
             printf 'Y\n' | npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD"
