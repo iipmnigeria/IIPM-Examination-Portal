@@ -72,23 +72,44 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Check AgileCert Paystack helper
-        run: deno check supabase/functions/_shared/agilecertPaystack.ts
+      - name: Run Edge Function checks and capture diagnostics
+        shell: bash
+        run: |
+          mkdir -p deno-check-logs
+          status=0
 
-      - name: Check credential asset generator
-        run: deno check supabase/functions/_shared/credentialAssets.ts
+          check_file() {
+            name="$1"
+            path="$2"
+            echo "Checking ${path}"
+            if deno check "${path}" > "deno-check-logs/${name}.log" 2>&1; then
+              echo "PASS ${path}"
+            else
+              echo "FAIL ${path}"
+              status=1
+            fi
+          }
 
-      - name: Check certificate payment initialization
-        run: deno check supabase/functions/initialize-certificate-payment/index.ts
+          check_file agilecert-paystack supabase/functions/_shared/agilecertPaystack.ts
+          check_file credential-assets supabase/functions/_shared/credentialAssets.ts
+          check_file certificate-payment-initialize supabase/functions/initialize-certificate-payment/index.ts
+          check_file certificate-payment-verify supabase/functions/verify-certificate-payment/index.ts
+          check_file certificate-payment-webhook supabase/functions/paystack-certificate-webhook/index.ts
+          check_file study-material-download supabase/functions/download-study-material/index.ts
+          check_file credential-asset-download supabase/functions/download-credential-asset/index.ts
 
-      - name: Check certificate payment verification
-        run: deno check supabase/functions/verify-certificate-payment/index.ts
+          echo "${status}" > deno-check-logs/exit-code.txt
 
-      - name: Check certificate payment webhook
-        run: deno check supabase/functions/paystack-certificate-webhook/index.ts
+      - name: Upload Deno diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-deno-check-logs
+          path: deno-check-logs
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Check study-material download
-        run: deno check supabase/functions/download-study-material/index.ts
-
-      - name: Check credential asset download
-        run: deno check supabase/functions/download-credential-asset/index.ts
+      - name: Fail when an Edge Function check failed
+        shell: bash
+        run: |
+          test "$(cat deno-check-logs/exit-code.txt)" = "0"
