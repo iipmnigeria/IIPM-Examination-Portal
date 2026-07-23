@@ -4,7 +4,7 @@ import { GraduationCap, LayoutDashboard, ShieldCheck } from 'lucide-react';
 import StudentDashboard from './components/StudentDashboard';
 import ExamScreen from './components/ExamScreen';
 import AdminPortal from './components/AdminPortal';
-import LoginPortal from './components/LoginPortal';
+import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
 import { signOut as signOutPortalUser } from './services/authService';
 import {
   getAvailableTests,
@@ -168,27 +168,7 @@ export default function App() {
   };
 
   if (!userRole) {
-    return (
-      <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col">
-        <header className="bg-slate-950 text-white border-b border-slate-900 sticky top-0 z-40">
-          <div className="max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
-            <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center shadow-inner">
-              <GraduationCap className="w-5.5 h-5.5 text-white" />
-            </div>
-            <div>
-              <span className="font-extrabold text-sm tracking-tight uppercase">IIPM Examination Portal</span>
-              <p className="text-[10px] text-slate-400">Supabase-secured institutional assessment console</p>
-            </div>
-          </div>
-        </header>
-        <main className="flex-1">
-          <LoginPortal onLoginSuccess={handleLoginSuccess} />
-        </main>
-        <footer className="bg-slate-100 border-t border-slate-200 py-6 text-center text-xs text-slate-500">
-          © 2026 Integrated Institute of Professional Management
-        </footer>
-      </div>
-    );
+    return <AgileCertPhaseOneLandingPage onLoginSuccess={handleLoginSuccess} />;
   }
 
   if (isLoading) {
@@ -212,8 +192,8 @@ export default function App() {
                 <GraduationCap className="w-5.5 h-5.5 text-white" />
               </div>
               <div>
-                <span className="font-extrabold text-sm tracking-tight uppercase">IIPM Examination Portal</span>
-                <p className="text-[10px] text-slate-400">Supabase Secure Runtime</p>
+                <span className="font-extrabold text-sm tracking-tight uppercase">AgileCert Global</span>
+                <p className="text-[10px] text-slate-400">Powered by IIPM · Secure Examination Runtime</p>
               </div>
             </div>
 
@@ -312,7 +292,7 @@ export default function App() {
 
       {view !== 'exam' && (
         <footer className="bg-slate-100 border-t border-slate-200 py-6 text-center text-xs text-slate-500">
-          © 2026 Integrated Institute of Professional Management
+          AgileCert Global — Powered by the Integrated Institute of Professional Management
         </footer>
       )}
     </div>

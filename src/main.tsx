@@ -49,7 +49,7 @@ ensureUsableBrowserStorage();
 const rootElement = document.getElementById('root');
 
 if (!rootElement) {
-  throw new Error('The portal root element was not found.');
+  throw new Error('The AgileCert Global portal root element was not found.');
 }
 
 const diagnosticOverlay = document.createElement('div');
@@ -74,7 +74,7 @@ const normaliseErrorMessage = (value: unknown): string => {
 
 const showStartupError = (value: unknown) => {
   const message = normaliseErrorMessage(value);
-  console.error('IIPM Examination Portal startup error:', value);
+  console.error('AgileCert Global portal startup error:', value);
 
   diagnosticOverlay.replaceChildren();
   diagnosticOverlay.style.display = 'grid';
@@ -90,7 +90,7 @@ const showStartupError = (value: unknown) => {
   panel.style.boxShadow = '0 18px 50px rgba(15, 23, 42, 0.12)';
 
   const heading = document.createElement('h1');
-  heading.textContent = 'IIPM Examination Portal';
+  heading.textContent = 'AgileCert Global';
   heading.style.margin = '0 0 12px';
   heading.style.fontSize = '24px';
 
