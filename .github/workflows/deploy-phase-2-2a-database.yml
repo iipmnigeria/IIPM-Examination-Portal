@@ -15,7 +15,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: phase-2-2a-database-production
@@ -33,7 +32,6 @@ jobs:
       SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
       MIGRATION_VERSION: '202607230102'
       MIGRATION_FILE: supabase/migrations/202607230102_phase_2_candidate_profile_photo.sql
-      SUPABASE_WORKDIR: /tmp/agilecert-phase-2-2a
 
     steps:
       - name: Checkout approved production branch
@@ -55,6 +53,8 @@ jobs:
           test -s "$MIGRATION_FILE"
           grep -q "candidate-profile-photos" "$MIGRATION_FILE"
           test "$MIGRATION_VERSION" = '202607230102'
+          unexpected_later="$(find supabase/migrations -maxdepth 1 -type f -name '20*.sql' -printf '%f\n' | cut -d_ -f1 | awk -v approved="$MIGRATION_VERSION" '$1 > approved')"
+          test -z "$unexpected_later"
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v6
@@ -62,73 +62,40 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Prepare isolated Phase 2.2A migration workspace
+      - name: Link reviewed migration directory to production Supabase
         shell: bash
-        run: |
-          rm -rf "$SUPABASE_WORKDIR"
-          mkdir -p "$SUPABASE_WORKDIR/supabase/migrations"
-          cp supabase/config.toml "$SUPABASE_WORKDIR/supabase/config.toml"
-          cp "$MIGRATION_FILE" "$SUPABASE_WORKDIR/supabase/migrations/"
-          test "$(find "$SUPABASE_WORKDIR/supabase/migrations" -maxdepth 1 -type f | wc -l)" -eq 1
-
-      - name: Link isolated workspace to production Supabase
-        shell: bash
-        working-directory: /tmp/agilecert-phase-2-2a
         run: |
           npx --yes supabase@latest link \
             --project-ref "$SUPABASE_PROJECT_REF" \
             --password "$SUPABASE_DB_PASSWORD"
 
-      - name: Preview and apply only Phase 2.2A
+      - name: Preview and apply exactly Phase 2.2A
         shell: bash
-        working-directory: /tmp/agilecert-phase-2-2a
         run: |
           set +e
           dry_run_output="$(npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD" --dry-run 2>&1)"
           dry_run_status=$?
           set -e
-          printf '%s\n' "$dry_run_output" | tee "$RUNNER_TEMP/phase-2-2a-dry-run.log"
+          printf '%s\n' "$dry_run_output"
 
           if [ "$dry_run_status" -ne 0 ]; then
             echo "Supabase dry run exited with status $dry_run_status. No migration was applied."
             exit "$dry_run_status"
           fi
 
-          if printf '%s\n' "$dry_run_output" | grep -q "$MIGRATION_VERSION"; then
-            printf 'Y\n' | npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD"
-          elif printf '%s\n' "$dry_run_output" | grep -Eqi 'up to date|no pending migrations'; then
+          if printf '%s\n' "$dry_run_output" | grep -Eqi 'up to date|no pending migrations'; then
             echo 'Phase 2.2A migration is already applied; no database change is required.'
           else
-            echo 'Dry run did not identify only the approved migration or an up-to-date database. Refusing deployment.'
-            exit 1
+            pending_versions="$(printf '%s\n' "$dry_run_output" | grep -Eo '20[0-9]{10,12}' | sort -u || true)"
+            echo "Pending migration versions detected:"
+            printf '%s\n' "$pending_versions"
+            test "$pending_versions" = "$MIGRATION_VERSION"
+            printf 'Y\n' | npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD"
           fi
 
       - name: Verify remote migration history
         shell: bash
-        working-directory: /tmp/agilecert-phase-2-2a
         run: |
           migration_list="$(npx --yes supabase@latest migration list --linked --password "$SUPABASE_DB_PASSWORD" 2>&1)"
           printf '%s\n' "$migration_list"
           printf '%s\n' "$migration_list" | grep -q "$MIGRATION_VERSION"
-
-      - name: Report sanitized deployment failure
-        if: failure() && github.event_name == 'pull_request'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          diagnostic='No dry-run log was produced.'
-          if [ -s "$RUNNER_TEMP/phase-2-2a-dry-run.log" ]; then
-            diagnostic="$(tail -n 40 "$RUNNER_TEMP/phase-2-2a-dry-run.log" | sed -E 's#(postgresql://)[^@ ]+@#\1***@#g')"
-          fi
-          body=$(cat <<EOF
-          ### Phase 2.2A deployment diagnostic
-
-          The migration was not applied. Supabase CLI reported:
-
-          \`\`\`
-          $diagnostic
-          \`\`\`
-          EOF
-          )
-          gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments -f body="$body"
