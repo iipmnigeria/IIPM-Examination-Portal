@@ -474,7 +474,7 @@ export async function generateAgileCertCredentialAssets(
     const { error: badgeUploadError } = await admin.storage
       .from(BADGE_BUCKET)
       .upload(badgeImagePath, new TextEncoder().encode(badgeSvg), {
-        contentType: 'image/svg+xml; charset=utf-8',
+        contentType: 'image/svg+xml',
         cacheControl: '3600',
         upsert: true,
       });
@@ -488,7 +488,7 @@ export async function generateAgileCertCredentialAssets(
         badgeAssertionPath,
         new TextEncoder().encode(JSON.stringify(assertion, null, 2)),
         {
-          contentType: 'application/json; charset=utf-8',
+          contentType: 'application/json',
           cacheControl: '3600',
           upsert: true,
         },
@@ -539,9 +539,8 @@ export async function generateAgileCertCredentialAssets(
     };
 
     await markAssetJob(admin, credential, 'sent', {
-      credentialId: credential.id,
-      badgeId: badge.id,
       ...result,
+      badgeId: badge.id,
     });
 
     return result;
