@@ -1,0 +1,130 @@
+name: Deploy Phase 2.1 Candidate Profile Database
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/deploy-phase-2-1-database.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: phase-2-1-database-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-profile-migration:
+    name: Apply candidate profile foundation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
+      MIGRATION_VERSION: '202607230101'
+      MIGRATION_FILE: supabase/migrations/202607230101_phase_2_candidate_profile_foundation.sql
+
+    steps:
+      - name: Checkout approved production branch
+        uses: actions/checkout@v6
+        with:
+          ref: supabase-integration
+
+      - name: Validate production deployment secrets
+        shell: bash
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo 'SUPABASE_ACCESS_TOKEN repository secret is not configured.'
+            exit 1
+          fi
+          if [ -z "$SUPABASE_DB_PASSWORD" ]; then
+            echo 'SUPABASE_DB_PASSWORD repository secret is not configured.'
+            exit 1
+          fi
+          test -s "$MIGRATION_FILE"
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Prepare isolated Phase 2.1 migration workspace
+        shell: bash
+        run: |
+          rm -rf /tmp/agilecert-phase-2-1
+          mkdir -p /tmp/agilecert-phase-2-1/supabase/migrations
+          cp supabase/config.toml /tmp/agilecert-phase-2-1/supabase/config.toml
+          cp "$MIGRATION_FILE" /tmp/agilecert-phase-2-1/supabase/migrations/
+
+      - name: Link isolated workspace to production Supabase
+        shell: bash
+        env:
+          SUPABASE_WORKDIR: /tmp/agilecert-phase-2-1
+        run: |
+          npx --yes supabase@latest link \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Preview and apply only the Phase 2.1 migration
+        shell: bash
+        env:
+          SUPABASE_WORKDIR: /tmp/agilecert-phase-2-1
+        run: |
+          set -o pipefail
+          dry_run_output="$(npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD" --dry-run 2>&1)"
+          printf '%s\n' "$dry_run_output"
+
+          if printf '%s\n' "$dry_run_output" | grep -q "$MIGRATION_VERSION"; then
+            printf 'Y\n' | npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD"
+          elif printf '%s\n' "$dry_run_output" | grep -Eqi 'up to date|no pending migrations'; then
+            echo 'Phase 2.1 migration is already applied; no database change is required.'
+          else
+            echo 'Dry run did not identify the approved migration or an up-to-date database. Refusing deployment.'
+            exit 1
+          fi
+
+      - name: Verify the remote migration history
+        shell: bash
+        env:
+          SUPABASE_WORKDIR: /tmp/agilecert-phase-2-1
+        run: |
+          migration_list="$(npx --yes supabase@latest migration list --linked --password "$SUPABASE_DB_PASSWORD" 2>&1)"
+          printf '%s\n' "$migration_list"
+          printf '%s\n' "$migration_list" | grep -q "$MIGRATION_VERSION"
+
+      - name: Record successful production deployment
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          body=$(cat <<EOF
+          ### Phase 2.1 production database deployment passed
+
+          - Migration: \`$MIGRATION_FILE\`
+          - Supabase project: \`$SUPABASE_PROJECT_REF\`
+          - Approved production commit: \`30edc70c72d1fc60ce2cb889cfb2972708f54121\`
+          - Workflow run: \`${{ github.run_id }}\`
+          - Result: migration present in remote migration history
+          EOF
+          )
+          gh api repos/${{ github.repository }}/issues/5/comments -f body="$body"
+
+      - name: Record failed production deployment
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          body=$(cat <<EOF
+          ### Phase 2.1 production database deployment failed
+
+          The controlled migration workflow did not complete. Review GitHub Actions run \`${{ github.run_id }}\`. No success marker was recorded and the workflow did not proceed with unrelated migrations.
+          EOF
+          )
+          gh api repos/${{ github.repository }}/issues/5/comments -f body="$body"
