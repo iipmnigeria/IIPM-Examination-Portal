@@ -57,16 +57,15 @@ jobs:
 
           asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/live-index.html" | head -n 1 | cut -d'"' -f2)"
           test -n "$asset"
-          asset_url="$(python - <<'PY'
+          asset_url="$(python - "$LIVE_URL" "$asset" <<'PY'
           from urllib.parse import urljoin
-          import os
-          print(urljoin(os.environ['LIVE_URL'], os.environ['ASSET']))
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
           PY
           )"
+          echo "Checking published application asset: $asset_url"
           curl -L --fail --silent --show-error "$asset_url" -o "$RUNNER_TEMP/live-app.js"
-          test -s "$RUNNER_TEMP/live-app.js"
-        env:
-          ASSET: ${{ env.ASSET }}
+          test "$(wc -c < "$RUNNER_TEMP/live-app.js")" -gt 1000
 
       - name: Install browser smoke dependencies
         shell: bash
@@ -96,10 +95,10 @@ jobs:
             });
 
             const response = await page.goto(`${process.env.LIVE_URL}?browser-smoke=${process.env.GITHUB_RUN_ID}`, {
-              waitUntil: 'networkidle',
-              timeout: 90000,
+              waitUntil: 'domcontentloaded',
+              timeout: 60000,
             });
-            await page.waitForTimeout(4000);
+            await page.waitForTimeout(6000);
 
             const status = response ? response.status() : 0;
             const title = await page.title();
@@ -118,6 +117,7 @@ jobs:
               bootShellVisible,
               pageErrors,
               consoleErrors,
+              bodyPreview: bodyText.slice(0, 500),
             };
 
             fs.writeFileSync(`${process.env.RUNNER_TEMP}/live-portal-report.json`, JSON.stringify(report, null, 2));
