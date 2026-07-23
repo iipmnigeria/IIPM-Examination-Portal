@@ -1,0 +1,3 @@
+Approved production deployment trigger for Phase 2.1 candidate profile foundation.
+Approved merge commit: 30edc70c72d1fc60ce2cb889cfb2972708f54121
+Approved migration: 202607230101_phase_2_candidate_profile_foundation.sql
