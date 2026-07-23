@@ -4,6 +4,7 @@ import {
   verifyAgileCertPaystackTransaction,
   verifyAgileCertPaystackWebhookSignature,
 } from '../_shared/agilecertPaystack.ts';
+import { generateAgileCertCredentialAssets } from '../_shared/credentialAssets.ts';
 import { adminClient } from '../_shared/supabase.ts';
 
 type PaystackWebhookEvent = {
@@ -30,6 +31,21 @@ type CertificateOrder = {
   payable_amount_minor: number;
   status: string;
 };
+
+async function generateAssetsBestEffort(admin: ReturnType<typeof adminClient>, credentialId: string | null) {
+  if (!credentialId) {
+    return { assetsReady: false, assetsPending: true, assetError: 'credential_id_missing' };
+  }
+
+  try {
+    const assets = await generateAgileCertCredentialAssets(admin, credentialId);
+    return { assetsReady: true, assetsPending: false, assets };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Credential assets are pending.';
+    console.error('Credential was issued but webhook asset generation is pending:', error);
+    return { assetsReady: false, assetsPending: true, assetError: message };
+  }
+}
 
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return preflightResponse(request);
@@ -98,6 +114,7 @@ Deno.serve(async (request: Request) => {
         .maybeSingle();
 
       if (credentialError) throw new Error(credentialError.message);
+      const assetResult = await generateAssetsBestEffort(admin, existingCredential?.id || null);
 
       return jsonResponse(request, {
         received: true,
@@ -106,6 +123,7 @@ Deno.serve(async (request: Request) => {
         credentialId: existingCredential?.id || null,
         credentialCode: existingCredential?.credential_code || null,
         verificationSlug: existingCredential?.verification_slug || null,
+        ...assetResult,
       });
     }
 
@@ -158,13 +176,20 @@ Deno.serve(async (request: Request) => {
 
     if (fulfilmentError) throw new Error(fulfilmentError.message);
 
+    const fulfilmentPayload = (fulfilment || {}) as Record<string, unknown>;
+    const credentialId = typeof fulfilmentPayload.credentialId === 'string'
+      ? fulfilmentPayload.credentialId
+      : null;
+    const assetResult = await generateAssetsBestEffort(admin, credentialId);
+
     return jsonResponse(request, {
       received: true,
       fulfilled: true,
       orderId: order.id,
       eligibilityId: order.eligibility_id,
       productCode: order.product_code,
-      result: fulfilment,
+      result: fulfilmentPayload,
+      ...assetResult,
     });
   } catch (error) {
     console.error('paystack-certificate-webhook failed:', error);
