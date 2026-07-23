@@ -95,6 +95,7 @@ jobs:
           check_file agilecert-paystack supabase/functions/_shared/agilecertPaystack.ts
           check_file credential-assets supabase/functions/_shared/credentialAssets.ts
           check_file agilecert-email supabase/functions/_shared/agilecertEmail.ts
+          check_file identity-provider supabase/functions/_shared/identityProvider.ts
           check_file certificate-payment-initialize supabase/functions/initialize-certificate-payment/index.ts
           check_file certificate-payment-verify supabase/functions/verify-certificate-payment/index.ts
           check_file certificate-payment-webhook supabase/functions/paystack-certificate-webhook/index.ts
@@ -102,6 +103,8 @@ jobs:
           check_file credential-asset-download supabase/functions/download-credential-asset/index.ts
           check_file automation-worker supabase/functions/process-agilecert-automation/index.ts
           check_file resend-webhook supabase/functions/resend-email-webhook/index.ts
+          check_file identity-initialize supabase/functions/initialize-identity-verification/index.ts
+          check_file identity-submit supabase/functions/submit-identity-verification/index.ts
 
           echo "${status}" > deno-check-logs/exit-code.txt
 
