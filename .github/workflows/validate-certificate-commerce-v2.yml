@@ -62,3 +62,4 @@ jobs:
           deno check supabase/functions/initialize-certificate-payment/index.ts
           deno check supabase/functions/verify-certificate-payment/index.ts
           deno check supabase/functions/paystack-certificate-webhook/index.ts
+          deno check supabase/functions/download-study-material/index.ts
