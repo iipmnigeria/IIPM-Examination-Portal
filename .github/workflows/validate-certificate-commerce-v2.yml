@@ -1,0 +1,64 @@
+name: Validate AgileCert Certificate Commerce
+
+on:
+  push:
+    branches:
+      - certificate-commerce-v2
+    paths:
+      - 'src/**'
+      - 'supabase/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.*'
+      - 'server.ts'
+      - '.github/workflows/validate-certificate-commerce-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-certificate-commerce-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout protected development branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify browser build output
+        shell: bash
+        run: |
+          test -s dist/index.html
+          grep -q 'root' dist/index.html
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Check AgileCert Edge Functions
+        run: |
+          deno check supabase/functions/_shared/agilecertPaystack.ts
+          deno check supabase/functions/initialize-certificate-payment/index.ts
+          deno check supabase/functions/verify-certificate-payment/index.ts
+          deno check supabase/functions/paystack-certificate-webhook/index.ts
