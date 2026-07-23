@@ -1,0 +1,70 @@
+name: Validate AgileCert Phase 1
+
+on:
+  push:
+    branches:
+      - phase-1-agilecert-branding
+    paths:
+      - 'src/**'
+      - 'index.html'
+      - 'package.json'
+      - 'vite.config.*'
+      - 'docs/AGILECERT_PHASE_1_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-1.yml'
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - 'src/**'
+      - 'index.html'
+      - 'package.json'
+      - 'vite.config.*'
+      - 'docs/AGILECERT_PHASE_1_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-phase-1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Phase 1 TypeScript and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Phase 1 branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify AgileCert browser output
+        shell: bash
+        run: |
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          grep -q 'root' dist/index.html
+
+      - name: Confirm Phase 1 excludes backend changes
+        shell: bash
+        run: |
+          if git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/(migrations|functions)/'; then
+            echo 'Phase 1 must not contain Supabase migrations or Edge Functions.'
+            exit 1
+          fi
