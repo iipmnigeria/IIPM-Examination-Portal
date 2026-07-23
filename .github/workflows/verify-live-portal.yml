@@ -1,0 +1,153 @@
+name: Verify Live AgileCert Portal
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - 'deployment-triggers/live-portal-smoke.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-live-agilecert-portal
+  cancel-in-progress: true
+
+jobs:
+  live-browser-smoke:
+    name: Confirm live portal is not blank
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+
+    steps:
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Check published HTML and assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          success=0
+          for attempt in $(seq 1 12); do
+            status="$(curl -L -sS -o "$RUNNER_TEMP/live-index.html" -w '%{http_code}' "$LIVE_URL?smoke=${GITHUB_RUN_ID}-${attempt}" || true)"
+            size="$(wc -c < "$RUNNER_TEMP/live-index.html" 2>/dev/null || echo 0)"
+            echo "Attempt $attempt: HTTP $status, $size bytes"
+            if [ "$status" = '200' ] && [ "$size" -gt 500 ] \
+              && grep -q 'id="root"' "$RUNNER_TEMP/live-index.html" \
+              && grep -q 'iipm-boot-shell' "$RUNNER_TEMP/live-index.html" \
+              && grep -q 'AgileCert Global' "$RUNNER_TEMP/live-index.html"; then
+              success=1
+              break
+            fi
+            sleep 10
+          done
+          test "$success" -eq 1
+
+          asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/live-index.html" | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          asset_url="$(python - <<'PY'
+          from urllib.parse import urljoin
+          import os
+          print(urljoin(os.environ['LIVE_URL'], os.environ['ASSET']))
+          PY
+          )"
+          curl -L --fail --silent --show-error "$asset_url" -o "$RUNNER_TEMP/live-app.js"
+          test -s "$RUNNER_TEMP/live-app.js"
+        env:
+          ASSET: ${{ env.ASSET }}
+
+      - name: Install browser smoke dependencies
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/live-smoke"
+          cd "$RUNNER_TEMP/live-smoke"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright@latest
+          npx playwright install --with-deps chromium
+
+      - name: Render and inspect live portal
+        shell: bash
+        working-directory: ${{ runner.temp }}/live-smoke
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+            const pageErrors = [];
+            const consoleErrors = [];
+            page.on('pageerror', error => pageErrors.push(String(error)));
+            page.on('console', message => {
+              if (message.type() === 'error') consoleErrors.push(message.text());
+            });
+
+            const response = await page.goto(`${process.env.LIVE_URL}?browser-smoke=${process.env.GITHUB_RUN_ID}`, {
+              waitUntil: 'networkidle',
+              timeout: 90000,
+            });
+            await page.waitForTimeout(4000);
+
+            const status = response ? response.status() : 0;
+            const title = await page.title();
+            const bodyText = (await page.locator('body').innerText()).trim();
+            const root = page.locator('#root');
+            const rootCount = await root.count();
+            const rootHtml = rootCount ? (await root.innerHTML()).trim() : '';
+            const bootShellVisible = await page.locator('#iipm-boot-shell').isVisible().catch(() => false);
+
+            const report = {
+              url: page.url(),
+              status,
+              title,
+              bodyTextLength: bodyText.length,
+              rootHtmlLength: rootHtml.length,
+              bootShellVisible,
+              pageErrors,
+              consoleErrors,
+            };
+
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/live-portal-report.json`, JSON.stringify(report, null, 2));
+            await page.screenshot({
+              path: `${process.env.RUNNER_TEMP}/live-portal.png`,
+              fullPage: true,
+            });
+            await browser.close();
+
+            if (status !== 200) throw new Error(`Live portal returned HTTP ${status}.`);
+            if (!/AgileCert Global/i.test(title)) throw new Error(`Unexpected page title: ${title}`);
+            if (rootCount !== 1 || rootHtml.length < 100) throw new Error('The application root is blank or missing.');
+            if (bodyText.length < 100) throw new Error('The rendered page has insufficient visible content.');
+            if (bootShellVisible) throw new Error('The static loading shell did not hand over to the React application.');
+            if (pageErrors.length) throw new Error(`Browser page errors: ${pageErrors.join(' | ')}`);
+          })().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Upload live verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-agilecert-portal-evidence
+          path: |
+            ${{ runner.temp }}/live-index.html
+            ${{ runner.temp }}/live-app.js
+            ${{ runner.temp }}/live-portal-report.json
+            ${{ runner.temp }}/live-portal.png
+          if-no-files-found: warn
+          retention-days: 3
