@@ -81,7 +81,9 @@ export async function uploadMyCandidateProfilePhoto(
   );
 
   if (profileError) {
-    await supabase.storage.from(PROFILE_PHOTO_BUCKET).remove([path]);
+    // Do not delete the deterministic object here. On replacement, doing so
+    // would also remove the candidate's previously linked photo. A retry safely
+    // overwrites the same private object path.
     throw new Error(`Unable to link the uploaded profile photo: ${profileError.message}`);
   }
 
@@ -103,14 +105,8 @@ export async function removeMyCandidateProfilePhoto(
     throw new Error('The stored candidate photo path is invalid.');
   }
 
-  const { error: removeError } = await supabase.storage
-    .from(PROFILE_PHOTO_BUCKET)
-    .remove([path]);
-
-  if (removeError && !/not found/i.test(removeError.message)) {
-    throw new Error(`Unable to remove your profile photo: ${removeError.message}`);
-  }
-
+  // Clear the profile link first so a storage-cleanup problem never leaves the
+  // candidate profile pointing to a missing object.
   const { data: profile, error: profileError } = await supabase.rpc(
     'set_my_agilecert_candidate_profile_photo',
     { p_profile_photo_path: null },
@@ -122,6 +118,14 @@ export async function removeMyCandidateProfilePhoto(
 
   if (!profile || typeof profile !== 'object') {
     throw new Error('The updated candidate profile was not returned.');
+  }
+
+  const { error: removeError } = await supabase.storage
+    .from(PROFILE_PHOTO_BUCKET)
+    .remove([path]);
+
+  if (removeError && !/not found/i.test(removeError.message)) {
+    console.warn('Candidate profile photo link was cleared but storage cleanup failed:', removeError);
   }
 
   return profile as CandidateProfile;
