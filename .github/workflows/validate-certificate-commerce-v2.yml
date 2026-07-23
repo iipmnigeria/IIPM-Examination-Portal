@@ -12,6 +12,17 @@ on:
       - 'vite.config.*'
       - 'server.ts'
       - '.github/workflows/validate-certificate-commerce-v2.yml'
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - 'src/**'
+      - 'supabase/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.*'
+      - 'server.ts'
+      - '.github/workflows/validate-certificate-commerce-v2.yml'
   workflow_dispatch:
 
 permissions:
