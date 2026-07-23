@@ -57,7 +57,17 @@ export async function submitSecureExam(input: {
 
   if (error) throw new Error(error.message);
   if (!data || typeof data !== 'object') throw new Error('The assessment result was not returned.');
-  return data as Attempt;
+
+  const attempt = data as Attempt;
+
+  // The database transaction has completed at this point. Notify the
+  // certificate-offer overlay so a verified passing result is displayed
+  // immediately instead of waiting for its background refresh interval.
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('agilecert-offers-refresh'));
+  }
+
+  return attempt;
 }
 
 export async function assignExamToCandidate(input: {
