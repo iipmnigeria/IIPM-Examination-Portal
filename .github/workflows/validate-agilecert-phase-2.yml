@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - phase-2-candidate-profile-materials
+      - phase-2-2-profile-photo
     paths:
       - 'src/**'
       - 'package.json'
@@ -67,30 +68,35 @@ jobs:
         shell: bash
         run: |
           if git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/'; then
-            echo 'Phase 2.1 must not add or change Supabase Edge Functions.'
+            echo 'Phase 2 profile and materials increments must not add or change Supabase Edge Functions.'
             exit 1
           fi
 
-      - name: Confirm migration is limited to Phase 2 profile foundation
+      - name: Confirm Phase 2.2A migration scope and storage controls
         shell: bash
         run: |
           changed_migrations="$(git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/migrations/' || true)"
           if [ -n "$changed_migrations" ]; then
             echo "$changed_migrations"
-            if echo "$changed_migrations" | grep -Ev '^supabase/migrations/202607230101_phase_2_candidate_profile_foundation.sql$'; then
-              echo 'Unexpected migration found in the Phase 2.1 increment.'
+            if echo "$changed_migrations" | grep -Ev '^supabase/migrations/202607230102_phase_2_candidate_profile_photo.sql$'; then
+              echo 'Unexpected migration found in the Phase 2.2A increment.'
               exit 1
             fi
           fi
 
-          migration='supabase/migrations/202607230101_phase_2_candidate_profile_foundation.sql'
+          migration='supabase/migrations/202607230102_phase_2_candidate_profile_photo.sql'
           test -s "$migration"
-          grep -q 'auth.uid()' "$migration"
-          grep -q 'enable row level security' "$migration"
+          grep -q "'candidate-profile-photos'" "$migration"
+          grep -q '3145728' "$migration"
+          grep -q "image/jpeg" "$migration"
+          grep -q "image/png" "$migration"
+          grep -q "image/webp" "$migration"
+          grep -q "auth.uid()::text || '/profile/avatar'" "$migration"
+          grep -q 'public = false' "$migration"
           grep -q 'Only active candidate accounts' "$migration"
 
           if grep -Eqi 'create (table|or replace function).*(certificate_order|certificate_eligibilit|credential|identity_verification|automation_job|ai_adviser)' "$migration"; then
-            echo 'The Phase 2.1 migration creates an excluded later-phase object.'
+            echo 'The Phase 2.2A migration creates an excluded later-phase object.'
             exit 1
           fi
 
@@ -99,9 +105,25 @@ jobs:
             exit 1
           fi
 
-      - name: Confirm Phase 2 scope document
+      - name: Confirm private signed-photo implementation
         shell: bash
         run: |
-          grep -q 'Phase 2.1 — Candidate profile foundation' docs/AGILECERT_PHASE_2_SCOPE.md
-          grep -q 'Profile-photo upload' docs/AGILECERT_PHASE_2_SCOPE.md
+          service='src/services/candidateProfilePhotoService.ts'
+          component='src/components/CandidateProfilePhotoLauncher.tsx'
+          test -s "$service"
+          test -s "$component"
+          grep -q 'createSignedUrl' "$service"
+          grep -q 'upsert: true' "$service"
+          grep -q '3 \* 1024 \* 1024' "$service"
+          grep -q 'not identity-verification evidence' "$component"
+          if grep -R -Eqi 'getPublicUrl|service_role|SUPABASE_SERVICE_ROLE' "$service" "$component"; then
+            echo 'Profile photos must not use public URLs or privileged frontend credentials.'
+            exit 1
+          fi
+
+      - name: Confirm Phase 2.2A scope document
+        shell: bash
+        run: |
+          grep -q 'Phase 2.2A — Private candidate profile photo' docs/AGILECERT_PHASE_2_SCOPE.md
+          grep -q 'Phase 2.2B — Candidate workspace refinement' docs/AGILECERT_PHASE_2_SCOPE.md
           grep -q 'Preparation-material' docs/AGILECERT_PHASE_2_SCOPE.md

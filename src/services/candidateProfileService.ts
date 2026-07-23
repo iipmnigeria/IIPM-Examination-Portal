@@ -6,6 +6,7 @@ export interface CandidateProfile {
   user_id: string;
   legal_name: string | null;
   phone: string | null;
+  profile_photo_path: string | null;
   country_code: string | null;
   preferred_currency: CandidatePreferredCurrency | null;
   preferred_language: string;
@@ -61,7 +62,7 @@ export async function getMyCandidateProfile(): Promise<CandidateProfile | null> 
   const { data, error } = await supabase
     .from('agilecert_candidate_profiles')
     .select(
-      'user_id, legal_name, phone, country_code, preferred_currency, preferred_language, timezone, professional_headline, employer, industry, education_summary, skills, certification_interests, public_profile_enabled, marketing_consent, certificate_email_updates, course_recommendation_emails, created_at, updated_at',
+      'user_id, legal_name, phone, profile_photo_path, country_code, preferred_currency, preferred_language, timezone, professional_headline, employer, industry, education_summary, skills, certification_interests, public_profile_enabled, marketing_consent, certificate_email_updates, course_recommendation_emails, created_at, updated_at',
     )
     .maybeSingle();
 
