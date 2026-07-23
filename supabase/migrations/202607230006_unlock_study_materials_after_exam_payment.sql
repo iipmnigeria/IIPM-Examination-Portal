@@ -30,14 +30,22 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_should_grant boolean := false;
 begin
-  if new.status in ('paid', 'waived')
-     and new.fulfilled_at is not null
-     and (
-       tg_op = 'INSERT'
-       or old.status is distinct from new.status
-       or old.fulfilled_at is distinct from new.fulfilled_at
-     ) then
+  if tg_op = 'INSERT' then
+    v_should_grant := new.status in ('paid', 'waived')
+      and new.fulfilled_at is not null;
+  elsif tg_op = 'UPDATE' then
+    v_should_grant := new.status in ('paid', 'waived')
+      and new.fulfilled_at is not null
+      and (
+        old.status is distinct from new.status
+        or old.fulfilled_at is distinct from new.fulfilled_at
+      );
+  end if;
+
+  if v_should_grant then
     insert into public.agilecert_study_material_entitlements (
       candidate_id,
       examination_id,
