@@ -8,6 +8,7 @@ import AgileCertCertificatePaymentReturnHandler from './components/AgileCertCert
 import AgileCertCertificationOfferOverlay from './components/AgileCertCertificationOfferOverlay';
 import AgileCertCredentialAssetControls from './components/AgileCertCredentialAssetControls';
 import AgileCertCredentialVerificationPage from './components/AgileCertCredentialVerificationPage';
+import AgileCertIdentityVerificationPanel from './components/AgileCertIdentityVerificationPanel';
 import AgileCertLegacyCertificateGate from './components/AgileCertLegacyCertificateGate';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
 import PaymentReturnHandler from './components/PaymentReturnHandler';
@@ -151,6 +152,7 @@ createRoot(rootElement).render(
       <AgileCertLegacyCertificateGate />
       <AgileCertCandidateWorkspace />
       <AgileCertCredentialAssetControls />
+      <AgileCertIdentityVerificationPanel />
       <AgileCertCredentialVerificationPage />
       <AdminCommerceConsole />
       <AdminAssignmentWidget />
