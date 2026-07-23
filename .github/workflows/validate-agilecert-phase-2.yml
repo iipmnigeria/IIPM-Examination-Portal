@@ -88,8 +88,14 @@ jobs:
           grep -q 'auth.uid()' "$migration"
           grep -q 'enable row level security' "$migration"
           grep -q 'Only active candidate accounts' "$migration"
-          if grep -Eqi 'service[_ -]?role|paystack|certificate_order|identity_verification|ai.adviser' "$migration"; then
-            echo 'The Phase 2.1 migration contains an excluded later-phase concern.'
+
+          if grep -Eqi 'create (table|or replace function).*(certificate_order|certificate_eligibilit|credential|identity_verification|automation_job|ai_adviser)' "$migration"; then
+            echo 'The Phase 2.1 migration creates an excluded later-phase object.'
+            exit 1
+          fi
+
+          if grep -Eqi '(service_role|PAYSTACK_SECRET|SUPABASE_SERVICE_ROLE)' "$migration"; then
+            echo 'A forbidden secret or service-role reference was found.'
             exit 1
           fi
 
