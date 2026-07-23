@@ -2,12 +2,16 @@
 name: Deploy Phase 2.1 Candidate Profile Database
 
 on:
-  push:
+  workflow_dispatch:
+  pull_request:
     branches:
       - main
+    types:
+      - opened
+      - synchronize
+      - reopened
     paths:
-      - '.github/workflows/deploy-phase-2-1-database.yml'
-  workflow_dispatch:
+      - 'deployment-triggers/phase-2-1-database.txt'
 
 permissions:
   contents: read
@@ -20,6 +24,7 @@ concurrency:
 jobs:
   deploy-profile-migration:
     name: Apply candidate profile foundation
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
