@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { GraduationCap, LayoutDashboard, ShieldCheck } from 'lucide-react';
+import { GraduationCap, LayoutDashboard, ShieldCheck, UserRound } from 'lucide-react';
 import StudentDashboard from './components/StudentDashboard';
 import ExamScreen from './components/ExamScreen';
 import AdminPortal from './components/AdminPortal';
 import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
+import CandidateProfilePanel from './components/CandidateProfilePanel';
 import { signOut as signOutPortalUser } from './services/authService';
 import {
   getAvailableTests,
@@ -14,6 +15,8 @@ import {
 } from './services/examService';
 import type { Attempt, ProctorLogEvent, Test } from './types';
 
+type PortalView = 'dashboard' | 'profile' | 'exam' | 'admin';
+
 export default function App() {
   const [userRole, setUserRole] = useState<'student' | 'admin' | null>(() => {
     return (localStorage.getItem('aura_logged_role') as 'student' | 'admin') || null;
@@ -21,7 +24,7 @@ export default function App() {
   const [studentName, setStudentName] = useState(() => {
     return localStorage.getItem('aura_student_name') || '';
   });
-  const [view, setView] = useState<'dashboard' | 'exam' | 'admin'>(() => {
+  const [view, setView] = useState<PortalView>(() => {
     return localStorage.getItem('aura_logged_role') === 'admin' ? 'admin' : 'dashboard';
   });
 
@@ -198,7 +201,7 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-4">
-              {userRole === 'admin' && (
+              {userRole === 'admin' ? (
                 <nav className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl">
                   <button
                     onClick={() => setView('dashboard')}
@@ -215,6 +218,27 @@ export default function App() {
                     }`}
                   >
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Control Hub
+                  </button>
+                </nav>
+              ) : (
+                <nav className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl">
+                  <button
+                    onClick={() => setView('dashboard')}
+                    className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${
+                      view === 'dashboard' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <LayoutDashboard className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Examinations</span>
+                  </button>
+                  <button
+                    onClick={() => setView('profile')}
+                    className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${
+                      view === 'profile' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <UserRound className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="hidden sm:inline">Profile</span>
                   </button>
                 </nav>
               )}
@@ -259,6 +283,16 @@ export default function App() {
                 setSimType={setSimType}
                 justCompletedAttempt={justCompletedAttempt}
                 onClearJustCompleted={() => setJustCompletedAttempt(null)}
+              />
+            </motion.div>
+          )}
+
+          {view === 'profile' && userRole === 'student' && (
+            <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <CandidateProfilePanel
+                candidateName={studentName}
+                onCandidateNameChange={setStudentName}
+                onBack={() => setView('dashboard')}
               />
             </motion.div>
           )}
