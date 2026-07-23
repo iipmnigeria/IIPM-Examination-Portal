@@ -6,6 +6,7 @@ import AdminCommerceConsole from './components/AdminCommerceConsole';
 import AgileCertCandidateWorkspace from './components/AgileCertCandidateWorkspace';
 import AgileCertCertificatePaymentReturnHandler from './components/AgileCertCertificatePaymentReturnHandler';
 import AgileCertCertificationOfferOverlay from './components/AgileCertCertificationOfferOverlay';
+import AgileCertCredentialVerificationPage from './components/AgileCertCredentialVerificationPage';
 import AgileCertLegacyCertificateGate from './components/AgileCertLegacyCertificateGate';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
 import PaymentReturnHandler from './components/PaymentReturnHandler';
@@ -148,6 +149,7 @@ createRoot(rootElement).render(
       <AgileCertCertificatePaymentReturnHandler />
       <AgileCertLegacyCertificateGate />
       <AgileCertCandidateWorkspace />
+      <AgileCertCredentialVerificationPage />
       <AdminCommerceConsole />
       <AdminAssignmentWidget />
     </SupabaseSessionBoundary>
