@@ -1,5 +1,25 @@
 begin;
 
+-- Compatibility helper for AgileCert policies. The existing portal staff
+-- contract is `is_exam_staff()`; this wrapper only evaluates the signed-in user
+-- and prevents callers from testing arbitrary profile IDs.
+create or replace function public.is_staff(p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    p_user_id = auth.uid()
+    and public.is_exam_staff(),
+    false
+  );
+$$;
+
+revoke all on function public.is_staff(uuid) from public;
+grant execute on function public.is_staff(uuid) to authenticated;
+
 create or replace function public.queue_agilecert_credential_delivery_email()
 returns trigger
 language plpgsql
