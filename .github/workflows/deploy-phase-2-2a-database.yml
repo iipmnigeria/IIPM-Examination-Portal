@@ -76,7 +76,7 @@ jobs:
           dry_run_output="$(npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD" --dry-run 2>&1)"
           dry_run_status=$?
           set -e
-          printf '%s\n' "$dry_run_output"
+          printf '%s\n' "$dry_run_output" | tee "$RUNNER_TEMP/phase-2-2a-dry-run.log"
 
           if [ "$dry_run_status" -ne 0 ]; then
             echo "Supabase dry run exited with status $dry_run_status. No migration was applied."
@@ -99,3 +99,12 @@ jobs:
           migration_list="$(npx --yes supabase@latest migration list --linked --password "$SUPABASE_DB_PASSWORD" 2>&1)"
           printf '%s\n' "$migration_list"
           printf '%s\n' "$migration_list" | grep -q "$MIGRATION_VERSION"
+
+      - name: Upload sanitized dry-run diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-2-2a-supabase-dry-run
+          path: ${{ runner.temp }}/phase-2-2a-dry-run.log
+          if-no-files-found: warn
+          retention-days: 1
