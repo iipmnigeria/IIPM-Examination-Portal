@@ -1,0 +1,101 @@
+name: Validate AgileCert Phase 2
+
+on:
+  push:
+    branches:
+      - phase-2-candidate-profile-materials
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'vite.config.*'
+      - 'supabase/migrations/2026072301*_phase_2_*.sql'
+      - 'docs/AGILECERT_PHASE_2_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-2.yml'
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'vite.config.*'
+      - 'supabase/migrations/2026072301*_phase_2_*.sql'
+      - 'docs/AGILECERT_PHASE_2_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-phase-2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Phase 2 TypeScript, build and scope controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Phase 2 branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify AgileCert browser output
+        shell: bash
+        run: |
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          grep -q 'root' dist/index.html
+
+      - name: Confirm Phase 2 does not add Edge Functions
+        shell: bash
+        run: |
+          if git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/'; then
+            echo 'Phase 2.1 must not add or change Supabase Edge Functions.'
+            exit 1
+          fi
+
+      - name: Confirm migration is limited to Phase 2 profile foundation
+        shell: bash
+        run: |
+          changed_migrations="$(git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/migrations/' || true)"
+          if [ -n "$changed_migrations" ]; then
+            echo "$changed_migrations"
+            if echo "$changed_migrations" | grep -Ev '^supabase/migrations/202607230101_phase_2_candidate_profile_foundation.sql$'; then
+              echo 'Unexpected migration found in the Phase 2.1 increment.'
+              exit 1
+            fi
+          fi
+
+          migration='supabase/migrations/202607230101_phase_2_candidate_profile_foundation.sql'
+          test -s "$migration"
+          grep -q 'auth.uid()' "$migration"
+          grep -q 'enable row level security' "$migration"
+          grep -q 'Only active candidate accounts' "$migration"
+          if grep -Eqi 'service[_ -]?role|paystack|certificate_order|identity_verification|ai.adviser' "$migration"; then
+            echo 'The Phase 2.1 migration contains an excluded later-phase concern.'
+            exit 1
+          fi
+
+      - name: Confirm Phase 2 scope document
+        shell: bash
+        run: |
+          grep -q 'Phase 2.1 — Candidate profile foundation' docs/AGILECERT_PHASE_2_SCOPE.md
+          grep -q 'Profile-photo upload' docs/AGILECERT_PHASE_2_SCOPE.md
+          grep -q 'Preparation-material' docs/AGILECERT_PHASE_2_SCOPE.md
