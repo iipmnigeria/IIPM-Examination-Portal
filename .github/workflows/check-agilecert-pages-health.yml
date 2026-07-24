@@ -1,0 +1,54 @@
+name: Check AgileCert Pages Health
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/check-agilecert-pages-health.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  health-check:
+    name: Verify public AgileCert portal
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+    steps:
+      - name: Verify HTTP response and application assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            code="$(curl -sS -L -o "$RUNNER_TEMP/index.html" -w '%{http_code}' -H 'Cache-Control: no-cache' "${LIVE_URL}?health=${GITHUB_RUN_ID}-${attempt}" || true)"
+            echo "attempt=$attempt http=$code" | tee -a "$RUNNER_TEMP/health.log"
+            if [ "$code" = "200" ] && grep -q 'AgileCert Global' "$RUNNER_TEMP/index.html"; then
+              asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/index.html" | head -n 1 | cut -d'"' -f2)"
+              test -n "$asset"
+              asset_url="$(python -c 'from urllib.parse import urljoin; import sys; print(urljoin(sys.argv[1], sys.argv[2]))' "$LIVE_URL" "$asset")"
+              asset_code="$(curl -sS -L -o "$RUNNER_TEMP/app.js" -w '%{http_code}' -H 'Cache-Control: no-cache' "${asset_url}?health=${GITHUB_RUN_ID}-${attempt}" || true)"
+              echo "asset=$asset_url http=$asset_code" | tee -a "$RUNNER_TEMP/health.log"
+              if [ "$asset_code" = "200" ] && grep -q 'Credential Store' "$RUNNER_TEMP/app.js"; then
+                sha256sum "$RUNNER_TEMP/app.js" | tee "$RUNNER_TEMP/live-js.sha256"
+                exit 0
+              fi
+            fi
+            sleep 10
+          done
+          exit 1
+
+      - name: Upload health evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-pages-health-evidence
+          retention-days: 3
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/health.log
+            ${{ runner.temp }}/index.html
+            ${{ runner.temp }}/app.js
+            ${{ runner.temp }}/live-js.sha256
