@@ -1,0 +1,5 @@
+Publish the exact approved AgileCert Phase 2.4 frontend bundle.
+Approved application commit: ca4c29ac5c2730b86000dfaefda6583cffc77053
+Target: configured GitHub Pages source on main.
+Verify exact JavaScript hash and Chromium rendering.
+This trigger PR must not be merged.
