@@ -1,0 +1,179 @@
+# One-purpose production deployment for the approved Phase 2.3A migration.
+name: Deploy Phase 2.3A Material Entitlements Database
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - 'deployment-triggers/phase-2-3a-database.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-2-3a-database-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-material-entitlements:
+    name: Apply preparation material catalogue and entitlements
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
+      APPROVED_APP_COMMIT: '143e2c2d4d6f4e52289964abf3e9e7b25f667d1b'
+      PROFILE_BASELINE_VERSION: '202607230101'
+      PHOTO_BASELINE_VERSION: '202607230102'
+      MIGRATION_VERSION: '202607240101'
+      PROFILE_BASELINE_FILE: supabase/migrations/202607230101_phase_2_candidate_profile_foundation.sql
+      PHOTO_BASELINE_FILE: supabase/migrations/202607230102_phase_2_candidate_profile_photo.sql
+      MIGRATION_FILE: supabase/migrations/202607240101_phase_2_3a_preparation_material_entitlements.sql
+      SUPABASE_WORKDIR: /tmp/agilecert-phase-2-3a
+
+    steps:
+      - name: Checkout approved production branch
+        uses: actions/checkout@v4
+        with:
+          ref: supabase-integration
+          fetch-depth: 0
+
+      - name: Validate production deployment inputs
+        shell: bash
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          test "$(git rev-parse HEAD)" = "$APPROVED_APP_COMMIT"
+          test -s "$PROFILE_BASELINE_FILE"
+          test -s "$PHOTO_BASELINE_FILE"
+          test -s "$MIGRATION_FILE"
+          test "$PROFILE_BASELINE_VERSION" = '202607230101'
+          test "$PHOTO_BASELINE_VERSION" = '202607230102'
+          test "$MIGRATION_VERSION" = '202607240101'
+          grep -q 'agilecert_preparation_materials' "$MIGRATION_FILE"
+          grep -q 'agilecert_material_entitlements' "$MIGRATION_FILE"
+          grep -q 'get_my_agilecert_preparation_materials' "$MIGRATION_FILE"
+          if grep -Eqi 'create[[:space:]]+or[[:space:]]+replace[[:space:]]+function[[:space:]]+public\.(initialize|verify).*payment' "$MIGRATION_FILE"; then
+            echo 'The approved migration must not replace payment Edge Function authority.'
+            exit 1
+          fi
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Prepare isolated Phase 2 migration-history workspace
+        shell: bash
+        run: |
+          rm -rf "$SUPABASE_WORKDIR"
+          mkdir -p "$SUPABASE_WORKDIR/supabase/migrations"
+          cp supabase/config.toml "$SUPABASE_WORKDIR/supabase/config.toml"
+          cp "$PROFILE_BASELINE_FILE" "$SUPABASE_WORKDIR/supabase/migrations/"
+          cp "$PHOTO_BASELINE_FILE" "$SUPABASE_WORKDIR/supabase/migrations/"
+          cp "$MIGRATION_FILE" "$SUPABASE_WORKDIR/supabase/migrations/"
+          test "$(find "$SUPABASE_WORKDIR/supabase/migrations" -maxdepth 1 -type f | wc -l)" -eq 3
+          test -s "$SUPABASE_WORKDIR/$PROFILE_BASELINE_FILE"
+          test -s "$SUPABASE_WORKDIR/$PHOTO_BASELINE_FILE"
+          test -s "$SUPABASE_WORKDIR/$MIGRATION_FILE"
+
+      - name: Link isolated workspace to production Supabase
+        shell: bash
+        working-directory: /tmp/agilecert-phase-2-3a
+        run: |
+          npx --yes supabase@latest link \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Preview and apply exactly Phase 2.3A
+        shell: bash
+        working-directory: /tmp/agilecert-phase-2-3a
+        run: |
+          set +e
+          dry_run_output="$(npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD" --dry-run 2>&1)"
+          dry_run_status=$?
+          set -e
+          printf '%s\n' "$dry_run_output" | tee "$RUNNER_TEMP/phase-2-3a-dry-run.log"
+
+          if [ "$dry_run_status" -ne 0 ]; then
+            echo "Supabase dry run exited with status $dry_run_status. No migration was applied."
+            exit "$dry_run_status"
+          fi
+
+          if printf '%s\n' "$dry_run_output" | grep -Eqi 'up to date|no pending migrations'; then
+            echo 'Phase 2.3A migration is already applied; no database change is required.'
+          else
+            pending_versions="$(printf '%s\n' "$dry_run_output" | grep -Eo '20[0-9]{10,12}' | sort -u || true)"
+            echo 'Pending migration versions detected:'
+            printf '%s\n' "$pending_versions"
+            test "$pending_versions" = "$MIGRATION_VERSION"
+            printf 'Y\n' | npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD"
+          fi
+
+      - name: Verify remote migration history
+        shell: bash
+        working-directory: /tmp/agilecert-phase-2-3a
+        run: |
+          history_file="$RUNNER_TEMP/phase-2-3a-migration-history.log"
+          npx --yes supabase@latest migration list \
+            --linked \
+            --password "$SUPABASE_DB_PASSWORD" 2>&1 | tee "$history_file"
+
+          python - "$history_file" "$PROFILE_BASELINE_VERSION" "$PHOTO_BASELINE_VERSION" "$MIGRATION_VERSION" <<'PY'
+          from pathlib import Path
+          import sys
+
+          history = Path(sys.argv[1]).read_text()
+          required = sys.argv[2:]
+          rows = []
+          for line in history.splitlines():
+              if '|' not in line:
+                  continue
+              parts = [part.strip() for part in line.split('|')]
+              if len(parts) >= 3:
+                  rows.append(parts)
+
+          for version in required:
+              matched = [row for row in rows if row[0] == version or row[1] == version]
+              if not matched:
+                  raise SystemExit(f'Migration {version} is missing from history.')
+              if not any(row[0] == version and row[1] == version for row in matched):
+                  raise SystemExit(f'Migration {version} is not recorded both locally and remotely: {matched}')
+          PY
+
+      - name: Verify deployed entitlement schema
+        shell: bash
+        working-directory: /tmp/agilecert-phase-2-3a
+        run: |
+          schema_file="$RUNNER_TEMP/phase-2-3a-public-schema.sql"
+          npx --yes supabase@latest db dump \
+            --linked \
+            --schema public \
+            --file "$schema_file" \
+            --password "$SUPABASE_DB_PASSWORD"
+          test -s "$schema_file"
+          grep -q 'agilecert_preparation_materials' "$schema_file"
+          grep -q 'agilecert_preparation_material_versions' "$schema_file"
+          grep -q 'agilecert_exam_materials' "$schema_file"
+          grep -q 'agilecert_material_entitlements' "$schema_file"
+          grep -q 'get_my_agilecert_preparation_materials' "$schema_file"
+
+      - name: Upload sanitized deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-2-3a-database-deployment-evidence
+          path: |
+            ${{ runner.temp }}/phase-2-3a-dry-run.log
+            ${{ runner.temp }}/phase-2-3a-migration-history.log
+            ${{ runner.temp }}/phase-2-3a-public-schema.sql
+          if-no-files-found: warn
+          retention-days: 3
