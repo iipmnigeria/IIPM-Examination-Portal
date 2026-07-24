@@ -1,0 +1,170 @@
+name: Hold Phase 4 and Restore Phase 3 Pages
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/phase-4-certificate-production.txt'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build last verified Phase 3 portal
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
+      PHASE_3_COMMIT: 'dc98a784029ab1d08fe6e6a672983d169aece476'
+
+    steps:
+      - name: Confirm Phase 4 payment secret remains unavailable
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          npx --yes supabase@latest secrets list --project-ref "$SUPABASE_PROJECT_REF" \
+            2>&1 | tee "$RUNNER_TEMP/phase-4-hold-secret-audit.log"
+          if grep -q 'AGILECERT_PAYSTACK_SECRET_KEY' "$RUNNER_TEMP/phase-4-hold-secret-audit.log"; then
+            echo 'The dedicated Phase 4 payment secret now exists; refusing to roll the frontend back.'
+            exit 1
+          fi
+
+      - name: Checkout exact last verified Phase 3 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PHASE_3_COMMIT }}
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build and validate Phase 3 portal
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PHASE_3_COMMIT"
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
+          test -s "$js_file"
+          grep -q 'IIPM Certificate Verification' "$js_file"
+          if grep -q 'Credential Store' "$js_file"; then
+            echo 'Phase 4 commerce content was found in the Phase 3 hold bundle.'
+            exit 1
+          fi
+          sha256sum "$js_file" | awk '{print $1}' | tee "$RUNNER_TEMP/phase-3-hold-expected-js.sha256"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Phase 3 Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+      - name: Upload hold audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-4-frontend-hold-build-evidence
+          path: |
+            ${{ runner.temp }}/phase-4-hold-secret-audit.log
+            ${{ runner.temp }}/phase-3-hold-expected-js.sha256
+          if-no-files-found: warn
+          retention-days: 3
+
+  deploy:
+    name: Restore Phase 3 GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy Phase 3 hold bundle
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  verify:
+    name: Verify functional Phase 3 hold portal
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+    steps:
+      - name: Download build evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: phase-4-frontend-hold-build-evidence
+          path: ${{ runner.temp }}/hold-evidence
+
+      - name: Wait for exact Phase 3 bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(cat "$RUNNER_TEMP/hold-evidence/phase-3-hold-expected-js.sha256")"
+          success=0
+          for attempt in $(seq 1 36); do
+            status="$(curl -L --silent --show-error --max-time 60 -o "$RUNNER_TEMP/phase-3-hold-live-index.html" -w '%{http_code}' "${LIVE_URL}?phase4-hold=${GITHUB_RUN_ID}-${attempt}" || true)"
+            if [ "$status" = '200' ] && grep -q 'AgileCert Global' "$RUNNER_TEMP/phase-3-hold-live-index.html"; then
+              asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/phase-3-hold-live-index.html" | head -n 1 | cut -d'"' -f2)"
+              if [ -n "$asset" ]; then
+                asset_url="$(python3 - "$LIVE_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+                )"
+                if curl -L --fail --silent --show-error --max-time 60 "${asset_url}?phase4-hold=${GITHUB_RUN_ID}-${attempt}" -o "$RUNNER_TEMP/phase-3-hold-live-app.js"; then
+                  live="$(sha256sum "$RUNNER_TEMP/phase-3-hold-live-app.js" | awk '{print $1}')"
+                  if [ "$live" = "$expected" ]; then
+                    success=1
+                    break
+                  fi
+                fi
+              fi
+            fi
+            sleep 10
+          done
+          test "$success" -eq 1
+          grep -q 'IIPM Certificate Verification' "$RUNNER_TEMP/phase-3-hold-live-app.js"
+          if grep -q 'Credential Store' "$RUNNER_TEMP/phase-3-hold-live-app.js"; then
+            echo 'Phase 4 commerce interface remains live during the backend hold.'
+            exit 1
+          fi
+          {
+            echo 'phase3_hold_bundle_live=yes'
+            echo "expected_sha256=$expected"
+            echo "live_sha256=$(sha256sum "$RUNNER_TEMP/phase-3-hold-live-app.js" | awk '{print $1}')"
+          } | tee "$RUNNER_TEMP/phase-4-frontend-hold-result.log"
+
+      - name: Upload live hold evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-4-frontend-hold-live-evidence
+          path: |
+            ${{ runner.temp }}/phase-3-hold-live-index.html
+            ${{ runner.temp }}/phase-3-hold-live-app.js
+            ${{ runner.temp }}/phase-4-frontend-hold-result.log
+          if-no-files-found: warn
+          retention-days: 3
