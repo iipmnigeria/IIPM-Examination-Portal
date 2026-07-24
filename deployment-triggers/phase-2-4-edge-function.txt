@@ -1,0 +1,5 @@
+Deploy only the approved AgileCert Phase 2.4 Edge Function.
+Approved application commit: ca4c29ac5c2730b86000dfaefda6583cffc77053
+Function: agilecert-material-delivery
+The Phase 2.4 database migration is already applied and must not be changed.
+This trigger PR must not be merged.
