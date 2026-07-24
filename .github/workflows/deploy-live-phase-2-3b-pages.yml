@@ -3,9 +3,9 @@ name: Deploy Live Phase 2.3B Pages Bundle
 on:
   push:
     branches:
-      - pages-deploy
+      - main
     paths:
-      - 'deployment-triggers/deploy-live-phase-2-3b.txt'
+      - 'deployment-triggers/deploy-live-phase-2-3b-actions.txt'
 
 permissions:
   contents: read
@@ -34,11 +34,14 @@ jobs:
           ref: supabase-integration
           fetch-depth: 0
 
-      - name: Confirm approved application commit
+      - name: Confirm approved application and Phase 2.3B source
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$APPROVED_APP_COMMIT"
+          grep -q 'Material Management' src/components/AdminMaterialManagementPanel.tsx
+          grep -q 'get_agilecert_material_admin_console' src/services/materialAdminService.ts
+          grep -q 'AdminMaterialManagementLauncher' src/main.tsx
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
@@ -61,10 +64,12 @@ jobs:
             echo 'Production output still references the Vite source entry.'
             exit 1
           fi
-          js_file="$(find dist/assets -maxdepth 1 -type f -name '*.js' | head -n 1)"
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
           test -s "$js_file"
-          grep -q 'Material Management' "$js_file"
-          grep -q 'get_agilecert_material_admin_console' "$js_file"
+          test "$(wc -c < "$js_file")" -gt 1000
+          sha256sum "$js_file"
           touch dist/.nojekyll
 
       - name: Configure GitHub Pages
