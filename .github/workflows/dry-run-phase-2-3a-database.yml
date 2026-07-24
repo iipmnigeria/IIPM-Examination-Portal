@@ -30,6 +30,7 @@ jobs:
       SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
       MIGRATION_VERSION: '202607240101'
       MIGRATION_FILE: '202607240101_phase_2_3a_preparation_material_entitlements.sql'
+      SUPABASE_WORKDIR: '/tmp/agilecert-phase-2-3a-dry-run'
     steps:
       - name: Checkout Phase 2.3A branch
         uses: actions/checkout@v4
@@ -51,8 +52,20 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Prepare Phase 2 migration-history workspace
+        shell: bash
+        run: |
+          rm -rf "$SUPABASE_WORKDIR"
+          mkdir -p "$SUPABASE_WORKDIR/supabase/migrations"
+          cp supabase/config.toml "$SUPABASE_WORKDIR/supabase/config.toml"
+          cp supabase/migrations/202607230101_phase_2_candidate_profile_foundation.sql "$SUPABASE_WORKDIR/supabase/migrations/"
+          cp supabase/migrations/202607230102_phase_2_candidate_profile_photo.sql "$SUPABASE_WORKDIR/supabase/migrations/"
+          cp "supabase/migrations/$MIGRATION_FILE" "$SUPABASE_WORKDIR/supabase/migrations/"
+          test "$(find "$SUPABASE_WORKDIR/supabase/migrations" -maxdepth 1 -type f | wc -l)" -eq 3
+
       - name: Link production Supabase project
         shell: bash
+        working-directory: /tmp/agilecert-phase-2-3a-dry-run
         run: |
           npx --yes supabase@latest link \
             --project-ref "$SUPABASE_PROJECT_REF" \
@@ -60,6 +73,7 @@ jobs:
 
       - name: Dry run approved migration only
         shell: bash
+        working-directory: /tmp/agilecert-phase-2-3a-dry-run
         run: |
           set +e
           dry_run_output="$(npx --yes supabase@latest db push \
@@ -82,8 +96,9 @@ jobs:
             exit 1
           fi
 
-      - name: Verify migration has not been applied
+      - name: Verify migration remains unapplied
         shell: bash
+        working-directory: /tmp/agilecert-phase-2-3a-dry-run
         run: |
           migration_list="$(npx --yes supabase@latest migration list \
             --linked \
@@ -92,8 +107,8 @@ jobs:
 
           matching_line="$(printf '%s\n' "$migration_list" | grep "$MIGRATION_VERSION" || true)"
           test -n "$matching_line"
-          local_count="$(printf '%s\n' "$matching_line" | grep -o "$MIGRATION_VERSION" | wc -l)"
-          test "$local_count" -eq 1
+          occurrence_count="$(printf '%s\n' "$matching_line" | grep -o "$MIGRATION_VERSION" | wc -l)"
+          test "$occurrence_count" -eq 1
 
       - name: Upload dry-run evidence
         if: always()
