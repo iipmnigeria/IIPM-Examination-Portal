@@ -1,0 +1,68 @@
+name: Inspect Phase 2.3 Production Schema
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - 'deployment-triggers/phase-2-3-schema-inspection.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-schema:
+    name: Capture read-only production schema
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
+    steps:
+      - name: Checkout production application branch
+        uses: actions/checkout@v4
+        with:
+          ref: supabase-integration
+
+      - name: Validate read-only inputs
+        shell: bash
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Link production Supabase project
+        shell: bash
+        run: |
+          npx --yes supabase@latest link \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Dump public schema only
+        shell: bash
+        run: |
+          npx --yes supabase@latest db dump \
+            --linked \
+            --schema public \
+            --file "$RUNNER_TEMP/phase-2-3-public-schema.sql" \
+            --password "$SUPABASE_DB_PASSWORD"
+          test -s "$RUNNER_TEMP/phase-2-3-public-schema.sql"
+
+      - name: Upload schema evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-2-3-production-schema
+          path: ${{ runner.temp }}/phase-2-3-public-schema.sql
+          if-no-files-found: error
+          retention-days: 1
