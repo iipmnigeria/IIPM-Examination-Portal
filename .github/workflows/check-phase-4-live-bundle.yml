@@ -1,0 +1,86 @@
+name: Check Phase 4 Live Bundle
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/phase-4-certificate-production.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  compare-live-bundle:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APPROVED_APP_COMMIT: 'a0aca15360c07d2e2f6bada0cf80cd35060bb9ae'
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+
+    steps:
+      - name: Checkout exact approved Phase 4 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.APPROVED_APP_COMMIT }}
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build and fingerprint Phase 4
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APPROVED_APP_COMMIT"
+          npm install --no-audit --no-fund
+          npm run build
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
+          test -s "$js_file"
+          sha256sum "$js_file" | awk '{print $1}' | tee "$RUNNER_TEMP/phase-4-expected-js.sha256"
+
+      - name: Inspect current live bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl -L --silent --show-error --max-time 60 -o "$RUNNER_TEMP/phase-4-live-index.html" -w '%{http_code}' "${LIVE_URL}?phase4-audit=${GITHUB_RUN_ID}")"
+          test "$status" = '200'
+          grep -q 'AgileCert Global' "$RUNNER_TEMP/phase-4-live-index.html"
+          asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/phase-4-live-index.html" | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          asset_url="$(python3 - "$LIVE_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+          )"
+          curl -L --fail --silent --show-error --max-time 60 "${asset_url}?phase4-audit=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/phase-4-live-app.js"
+          expected="$(cat "$RUNNER_TEMP/phase-4-expected-js.sha256")"
+          live="$(sha256sum "$RUNNER_TEMP/phase-4-live-app.js" | awk '{print $1}')"
+          {
+            echo "http_status=$status"
+            echo "expected_phase4_sha256=$expected"
+            echo "live_sha256=$live"
+            if [ "$expected" = "$live" ]; then
+              echo 'phase4_bundle_live=yes'
+            else
+              echo 'phase4_bundle_live=no'
+            fi
+          } | tee "$RUNNER_TEMP/phase-4-live-bundle-result.log"
+
+      - name: Upload live comparison evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-4-live-bundle-audit
+          path: |
+            ${{ runner.temp }}/phase-4-expected-js.sha256
+            ${{ runner.temp }}/phase-4-live-index.html
+            ${{ runner.temp }}/phase-4-live-app.js
+            ${{ runner.temp }}/phase-4-live-bundle-result.log
+          if-no-files-found: warn
+          retention-days: 1
