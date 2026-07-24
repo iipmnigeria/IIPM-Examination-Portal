@@ -37,11 +37,14 @@ jobs:
           ref: supabase-integration
           fetch-depth: 0
 
-      - name: Confirm approved commit
+      - name: Confirm approved commit and Phase 2.3B source
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$APPROVED_APP_COMMIT"
+          grep -q 'Material Management' src/components/AdminMaterialManagementPanel.tsx
+          grep -q 'get_agilecert_material_admin_console' src/services/materialAdminService.ts
+          grep -q 'AdminMaterialManagementLauncher' src/main.tsx
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
@@ -65,12 +68,14 @@ jobs:
             echo 'Compiled output incorrectly references the source entry.'
             exit 1
           fi
-          js_file="$(find dist/assets -maxdepth 1 -type f -name '*.js' | head -n 1)"
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
           css_file="$(find dist/assets -maxdepth 1 -type f -name '*.css' | head -n 1)"
           test -s "$js_file"
           test -s "$css_file"
-          grep -q 'Material Management' "$js_file"
-          grep -q 'get_agilecert_material_admin_console' "$js_file"
+          test "$(wc -c < "$js_file")" -gt 1000
+          sha256sum "$js_file" | awk '{print $1}' | tee "$RUNNER_TEMP/expected-live-js.sha256"
           touch dist/.nojekyll
 
       - name: Publish dist to gh-pages branch
@@ -103,10 +108,11 @@ jobs:
           cat "$RUNNER_TEMP/pages-update.json" || true
           test "$status" = '204'
 
-      - name: Wait for compiled live bundle
+      - name: Wait for exact compiled live bundle
         shell: bash
         run: |
           set -euo pipefail
+          expected_sha="$(cat "$RUNNER_TEMP/expected-live-js.sha256")"
           success=0
           for attempt in $(seq 1 24); do
             status="$(curl -L -sS -o "$RUNNER_TEMP/live-index.html" -w '%{http_code}' "$LIVE_URL?phase23b-publish=${GITHUB_RUN_ID}-${attempt}" || true)"
@@ -122,11 +128,14 @@ jobs:
           print(urljoin(sys.argv[1], sys.argv[2]))
           PY
                 )"
-                if curl -L --fail --silent --show-error "$asset_url?phase23b=${GITHUB_RUN_ID}-${attempt}" -o "$RUNNER_TEMP/live-app.js" \
-                  && grep -q 'Material Management' "$RUNNER_TEMP/live-app.js" \
-                  && grep -q 'get_agilecert_material_admin_console' "$RUNNER_TEMP/live-app.js"; then
-                  success=1
-                  break
+                if curl -L --fail --silent --show-error "$asset_url?phase23b=${GITHUB_RUN_ID}-${attempt}" -o "$RUNNER_TEMP/live-app.js"; then
+                  live_sha="$(sha256sum "$RUNNER_TEMP/live-app.js" | awk '{print $1}')"
+                  echo "Expected JS SHA-256: $expected_sha"
+                  echo "Live JS SHA-256:     $live_sha"
+                  if [ "$live_sha" = "$expected_sha" ]; then
+                    success=1
+                    break
+                  fi
                 fi
               fi
             fi
@@ -210,6 +219,7 @@ jobs:
           name: live-agilecert-phase-2-3b-final-evidence
           path: |
             ${{ runner.temp }}/pages-update.json
+            ${{ runner.temp }}/expected-live-js.sha256
             ${{ runner.temp }}/live-index.html
             ${{ runner.temp }}/live-app.js
             ${{ runner.temp }}/live-phase-2-3b-final-report.json
