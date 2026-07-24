@@ -7,6 +7,12 @@ on:
     paths:
       - '.github/workflows/diagnose-agilecert-phase-4-typescript.yml'
       - 'src/**'
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - '.github/workflows/diagnose-agilecert-phase-4-typescript.yml'
+      - 'src/**'
 
 permissions:
   contents: read
