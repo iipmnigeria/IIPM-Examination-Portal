@@ -1,0 +1,3 @@
+Apply approved Phase 2.3B migration 202607240102 only.
+Application merge: f3d6caae56e4a4ba9e0563a8549764d84dcc7f87
+Trigger refresh: verify deployed RPCs and actual production index names.
