@@ -1,0 +1,218 @@
+name: Publish Phase 2.3B to gh-pages
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - 'deployment-triggers/publish-phase-2-3b-gh-pages.txt'
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: publish-phase-2-3b-gh-pages
+  cancel-in-progress: false
+
+jobs:
+  publish-and-verify:
+    name: Publish compiled Phase 2.3B bundle and verify live portal
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      APPROVED_APP_COMMIT: 'f3d6caae56e4a4ba9e0563a8549764d84dcc7f87'
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout approved production application
+        uses: actions/checkout@v4
+        with:
+          ref: supabase-integration
+          fetch-depth: 0
+
+      - name: Confirm approved commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APPROVED_APP_COMMIT"
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install
+          npm run build
+
+      - name: Verify compiled Phase 2.3B bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          if grep -q '/src/main.tsx' dist/index.html; then
+            echo 'Compiled output incorrectly references the source entry.'
+            exit 1
+          fi
+          js_file="$(find dist/assets -maxdepth 1 -type f -name '*.js' | head -n 1)"
+          css_file="$(find dist/assets -maxdepth 1 -type f -name '*.css' | head -n 1)"
+          test -s "$js_file"
+          test -s "$css_file"
+          grep -q 'Material Management' "$js_file"
+          grep -q 'get_agilecert_material_admin_console' "$js_file"
+          touch dist/.nojekyll
+
+      - name: Publish dist to gh-pages branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          git init
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --all
+          git commit -m "Deploy Phase 2.3B ${APPROVED_APP_COMMIT}"
+          git branch -M gh-pages
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin gh-pages
+
+      - name: Configure Pages to publish gh-pages root
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload='{"source":{"branch":"gh-pages","path":"/"}}'
+          status="$(curl -sS -o "$RUNNER_TEMP/pages-update.json" -w '%{http_code}' \
+            -X PUT \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages" \
+            -d "$payload")"
+          echo "Pages configuration HTTP status: $status"
+          cat "$RUNNER_TEMP/pages-update.json" || true
+          test "$status" = '204'
+
+      - name: Wait for compiled live bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          success=0
+          for attempt in $(seq 1 24); do
+            status="$(curl -L -sS -o "$RUNNER_TEMP/live-index.html" -w '%{http_code}' "$LIVE_URL?phase23b-publish=${GITHUB_RUN_ID}-${attempt}" || true)"
+            echo "Attempt $attempt: HTTP $status"
+            if [ "$status" = '200' ] \
+              && grep -q 'AgileCert Global' "$RUNNER_TEMP/live-index.html" \
+              && ! grep -q '/src/main.tsx' "$RUNNER_TEMP/live-index.html"; then
+              asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/live-index.html" | head -n 1 | cut -d'"' -f2)"
+              if [ -n "$asset" ]; then
+                asset_url="$(python - "$LIVE_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+                )"
+                if curl -L --fail --silent --show-error "$asset_url?phase23b=${GITHUB_RUN_ID}-${attempt}" -o "$RUNNER_TEMP/live-app.js" \
+                  && grep -q 'Material Management' "$RUNNER_TEMP/live-app.js" \
+                  && grep -q 'get_agilecert_material_admin_console' "$RUNNER_TEMP/live-app.js"; then
+                  success=1
+                  break
+                fi
+              fi
+            fi
+            sleep 10
+          done
+          test "$success" -eq 1
+
+      - name: Install Chromium
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/live-smoke"
+          cd "$RUNNER_TEMP/live-smoke"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright@latest
+          npx playwright install --with-deps chromium
+
+      - name: Render and inspect deployed portal
+        shell: bash
+        working-directory: ${{ runner.temp }}/live-smoke
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+            const pageErrors = [];
+            const consoleErrors = [];
+            page.on('pageerror', error => pageErrors.push(String(error)));
+            page.on('console', message => {
+              if (message.type() === 'error') consoleErrors.push(message.text());
+            });
+
+            const response = await page.goto(`${process.env.LIVE_URL}?phase23b-final=${process.env.GITHUB_RUN_ID}`, {
+              waitUntil: 'domcontentloaded',
+              timeout: 60000,
+            });
+            await page.waitForTimeout(6000);
+
+            const status = response ? response.status() : 0;
+            const title = await page.title();
+            const bodyText = (await page.locator('body').innerText()).trim();
+            const root = page.locator('#root');
+            const rootCount = await root.count();
+            const rootHtml = rootCount ? (await root.innerHTML()).trim() : '';
+            const bootShellVisible = await page.locator('#iipm-boot-shell').isVisible().catch(() => false);
+
+            const report = {
+              url: page.url(),
+              status,
+              title,
+              bodyTextLength: bodyText.length,
+              rootHtmlLength: rootHtml.length,
+              bootShellVisible,
+              pageErrors,
+              consoleErrors,
+              bodyPreview: bodyText.slice(0, 500),
+            };
+
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/live-phase-2-3b-final-report.json`, JSON.stringify(report, null, 2));
+            await page.screenshot({ path: `${process.env.RUNNER_TEMP}/live-phase-2-3b-final.png`, fullPage: true });
+            await browser.close();
+
+            if (status !== 200) throw new Error(`Live portal returned HTTP ${status}.`);
+            if (!/AgileCert Global/i.test(title)) throw new Error(`Unexpected page title: ${title}`);
+            if (rootCount !== 1 || rootHtml.length < 100) throw new Error('The application root is blank or missing.');
+            if (bodyText.length < 100) throw new Error('The rendered page has insufficient visible content.');
+            if (bootShellVisible) throw new Error('The static loading shell did not hand over to React.');
+            if (pageErrors.length) throw new Error(`Browser page errors: ${pageErrors.join(' | ')}`);
+          })().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Upload final deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-agilecert-phase-2-3b-final-evidence
+          path: |
+            ${{ runner.temp }}/pages-update.json
+            ${{ runner.temp }}/live-index.html
+            ${{ runner.temp }}/live-app.js
+            ${{ runner.temp }}/live-phase-2-3b-final-report.json
+            ${{ runner.temp }}/live-phase-2-3b-final.png
+          if-no-files-found: warn
+          retention-days: 3
