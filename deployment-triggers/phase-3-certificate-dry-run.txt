@@ -1,0 +1,4 @@
+Dry-run the approved Phase 3 certificate-authority migration plan.
+Approved draft head: ba67bfab9b5f26a58b018ae284c1d76c770416d6
+Migration: 202607240104_phase_3_certificate_eligibility_issuance_verification.sql
+This trigger PR must not be merged.
