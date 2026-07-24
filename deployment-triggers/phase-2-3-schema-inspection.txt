@@ -1,0 +1,1 @@
+Read-only schema inspection trigger for Phase 2.3 planning.
