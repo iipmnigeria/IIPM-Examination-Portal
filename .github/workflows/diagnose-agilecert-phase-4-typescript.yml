@@ -6,7 +6,7 @@ on:
       - phase-4-certificate-payment-credential-issuance
     paths:
       - '.github/workflows/diagnose-agilecert-phase-4-typescript.yml'
-      - 'src/**'
+      - 'src/components/CandidateCertificateCommerce.tsx'
   pull_request:
     branches:
       - supabase-integration
@@ -15,9 +15,37 @@ on:
       - 'src/**'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  patch:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase-4-certificate-payment-credential-issuance
+      - name: Move JSX key to wrapper
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/CandidateCertificateCommerce.tsx')
+          text = path.read_text()
+          old = "{offers.map((offer) => <OfferCard key={offer.productCode} offer={offer} now={now} busy={busy} onCheckout={(selected) => void checkout(selected)} />)}"
+          new = "{offers.map((offer) => (\n                  <div key={offer.productCode}>\n                    <OfferCard offer={offer} now={now} busy={busy} onCheckout={(selected) => void checkout(selected)} />\n                  </div>\n                ))}"
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'Expected one exact JSX target, found {count}.')
+          path.write_text(text.replace(old, new))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/CandidateCertificateCommerce.tsx
+          git commit -m 'Fix Phase 4 offer-card JSX key typing'
+          git push origin HEAD:phase-4-certificate-payment-credential-issuance
+
   diagnose:
     runs-on: ubuntu-latest
     timeout-minutes: 15
