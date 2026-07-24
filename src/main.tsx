@@ -2,11 +2,14 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import AdminAssignmentWidget from './components/AdminAssignmentWidget';
+import AdminCertificateCommerceLauncher from './components/AdminCertificateCommerceLauncher';
 import AdminCertificateManagementLauncher from './components/AdminCertificateManagementLauncher';
 import AdminCommerceConsole from './components/AdminCommerceConsole';
 import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
+import CandidateCertificateCommerce from './components/CandidateCertificateCommerce';
 import CandidateCertificateWorkspace from './components/CandidateCertificateWorkspace';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
+import CertificatePaymentReturnHandler from './components/CertificatePaymentReturnHandler';
 import LegacyCertificateSecurityGate from './components/LegacyCertificateSecurityGate';
 import PaymentReturnHandler from './components/PaymentReturnHandler';
 import PublicCertificateVerification from './components/PublicCertificateVerification';
@@ -152,6 +155,9 @@ createRoot(rootElement).render(
       <LegacyCertificateSecurityGate />
       <AdminCertificateManagementLauncher />
       <PublicCertificateVerification />
+      <CandidateCertificateCommerce />
+      <CertificatePaymentReturnHandler />
+      <AdminCertificateCommerceLauncher />
     </SupabaseSessionBoundary>
   </StrictMode>,
 );
