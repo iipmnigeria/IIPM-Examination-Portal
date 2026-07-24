@@ -50,13 +50,24 @@ Deno.serve(async (request: Request) => {
     }
 
     const candidateClient = userClient(request);
+    const professional = productCode === 'professional';
+    const orderRpc = professional
+      ? 'create_agilecert_professional_certificate_order'
+      : 'create_agilecert_certificate_order';
+    const orderArguments = professional
+      ? {
+          p_eligibility_id: eligibilityId,
+          p_currency: currency,
+        }
+      : {
+          p_eligibility_id: eligibilityId,
+          p_product_code: productCode,
+          p_currency: currency,
+        };
+
     const { data: orderResult, error: orderError } = await candidateClient.rpc(
-      'create_agilecert_certificate_order',
-      {
-        p_eligibility_id: eligibilityId,
-        p_product_code: productCode,
-        p_currency: currency,
-      },
+      orderRpc,
+      orderArguments,
     );
 
     if (orderError) throw new Error(orderError.message);
@@ -139,6 +150,7 @@ Deno.serve(async (request: Request) => {
           eligibilityId: order.eligibility_id,
           productCode: order.product_code,
           pricingWindow: order.pricing_window,
+          identityAssuranceRequired: order.product_code === 'professional',
         },
       }),
     });
