@@ -137,7 +137,7 @@ jobs:
           for line in history.splitlines():
               if '|' not in line:
                   continue
-              parts = [part.strip() for part in line.split('|')]
+              parts = [part.strip().strip('`') for part in line.split('|')]
               if len(parts) >= 3:
                   rows.append(parts)
 
