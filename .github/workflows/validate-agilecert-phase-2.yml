@@ -7,11 +7,12 @@ on:
       - phase-2-2-profile-photo
       - phase-2-2b-profile-avatar-integration
       - phase-2-3a-material-entitlements
+      - phase-2-3b-material-admin-tools
     paths:
       - 'src/**'
       - 'package.json'
       - 'vite.config.*'
-      - 'supabase/migrations/202607240101_phase_2_3a_preparation_material_entitlements.sql'
+      - 'supabase/migrations/202607240102_phase_2_3b_material_admin_tools.sql'
       - 'docs/AGILECERT_PHASE_2_SCOPE.md'
       - '.github/workflows/validate-agilecert-phase-2.yml'
   pull_request:
@@ -21,7 +22,7 @@ on:
       - 'src/**'
       - 'package.json'
       - 'vite.config.*'
-      - 'supabase/migrations/202607240101_phase_2_3a_preparation_material_entitlements.sql'
+      - 'supabase/migrations/202607240102_phase_2_3b_material_admin_tools.sql'
       - 'docs/AGILECERT_PHASE_2_SCOPE.md'
       - '.github/workflows/validate-agilecert-phase-2.yml'
   workflow_dispatch:
@@ -66,72 +67,81 @@ jobs:
           grep -q 'AgileCert Global' dist/index.html
           grep -q 'root' dist/index.html
 
-      - name: Confirm Phase 2.3A backend scope
+      - name: Confirm Phase 2.3B backend scope
         shell: bash
         run: |
           changed_functions="$(git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/' || true)"
           if [ -n "$changed_functions" ]; then
             echo "$changed_functions"
-            echo 'Phase 2.3A must not add or modify Supabase Edge Functions.'
+            echo 'Phase 2.3B must not add or modify Supabase Edge Functions.'
             exit 1
           fi
 
           changed_migrations="$(git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/migrations/' || true)"
-          allowed='supabase/migrations/202607240101_phase_2_3a_preparation_material_entitlements.sql'
+          allowed='supabase/migrations/202607240102_phase_2_3b_material_admin_tools.sql'
           test "$changed_migrations" = "$allowed"
 
-      - name: Confirm authoritative material entitlement model
+      - name: Confirm administrator publication controls
         shell: bash
         run: |
-          migration='supabase/migrations/202607240101_phase_2_3a_preparation_material_entitlements.sql'
+          migration='supabase/migrations/202607240102_phase_2_3b_material_admin_tools.sql'
           test -s "$migration"
 
-          grep -q 'agilecert_preparation_materials' "$migration"
-          grep -q 'agilecert_preparation_material_versions' "$migration"
-          grep -q 'agilecert_exam_materials' "$migration"
-          grep -q 'agilecert_material_entitlements' "$migration"
+          grep -q 'agilecert_material_versions_material_version_key' "$migration"
+          grep -q 'unique (material_id, version_number)' "$migration"
+          grep -q 'agilecert_material_versions_storage_object_key' "$migration"
+          grep -q 'unique (storage_bucket, storage_path)' "$migration"
+          grep -q 'agilecert_require_material_admin' "$migration"
+          grep -q "p.role in ('exam_admin', 'super_admin')" "$migration"
+          grep -q 'agilecert_stamp_material_admin_write' "$migration"
+          grep -q 'get_agilecert_material_admin_console' "$migration"
+          grep -q 'set_agilecert_material_version_status' "$migration"
+          grep -q 'reconcile_agilecert_material_entitlements' "$migration"
+          grep -q "status = 'retired'" "$migration"
+          grep -q "status = 'published'" "$migration"
           grep -q 'refresh_agilecert_material_entitlements' "$migration"
-          grep -q 'get_my_agilecert_preparation_materials' "$migration"
-          grep -q "eo.status = 'paid'" "$migration"
-          grep -q "eo.status = 'waived'" "$migration"
-          grep -q "ep.status = 'success'" "$migration"
-          grep -q 'ep.amount_minor = eo.payable_amount_minor' "$migration"
-          grep -q 'upper(ep.currency) = upper(eo.currency)' "$migration"
-          grep -q 'v_assignment.assigned_by is not null' "$migration"
-          grep -q "source_type in ('paid_order', 'waived_order', 'admin_assignment')" "$migration"
-          grep -q "'locked'" "$migration"
-          grep -q "'scheduled'" "$migration"
-          grep -q "'available'" "$migration"
-          grep -q "'expired'" "$migration"
-          grep -q "'revoked'" "$migration"
+          grep -q "notify pgrst, 'reload schema'" "$migration"
 
-          candidate_rpc="$(awk '/create or replace function public.get_my_agilecert_preparation_materials\(\)/,/alter table public.agilecert_preparation_materials enable row level security;/' "$migration")"
-          if printf '%s\n' "$candidate_rpc" | grep -Eqi "'storageBucket'|'storagePath'|'checksumSha256'|createSignedUrl|getPublicUrl"; then
-            echo 'Candidate material RPC exposes restricted storage or delivery fields.'
+      - name: Confirm administrator material workspace
+        shell: bash
+        run: |
+          service='src/services/materialAdminService.ts'
+          panel='src/components/AdminMaterialManagementPanel.tsx'
+          launcher='src/components/AdminMaterialManagementLauncher.tsx'
+          main='src/main.tsx'
+
+          test -s "$service"
+          test -s "$panel"
+          test -s "$launcher"
+          grep -q 'get_agilecert_material_admin_console' "$service"
+          grep -q 'set_agilecert_material_version_status' "$service"
+          grep -q 'reconcile_agilecert_material_entitlements' "$service"
+          grep -q 'agilecert_preparation_materials' "$service"
+          grep -q 'agilecert_preparation_material_versions' "$service"
+          grep -q 'agilecert_exam_materials' "$service"
+          grep -q 'Metadata publication only' "$panel"
+          grep -q 'Candidate downloads' "$panel"
+          grep -q "\['exam_admin', 'super_admin'\]" "$launcher"
+          grep -q 'AdminMaterialManagementPanel' "$launcher"
+          grep -q 'AdminMaterialManagementLauncher' "$main"
+
+          if grep -R -Eqi 'createSignedUrl|getPublicUrl|SUPABASE_SERVICE_ROLE|service_role' "$service" "$panel" "$launcher"; then
+            echo 'Phase 2.3B frontend introduces delivery URLs or privileged credentials.'
             exit 1
           fi
 
-      - name: Confirm candidate materials workspace
+      - name: Confirm existing candidate and auditor paths remain unchanged
         shell: bash
         run: |
-          service='src/services/preparationMaterialService.ts'
-          component='src/components/CandidatePreparationMaterialsPanel.tsx'
-          app='src/App.tsx'
-
-          test -s "$service"
-          test -s "$component"
-          grep -q 'get_my_agilecert_preparation_materials' "$service"
-          grep -q "'locked'" "$service"
-          grep -q "'scheduled'" "$service"
-          grep -q "'available'" "$service"
-          grep -q "'expired'" "$service"
-          grep -q "'revoked'" "$service"
-          grep -q 'Secure delivery activates in Phase 2.4' "$component"
-          grep -q 'CandidatePreparationMaterialsPanel' "$app"
-          grep -q "setView('materials')" "$app"
-
-          if grep -R -Eqi 'createSignedUrl|getPublicUrl|storage_bucket|storage_path|service_role|SUPABASE_SERVICE_ROLE' "$service" "$component"; then
-            echo 'The candidate materials frontend exposes delivery details or privileged credentials.'
+          changed_files="$(git diff --name-only origin/supabase-integration...HEAD)"
+          if printf '%s\n' "$changed_files" | grep -Eq '^src/components/(CandidatePreparationMaterialsPanel|AdminPortal)\.tsx$'; then
+            echo "$changed_files"
+            echo 'Phase 2.3B must not rewrite the candidate material library or proctor-audit portal.'
+            exit 1
+          fi
+          if printf '%s\n' "$changed_files" | grep -Eq '^src/services/(preparationMaterialService|commerceService|examService)\.ts$'; then
+            echo "$changed_files"
+            echo 'Phase 2.3B must not change candidate delivery, commerce or examination services.'
             exit 1
           fi
 
@@ -139,23 +149,23 @@ jobs:
         shell: bash
         run: |
           changed_files="$(git diff --name-only origin/supabase-integration...HEAD)"
-          if printf '%s\n' "$changed_files" | grep -Eqi '(credential|certificate-order|identity-verification|ai-adviser|download-material)'; then
+          if printf '%s\n' "$changed_files" | grep -Eqi '(credential|certificate-order|identity-verification|ai-adviser|download-material|material-download)'; then
             echo "$changed_files"
-            echo 'A later-phase feature file was introduced in Phase 2.3A.'
+            echo 'A later-phase feature file was introduced in Phase 2.3B.'
             exit 1
           fi
 
-          migration='supabase/migrations/202607240101_phase_2_3a_preparation_material_entitlements.sql'
-          if grep -Eqi 'create or replace function.*(download|signed_url|certificate|credential|identity_verification|ai_adviser)' "$migration"; then
-            echo 'The Phase 2.3A migration introduces an excluded later-phase function.'
+          migration='supabase/migrations/202607240102_phase_2_3b_material_admin_tools.sql'
+          if grep -Eqi 'create or replace function.*(download|signed_url|certificate|credential|identity_verification|ai_adviser|payment)' "$migration"; then
+            echo 'The Phase 2.3B migration introduces an excluded later-phase or payment function.'
             exit 1
           fi
 
-      - name: Confirm Phase 2.3A scope document
+      - name: Confirm Phase 2.3B scope document
         shell: bash
         run: |
-          grep -q 'Phase 2.2B — Profile-page and header-avatar integration — completed and deployed' docs/AGILECERT_PHASE_2_SCOPE.md
-          grep -q 'Phase 2.3A — Preparation-material catalogue and entitlement foundation — current build unit' docs/AGILECERT_PHASE_2_SCOPE.md
-          grep -q 'successful `exam_payments` record' docs/AGILECERT_PHASE_2_SCOPE.md
-          grep -q 'never expose the storage bucket, storage path or checksum' docs/AGILECERT_PHASE_2_SCOPE.md
-          grep -q 'Phase 2.3B — Administrator material publication and mapping tools — next increment' docs/AGILECERT_PHASE_2_SCOPE.md
+          grep -q 'Phase 2.3A — Preparation-material catalogue and entitlement foundation — completed and deployed' docs/AGILECERT_PHASE_2_SCOPE.md
+          grep -q 'Phase 2.3B — Administrator material publication and mapping tools — current build unit' docs/AGILECERT_PHASE_2_SCOPE.md
+          grep -q 'examination administrators and super administrators' docs/AGILECERT_PHASE_2_SCOPE.md
+          grep -q 'No candidate download function, signed material URL or Edge Function is introduced' docs/AGILECERT_PHASE_2_SCOPE.md
+          grep -q 'Phase 2.4 — Secure material delivery and audit — next increment' docs/AGILECERT_PHASE_2_SCOPE.md
