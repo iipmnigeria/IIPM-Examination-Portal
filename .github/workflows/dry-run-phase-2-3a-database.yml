@@ -107,8 +107,11 @@ jobs:
 
           matching_line="$(printf '%s\n' "$migration_list" | grep "$MIGRATION_VERSION" || true)"
           test -n "$matching_line"
-          occurrence_count="$(printf '%s\n' "$matching_line" | grep -o "$MIGRATION_VERSION" | wc -l)"
-          test "$occurrence_count" -eq 1
+
+          local_version="$(printf '%s\n' "$matching_line" | awk -F'|' '{value=$1; gsub(/[`[:space:]]/, "", value); print value}')"
+          remote_version="$(printf '%s\n' "$matching_line" | awk -F'|' '{value=$2; gsub(/[`[:space:]]/, "", value); print value}')"
+          test "$local_version" = "$MIGRATION_VERSION"
+          test -z "$remote_version"
 
       - name: Upload dry-run evidence
         if: always()
