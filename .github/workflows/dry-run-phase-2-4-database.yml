@@ -68,7 +68,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          deno check supabase/functions/agilecert-material-delivery/index.ts \
+          deno check --node-modules-dir=auto \
+            supabase/functions/agilecert-material-delivery/index.ts \
             2>&1 | tee "$RUNNER_TEMP/phase-2-4-edge-function-check.log"
 
       - name: Prepare deployed Phase 2 history workspace
