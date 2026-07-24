@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { GraduationCap, LayoutDashboard, ShieldCheck, UserRound } from 'lucide-react';
+import { BookOpenCheck, GraduationCap, LayoutDashboard, ShieldCheck, UserRound } from 'lucide-react';
 import StudentDashboard from './components/StudentDashboard';
 import ExamScreen from './components/ExamScreen';
 import AdminPortal from './components/AdminPortal';
 import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
 import CandidateAvatar from './components/CandidateAvatar';
+import CandidatePreparationMaterialsPanel from './components/CandidatePreparationMaterialsPanel';
 import CandidateProfilePanel from './components/CandidateProfilePanel';
 import CandidateProfilePhotoEditor from './components/CandidateProfilePhotoEditor';
 import { signOut as signOutPortalUser } from './services/authService';
@@ -17,7 +18,7 @@ import {
 } from './services/examService';
 import type { Attempt, ProctorLogEvent, Test } from './types';
 
-type PortalView = 'dashboard' | 'profile' | 'exam' | 'admin';
+type PortalView = 'dashboard' | 'materials' | 'profile' | 'exam' | 'admin';
 
 export default function App() {
   const [userRole, setUserRole] = useState<'student' | 'admin' | null>(() => {
@@ -231,7 +232,16 @@ export default function App() {
                     }`}
                   >
                     <LayoutDashboard className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Examinations</span>
+                    <span className="hidden lg:inline">Examinations</span>
+                  </button>
+                  <button
+                    onClick={() => setView('materials')}
+                    className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${
+                      view === 'materials' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <BookOpenCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="hidden lg:inline">Materials</span>
                   </button>
                   <button
                     onClick={() => setView('profile')}
@@ -240,7 +250,7 @@ export default function App() {
                     }`}
                   >
                     <UserRound className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="hidden sm:inline">Profile</span>
+                    <span className="hidden lg:inline">Profile</span>
                   </button>
                 </nav>
               )}
@@ -304,6 +314,12 @@ export default function App() {
                 justCompletedAttempt={justCompletedAttempt}
                 onClearJustCompleted={() => setJustCompletedAttempt(null)}
               />
+            </motion.div>
+          )}
+
+          {view === 'materials' && userRole === 'student' && (
+            <motion.div key="materials" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <CandidatePreparationMaterialsPanel />
             </motion.div>
           )}
 
