@@ -1,3 +1,4 @@
 approved application commit: a0aca15360c07d2e2f6bada0cf80cd35060bb9ae
 migration: 202607240105
 functions: initialize-certificate-payment, verify-certificate-payment, paystack-certificate-webhook
+secret audit: read-only
