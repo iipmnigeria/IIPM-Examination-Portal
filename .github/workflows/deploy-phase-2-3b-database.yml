@@ -163,8 +163,8 @@ jobs:
           grep -q 'get_agilecert_material_admin_console' "$schema_file"
           grep -q 'set_agilecert_material_version_status' "$schema_file"
           grep -q 'reconcile_agilecert_material_entitlements' "$schema_file"
-          grep -q 'agilecert_material_versions_one_published' "$schema_file"
-          grep -q 'agilecert_material_versions_storage_object_unique' "$schema_file"
+          grep -q 'agilecert_one_published_material_version' "$schema_file"
+          grep -q 'agilecert_material_versions_storage_object_key' "$schema_file"
 
       - name: Upload sanitized deployment evidence
         if: always()
