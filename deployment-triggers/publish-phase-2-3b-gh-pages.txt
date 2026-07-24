@@ -1,3 +1,4 @@
 Publish the approved Phase 2.3B compiled bundle to gh-pages and set GitHub Pages source accordingly.
 Approved application commit: f3d6caae56e4a4ba9e0563a8549764d84dcc7f87
 Migration: 202607240102
+Verification method: exact compiled JavaScript SHA-256 match.
