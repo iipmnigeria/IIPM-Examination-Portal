@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { getMyIdentityAssurance } from './identityAssuranceService';
 
 export type CertificateProductCode = 'achievement' | 'professional';
 export type CertificateCommerceCurrency = 'NGN' | 'USD';
@@ -215,14 +216,34 @@ export function formatCertificateMoney(
 }
 
 export async function getMyCertificateCommerce(): Promise<CandidateCertificateCommerce> {
-  const { data, error } = await supabase.rpc('get_my_agilecert_certificate_commerce');
+  const [commerceResult, identityResult] = await Promise.allSettled([
+    supabase.rpc('get_my_agilecert_certificate_commerce'),
+    getMyIdentityAssurance(),
+  ]);
+
+  if (commerceResult.status === 'rejected') {
+    throw new Error('Unable to load certificate commerce.');
+  }
+
+  const { data, error } = commerceResult.value;
   if (error) throw new Error(`Unable to load certificate commerce: ${error.message}`);
   if (!data || typeof data !== 'object') return emptyCandidateCommerce;
 
   const payload = data as Partial<CandidateCertificateCommerce>;
+  const professionalCheckoutUnlocked = identityResult.status === 'fulfilled'
+    && identityResult.value.professionalCheckoutUnlocked;
+  const offers = (Array.isArray(payload.offers) ? payload.offers : []).map((offer) => {
+    if (offer.productCode !== 'professional') return offer;
+    return {
+      ...offer,
+      checkoutAvailable: professionalCheckoutUnlocked,
+      blockedReason: professionalCheckoutUnlocked ? null : 'identity_verification_required',
+    };
+  });
+
   return {
     marketCurrency: payload.marketCurrency === 'NGN' ? 'NGN' : 'USD',
-    offers: Array.isArray(payload.offers) ? payload.offers : [],
+    offers,
     orders: Array.isArray(payload.orders) ? payload.orders : [],
     credentials: Array.isArray(payload.credentials) ? payload.credentials : [],
     counts: { ...emptyCandidateCommerce.counts, ...(payload.counts || {}) },
