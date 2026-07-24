@@ -73,12 +73,7 @@ jobs:
               "${LIVE_URL}?verify=${cache_buster}" -o "$RUNNER_TEMP/phase-4-live-index.html"; then
               asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/phase-4-live-index.html" | head -n 1 | cut -d'"' -f2 || true)"
               if [ -n "$asset" ]; then
-                asset_url="$(python - "$LIVE_URL" "$asset" <<'PY'
-import sys
-from urllib.parse import urljoin
-print(urljoin(sys.argv[1], sys.argv[2]))
-PY
-)"
+                asset_url="$(python -c 'from urllib.parse import urljoin; import sys; print(urljoin(sys.argv[1], sys.argv[2]))' "$LIVE_URL" "$asset")"
                 if curl -fsSL --retry 3 --retry-delay 2 -H 'Cache-Control: no-cache' \
                   "${asset_url}?verify=${cache_buster}" -o "$RUNNER_TEMP/phase-4-live-app.js"; then
                   live_hash="$(sha256sum "$RUNNER_TEMP/phase-4-live-app.js" | awk '{print $1}')"
