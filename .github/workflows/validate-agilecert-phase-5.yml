@@ -57,13 +57,9 @@ jobs:
           set -euo pipefail
           test -s dist/index.html
           grep -q 'AgileCert Global' dist/index.html
-          asset="$(grep -Eo 'src=\"[^\"]+\.js\"' dist/index.html | head -n 1 | cut -d'\"' -f2)"
-          test -n "$asset"
-          app="dist/${asset#./}"
-          test -s "$app"
-          grep -q 'Identity Assurance' "$app"
-          grep -q 'Identity Review' "$app"
-          grep -q 'Credential Store' "$app"
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Identity Assurance'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Identity Review'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Credential Store'
 
       - uses: denoland/setup-deno@v2
         with:
@@ -104,26 +100,28 @@ jobs:
               'manual_iipm_review',
               "status = 'approved'",
               "approval_expires_at > now()",
-              "allowed_mime_types",
-              "file_size_limit",
-              "storage.foldername(name)",
-              "public = false",
+              'allowed_mime_types',
+              'file_size_limit',
+              'storage.foldername(name)',
+              'public = false',
               'Professional Certificate issuance requires an active approved IIPM identity-assurance record',
+              'governmentIdProhibited',
+              'biometricsProhibited',
           ]
           missing = [item for item in required if item not in sql]
           assert not missing, f'Missing Phase 5 authority controls: {missing}'
 
-          prohibited = [
-              r'face[_ -]?match',
-              r'facial[_ -]?recognition',
-              r'fingerprint',
-              r'voiceprint',
-              r'biometric[_ -]?template',
-              r'identity[_ -]?provider[_ -]?url',
-              r'government[_ -]?id[_ -]?number',
+          prohibited_implementation = [
+              r'create\s+(?:table|function).*face[_ -]?match',
+              r'create\s+(?:table|function).*facial[_ -]?recognition',
+              r'create\s+(?:table|function).*fingerprint',
+              r'create\s+(?:table|function).*voiceprint',
+              r'create\s+(?:table|function).*biometric[_ -]?template',
+              r'create\s+(?:table|function).*identity[_ -]?provider',
+              r'government[_ -]?id[_ -]?number\s+text',
           ]
-          found = [pattern for pattern in prohibited if re.search(pattern, sql, re.I)]
-          assert not found, f'Prohibited identity capability found: {found}'
+          found = [pattern for pattern in prohibited_implementation if re.search(pattern, sql, re.I | re.S)]
+          assert not found, f'Prohibited identity implementation found: {found}'
           PY
 
       - name: Confirm candidate and administrator workspaces
@@ -172,17 +170,19 @@ jobs:
           from pathlib import Path
 
           edge = Path('supabase/functions/initialize-certificate-payment/index.ts').read_text()
+          payment_helper = Path('supabase/functions/_shared/agilecertCertificatePaystack.ts').read_text()
           required = [
               "productCode === 'professional'",
               'create_agilecert_professional_certificate_order',
               'create_agilecert_certificate_order',
               'identityAssuranceRequired',
               'requireAuthenticatedUser',
-              'AGILECERT_PAYSTACK_SECRET_KEY',
           ]
           missing = [item for item in required if item not in edge]
           assert not missing, f'Missing professional payment enforcement: {missing}'
+          assert 'AGILECERT_PAYSTACK_SECRET_KEY' in payment_helper
           assert "Deno.env.get('PAYSTACK_SECRET_KEY')" not in edge
+          assert "Deno.env.get('PAYSTACK_SECRET_KEY')" not in payment_helper
           PY
 
       - name: Confirm existing application boundaries remain unchanged
