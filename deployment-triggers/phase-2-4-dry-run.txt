@@ -1,0 +1,4 @@
+Run the read-only Phase 2.4 production migration plan and Edge Function type-check.
+Approved Phase 2.4 head: fd197afa1f00b3a8c3b7f854fc05641858046d75
+Migration: 202607240103_phase_2_4_secure_material_delivery.sql
+No SQL or Edge Function deployment is permitted.
