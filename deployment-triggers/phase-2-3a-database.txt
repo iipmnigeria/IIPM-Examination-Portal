@@ -1,2 +1,3 @@
 Apply approved Phase 2.3A migration 202607240101 only.
 Application merge: 143e2c2d4d6f4e52289964abf3e9e7b25f667d1b
+Verification rerun: normalize Supabase backtick-wrapped history values.
