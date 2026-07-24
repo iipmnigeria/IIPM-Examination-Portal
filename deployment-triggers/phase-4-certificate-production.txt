@@ -3,3 +3,4 @@ migration: 202607240105
 functions: initialize-certificate-payment, verify-certificate-payment, paystack-certificate-webhook
 secret audit: read-only
 live bundle audit: exact hash
+frontend hold: restore verified Phase 3 until dedicated secret exists
