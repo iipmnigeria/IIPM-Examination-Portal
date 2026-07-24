@@ -351,7 +351,11 @@ export default function CandidateCertificateCommerce() {
                 <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">Integrity cleared</span>
               </div>
               <div className="grid gap-5 lg:grid-cols-2">
-                {offers.map((offer) => <OfferCard key={offer.productCode} offer={offer} now={now} busy={busy} onCheckout={(selected) => void checkout(selected)} />)}
+                {offers.map((offer) => (
+                  <div key={offer.productCode}>
+                    <OfferCard offer={offer} now={now} busy={busy} onCheckout={(selected) => void checkout(selected)} />
+                  </div>
+                ))}
               </div>
             </div>
           ))}
