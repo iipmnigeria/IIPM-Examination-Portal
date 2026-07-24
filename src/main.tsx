@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import AdminAssignmentWidget from './components/AdminAssignmentWidget';
 import AdminCommerceConsole from './components/AdminCommerceConsole';
+import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
 import PaymentReturnHandler from './components/PaymentReturnHandler';
 import SupabaseSessionBoundary from './components/SupabaseSessionBoundary';
@@ -142,6 +143,7 @@ createRoot(rootElement).render(
       <PaymentReturnHandler />
       <AdminCommerceConsole />
       <AdminAssignmentWidget />
+      <AdminMaterialManagementLauncher />
     </SupabaseSessionBoundary>
   </StrictMode>,
 );
