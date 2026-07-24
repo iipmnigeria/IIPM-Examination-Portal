@@ -1,0 +1,232 @@
+name: Verify Phase 4 Production Hold
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/phase-4-certificate-production.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-hold:
+    name: Verify database, functions and live portal remain safely on Phase 3
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+      EXPECTED_SOURCE_HOLD_COMMIT: '191614ecca0c2212b33c1756415ba1fe30036a2e'
+
+    steps:
+      - name: Checkout held production source
+        uses: actions/checkout@v4
+        with:
+          ref: supabase-integration
+          fetch-depth: 0
+
+      - name: Confirm reversible source hold
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git rev-parse HEAD)"
+          echo "current_source_head=$current" | tee "$RUNNER_TEMP/phase-4-final-source-state.log"
+          git merge-base --is-ancestor "$EXPECTED_SOURCE_HOLD_COMMIT" "$current"
+          test ! -e supabase/migrations/202607240105_phase_4_certificate_payment_credential_issuance.sql
+          test ! -e supabase/functions/initialize-certificate-payment/index.ts
+          test ! -e supabase/functions/verify-certificate-payment/index.ts
+          test ! -e supabase/functions/paystack-certificate-webhook/index.ts
+          test ! -e src/components/CandidateCertificateCommerce.tsx
+          test ! -e src/components/AdminCertificateCommerceLauncher.tsx
+          test -e src/phase4DeploymentHold.ts
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build and fingerprint held portal
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
+          test -s "$js_file"
+          grep -q 'IIPM Certificate Verification' "$js_file"
+          if grep -q 'Credential Store' "$js_file"; then
+            echo 'Phase 4 interface remains in held production source.'
+            exit 1
+          fi
+          sha256sum "$js_file" | awk '{print $1}' | tee "$RUNNER_TEMP/phase-4-final-expected-js.sha256"
+
+      - name: Verify Phase 4 database remains unapplied
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          rm -rf /tmp/agilecert-phase-4-final-hold
+          mkdir -p /tmp/agilecert-phase-4-final-hold/supabase/migrations
+          cp supabase/config.toml /tmp/agilecert-phase-4-final-hold/supabase/config.toml
+          for migration in \
+            202607230101_phase_2_candidate_profile_foundation.sql \
+            202607230102_phase_2_candidate_profile_photo.sql \
+            202607240101_phase_2_3a_preparation_material_entitlements.sql \
+            202607240102_phase_2_3b_material_admin_tools.sql \
+            202607240103_phase_2_4_secure_material_delivery.sql \
+            202607240104_phase_3_certificate_eligibility_issuance_verification.sql; do
+            cp "supabase/migrations/$migration" /tmp/agilecert-phase-4-final-hold/supabase/migrations/
+          done
+          cd /tmp/agilecert-phase-4-final-hold
+          npx --yes supabase@latest link --project-ref "$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+          npx --yes supabase@latest migration list --linked --password "$SUPABASE_DB_PASSWORD" \
+            2>&1 | tee "$RUNNER_TEMP/phase-4-final-migration-history.log"
+          if grep -Eq '^[[:space:]|`]*202607240105[[:space:]|`]' "$RUNNER_TEMP/phase-4-final-migration-history.log"; then
+            echo 'Phase 4 migration unexpectedly appears in production history.'
+            exit 1
+          fi
+          for version in 202607230101 202607230102 202607240101 202607240102 202607240103 202607240104; do
+            grep -q "$version" "$RUNNER_TEMP/phase-4-final-migration-history.log"
+          done
+
+      - name: Verify dedicated secret and Phase 4 functions remain absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes supabase@latest secrets list --project-ref "$SUPABASE_PROJECT_REF" \
+            2>&1 | tee "$RUNNER_TEMP/phase-4-final-secret-names.log"
+          if grep -q 'AGILECERT_PAYSTACK_SECRET_KEY' "$RUNNER_TEMP/phase-4-final-secret-names.log"; then
+            echo 'Dedicated Phase 4 secret unexpectedly exists during hold verification.'
+            exit 1
+          fi
+
+          npx --yes supabase@latest functions list --project-ref "$SUPABASE_PROJECT_REF" \
+            2>&1 | tee "$RUNNER_TEMP/phase-4-final-functions-list.log"
+          for existing in initialize-exam-payment verify-exam-payment paystack-webhook agilecert-material-delivery; do
+            grep -q "$existing" "$RUNNER_TEMP/phase-4-final-functions-list.log"
+          done
+          for held in initialize-certificate-payment verify-certificate-payment paystack-certificate-webhook; do
+            if grep -q "$held" "$RUNNER_TEMP/phase-4-final-functions-list.log"; then
+              echo "Held Phase 4 function is unexpectedly active: $held"
+              exit 1
+            fi
+          done
+
+      - name: Wait for exact held bundle to be live
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(cat "$RUNNER_TEMP/phase-4-final-expected-js.sha256")"
+          success=0
+          for attempt in $(seq 1 60); do
+            status="$(curl -L --silent --show-error --max-time 60 -o "$RUNNER_TEMP/phase-4-final-live-index.html" -w '%{http_code}' "${LIVE_URL}?phase4-final-hold=${GITHUB_RUN_ID}-${attempt}" || true)"
+            if [ "$status" = '200' ] && grep -q 'AgileCert Global' "$RUNNER_TEMP/phase-4-final-live-index.html"; then
+              asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/phase-4-final-live-index.html" | head -n 1 | cut -d'"' -f2)"
+              if [ -n "$asset" ]; then
+                asset_url="$(python3 - "$LIVE_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+                )"
+                if curl -L --fail --silent --show-error --max-time 60 "${asset_url}?phase4-final-hold=${GITHUB_RUN_ID}-${attempt}" -o "$RUNNER_TEMP/phase-4-final-live-app.js"; then
+                  live="$(sha256sum "$RUNNER_TEMP/phase-4-final-live-app.js" | awk '{print $1}')"
+                  if [ "$live" = "$expected" ]; then
+                    success=1
+                    break
+                  fi
+                fi
+              fi
+            fi
+            sleep 10
+          done
+          test "$success" -eq 1
+          grep -q 'IIPM Certificate Verification' "$RUNNER_TEMP/phase-4-final-live-app.js"
+          if grep -q 'Credential Store' "$RUNNER_TEMP/phase-4-final-live-app.js"; then
+            echo 'Phase 4 commerce interface remains live during the hold.'
+            exit 1
+          fi
+          {
+            echo 'phase4_production_hold_verified=yes'
+            echo "expected_sha256=$expected"
+            echo "live_sha256=$(sha256sum "$RUNNER_TEMP/phase-4-final-live-app.js" | awk '{print $1}')"
+          } | tee "$RUNNER_TEMP/phase-4-final-hold-result.log"
+
+      - name: Browser smoke test held portal
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/phase-4-final-browser"
+          cd "$RUNNER_TEMP/phase-4-final-browser"
+          npm init -y >/dev/null 2>&1
+          npm install --no-audit --no-fund playwright@1.55.0
+          npx playwright install --with-deps chromium
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright';
+
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+          const pageErrors = [];
+          const consoleErrors = [];
+          page.on('pageerror', error => pageErrors.push(String(error)));
+          page.on('console', message => {
+            if (message.type() === 'error') consoleErrors.push(message.text());
+          });
+          const response = await page.goto(`${process.env.LIVE_URL}?phase4-final-browser=${process.env.GITHUB_RUN_ID}`, {
+            waitUntil: 'domcontentloaded',
+            timeout: 60000,
+          });
+          await page.waitForTimeout(6000);
+          const body = (await page.locator('body').innerText()).trim();
+          const credentialStoreVisible = await page.getByText('Credential Store', { exact: true }).isVisible().catch(() => false);
+          const verifyVisible = await page.getByRole('button', { name: 'Verify an IIPM certificate' }).isVisible().catch(() => false);
+          const report = {
+            status: response?.status() ?? 0,
+            title: await page.title(),
+            bodyLength: body.length,
+            credentialStoreVisible,
+            verifyVisible,
+            pageErrors,
+            consoleErrors,
+          };
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/phase-4-final-browser-report.json`, JSON.stringify(report, null, 2));
+          await page.screenshot({ path: `${process.env.RUNNER_TEMP}/phase-4-final-browser.png`, fullPage: true });
+          await browser.close();
+          if (report.status !== 200) throw new Error(`Held portal returned HTTP ${report.status}.`);
+          if (!report.title.includes('AgileCert Global')) throw new Error(`Unexpected title: ${report.title}`);
+          if (report.bodyLength < 100) throw new Error('Held portal rendered insufficient content.');
+          if (report.credentialStoreVisible) throw new Error('Phase 4 Credential Store is visible during hold.');
+          if (!report.verifyVisible) throw new Error('Phase 3 public verification launcher is missing.');
+          if (pageErrors.length) throw new Error(`Page errors: ${pageErrors.join(' | ')}`);
+          if (consoleErrors.length) throw new Error(`Console errors: ${consoleErrors.join(' | ')}`);
+          NODE
+
+      - name: Upload final hold evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-4-final-production-hold-evidence
+          path: |
+            ${{ runner.temp }}/phase-4-final-source-state.log
+            ${{ runner.temp }}/phase-4-final-expected-js.sha256
+            ${{ runner.temp }}/phase-4-final-migration-history.log
+            ${{ runner.temp }}/phase-4-final-secret-names.log
+            ${{ runner.temp }}/phase-4-final-functions-list.log
+            ${{ runner.temp }}/phase-4-final-live-index.html
+            ${{ runner.temp }}/phase-4-final-live-app.js
+            ${{ runner.temp }}/phase-4-final-hold-result.log
+            ${{ runner.temp }}/phase-4-final-browser-report.json
+            ${{ runner.temp }}/phase-4-final-browser.png
+          if-no-files-found: warn
+          retention-days: 3
