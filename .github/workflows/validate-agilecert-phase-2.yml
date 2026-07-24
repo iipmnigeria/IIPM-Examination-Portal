@@ -39,6 +39,7 @@ concurrency:
 
 jobs:
   validate:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || startsWith(github.head_ref, 'phase-2-')
     name: Phase 2 TypeScript, build and scope controls
     runs-on: ubuntu-latest
     timeout-minutes: 15
