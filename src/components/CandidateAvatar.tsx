@@ -51,6 +51,8 @@ export function CandidateAvatarFrame({
           src={photoUrl}
           alt={`${candidateName || 'Candidate'} profile`}
           className="h-full w-full object-cover"
+          decoding="async"
+          draggable={false}
         />
       ) : (
         initials
