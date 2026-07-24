@@ -36,10 +36,10 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$APPROVED_APP_COMMIT"
-          grep -q 'Candidate Certificate Centre' src/components/CandidateCertificateWorkspace.tsx
+          grep -q 'Certificate Authority Workspace' src/components/CandidateCertificateWorkspace.tsx
           grep -q 'Verify Certificate' src/components/PublicCertificateVerification.tsx
-          grep -q 'Certificate Management' src/components/AdminCertificateManagementLauncher.tsx
-          grep -q 'Server authority required' src/components/LegacyCertificateSecurityGate.tsx
+          grep -q 'Certificate Authority' src/components/AdminCertificateManagementLauncher.tsx
+          grep -q 'Server issuance required' src/components/LegacyCertificateSecurityGate.tsx
           grep -q 'verify_agilecert_certificate' src/services/certificateService.ts
           grep -q 'request_my_agilecert_certificate' src/services/certificateService.ts
           grep -q 'issue_agilecert_certificate' src/services/certificateService.ts
