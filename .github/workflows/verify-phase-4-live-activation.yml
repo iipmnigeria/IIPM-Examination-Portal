@@ -125,7 +125,7 @@ jobs:
             const status = response ? response.status() : 0;
             const title = await page.title();
             const bodyText = await page.locator('body').innerText();
-            const verificationVisible = bodyText.includes('IIPM Certificate Verification');
+            const verificationVisible = bodyText.includes('Verify Certificate');
             const result = { url, status, title, bodyLength: bodyText.length, verificationVisible, consoleErrors, pageErrors };
             await page.screenshot({ path: process.env.RUNNER_TEMP + '/phase-4-live-page.png', fullPage: true });
             fs.writeFileSync(process.env.RUNNER_TEMP + '/phase-4-live-browser.json', JSON.stringify(result, null, 2));
