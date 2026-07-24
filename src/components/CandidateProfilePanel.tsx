@@ -507,7 +507,7 @@ export default function CandidateProfilePanel({
 
           <div className="flex flex-col-reverse justify-between gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:items-center">
             <p className="text-xs leading-5 text-slate-500">
-              Profile-photo upload and preparation materials will be added in later Phase 2 increments.
+              Private profile-photo management is active. Preparation materials will be added in the next approved Phase 2 increment.
             </p>
             <button
               type="button"

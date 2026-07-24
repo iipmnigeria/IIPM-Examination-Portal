@@ -5,7 +5,9 @@ import StudentDashboard from './components/StudentDashboard';
 import ExamScreen from './components/ExamScreen';
 import AdminPortal from './components/AdminPortal';
 import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
+import CandidateAvatar from './components/CandidateAvatar';
 import CandidateProfilePanel from './components/CandidateProfilePanel';
+import CandidateProfilePhotoEditor from './components/CandidateProfilePhotoEditor';
 import { signOut as signOutPortalUser } from './services/authService';
 import {
   getAvailableTests,
@@ -200,7 +202,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 md:gap-4">
               {userRole === 'admin' ? (
                 <nav className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl">
                   <button
@@ -243,12 +245,30 @@ export default function App() {
                 </nav>
               )}
 
-              <div className="hidden sm:flex flex-col items-end">
-                <span className="text-xs font-bold text-slate-200">{studentName}</span>
-                <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
-                  {userRole === 'admin' ? 'Staff Session' : 'Candidate Session'}
-                </span>
-              </div>
+              {userRole === 'student' ? (
+                <button
+                  type="button"
+                  onClick={() => setView('profile')}
+                  className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/70 p-1.5 pr-2 transition hover:border-emerald-500 hover:bg-slate-900"
+                  aria-label="Open candidate profile"
+                >
+                  <CandidateAvatar candidateName={studentName} size="sm" />
+                  <span className="hidden sm:flex flex-col items-start">
+                    <span className="max-w-40 truncate text-xs font-bold text-slate-200">{studentName}</span>
+                    <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
+                      Candidate Session
+                    </span>
+                  </span>
+                </button>
+              ) : (
+                <div className="hidden sm:flex flex-col items-end">
+                  <span className="text-xs font-bold text-slate-200">{studentName}</span>
+                  <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider">
+                    Staff Session
+                  </span>
+                </div>
+              )}
+
               <button
                 onClick={() => void handleLogout()}
                 className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/30 text-xs font-bold rounded-lg"
@@ -289,6 +309,9 @@ export default function App() {
 
           {view === 'profile' && userRole === 'student' && (
             <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div className="mx-auto w-full max-w-6xl px-4 pt-8 md:pt-10">
+                <CandidateProfilePhotoEditor candidateName={studentName} />
+              </div>
               <CandidateProfilePanel
                 candidateName={studentName}
                 onCandidateNameChange={setStudentName}
