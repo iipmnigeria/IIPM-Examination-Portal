@@ -1,0 +1,5 @@
+Deploy the approved AgileCert Phase 2.4 increment.
+Approved application commit: ca4c29ac5c2730b86000dfaefda6583cffc77053
+Migration: 202607240103_phase_2_4_secure_material_delivery.sql
+Edge Function: agilecert-material-delivery
+This trigger PR must not be merged.
