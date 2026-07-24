@@ -6,3 +6,4 @@ live bundle audit: exact hash
 frontend hold: restore verified Phase 3 until dedicated secret exists
 pages source fallback: enabled
 production source hold: reversible exact merge revert
+final hold verification: database, functions, live hash and browser
