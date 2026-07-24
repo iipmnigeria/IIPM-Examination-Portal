@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock3,
+  Download,
   FileText,
   FolderLock,
   Loader2,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import {
+  downloadPreparationMaterial,
   getMyPreparationMaterials,
   type CandidatePreparationMaterial,
   type PreparationMaterialAccessStatus,
@@ -88,6 +90,9 @@ export default function CandidatePreparationMaterialsPanel() {
   const [materials, setMaterials] = useState<CandidatePreparationMaterial[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [downloadError, setDownloadError] = useState('');
+  const [downloadNotice, setDownloadNotice] = useState('');
+  const [downloadingKey, setDownloadingKey] = useState('');
 
   const loadMaterials = useCallback(async () => {
     try {
@@ -141,6 +146,21 @@ export default function CandidatePreparationMaterialsPanel() {
     }));
   }, [materials]);
 
+  const handleDownload = async (material: CandidatePreparationMaterial) => {
+    const key = `${material.examinationId}-${material.materialId}`;
+    try {
+      setDownloadingKey(key);
+      setDownloadError('');
+      setDownloadNotice('');
+      const receipt = await downloadPreparationMaterial(material);
+      setDownloadNotice(`${receipt.fileName} was delivered through the secure audited channel.`);
+    } catch (downloadFailure: any) {
+      setDownloadError(downloadFailure?.message || 'The secure material download could not be completed.');
+    } finally {
+      setDownloadingKey('');
+    }
+  };
+
   const availableCount = materials.filter((material) => material.accessStatus === 'available').length;
   const lockedCount = materials.filter((material) => material.accessStatus === 'locked').length;
 
@@ -155,11 +175,11 @@ export default function CandidatePreparationMaterialsPanel() {
               </div>
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-400">
-                  Phase 2.3 Candidate Library
+                  Phase 2.4 Secure Library
                 </p>
                 <h1 className="mt-1 text-2xl font-black md:text-3xl">Preparation Materials</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-                  Review material availability for your AgileCert examinations. Access is derived from verified payment or an approved administrator assignment.
+                  Download authorised AgileCert preparation resources through a private, entitlement-checked and audited delivery channel.
                 </p>
               </div>
             </div>
@@ -195,13 +215,27 @@ export default function CandidatePreparationMaterialsPanel() {
           <div className="flex items-start gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-950">
             <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" aria-hidden="true" />
             <p>
-              Phase 2.3 records entitlement and version metadata only. Secure file links and audited downloads will activate in Phase 2.4; storage paths are not exposed in this library.
+              Every download is re-authorised against your current examination assignment, verified payment or waiver, publication state and access window. Private storage paths are never displayed in this library.
             </p>
+          </div>
+
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900">
+            <strong>Copyright notice:</strong> Materials are licensed to the authorised candidate for personal examination preparation only. Redistribution, resale, public posting and unauthorised sharing are prohibited.
           </div>
 
           {error && (
             <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
               {error}
+            </div>
+          )}
+          {downloadError && (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+              {downloadError}
+            </div>
+          )}
+          {downloadNotice && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+              {downloadNotice}
             </div>
           )}
 
@@ -240,10 +274,12 @@ export default function CandidatePreparationMaterialsPanel() {
                       const StatusIcon = presentation.Icon;
                       const scheduledTime = formatDate(material.availableFrom);
                       const expiryTime = formatDate(material.expiresAt);
+                      const downloadKey = `${material.examinationId}-${material.materialId}`;
+                      const isDownloading = downloadingKey === downloadKey;
 
                       return (
                         <article
-                          key={`${material.examinationId}-${material.materialId}`}
+                          key={downloadKey}
                           className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
                         >
                           <div className="flex items-start justify-between gap-4">
@@ -303,15 +339,21 @@ export default function CandidatePreparationMaterialsPanel() {
                           <div className="mt-auto pt-5">
                             <button
                               type="button"
-                              disabled
-                              className={`w-full rounded-xl px-4 py-3 text-sm font-black ${
+                              onClick={() => void handleDownload(material)}
+                              disabled={material.accessStatus !== 'available' || Boolean(downloadingKey)}
+                              className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-black transition ${
                                 material.accessStatus === 'available'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-slate-100 text-slate-500'
-                              } cursor-not-allowed`}
+                                  ? 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-emerald-300'
+                                  : 'cursor-not-allowed bg-slate-100 text-slate-500'
+                              }`}
                             >
+                              {isDownloading ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4" />
+                              )}
                               {material.accessStatus === 'available'
-                                ? 'Secure delivery activates in Phase 2.4'
+                                ? isDownloading ? 'Authorising secure download...' : 'Download securely'
                                 : 'Material access unavailable'}
                             </button>
                           </div>
