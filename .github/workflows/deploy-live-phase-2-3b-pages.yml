@@ -1,13 +1,9 @@
 name: Deploy Live Phase 2.3B Pages Bundle
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
+      - pages-deploy
     paths:
       - 'deployment-triggers/deploy-live-phase-2-3b.txt'
 
@@ -23,7 +19,6 @@ concurrency:
 jobs:
   build-and-deploy:
     name: Build and deploy approved Phase 2.3B bundle
-    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
