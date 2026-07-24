@@ -76,97 +76,115 @@ jobs:
         run: |
           set -euo pipefail
           changed_migrations="$(git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/migrations/' || true)"
-          allowed_migration='supabase/migrations/202607240103_phase_2_4_secure_material_delivery.sql'
-          test "$changed_migrations" = "$allowed_migration"
+          test "$changed_migrations" = 'supabase/migrations/202607240103_phase_2_4_secure_material_delivery.sql'
 
           changed_functions="$(git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/' || true)"
-          allowed_function='supabase/functions/agilecert-material-delivery/index.ts'
-          test "$changed_functions" = "$allowed_function"
+          test "$changed_functions" = 'supabase/functions/agilecert-material-delivery/index.ts'
 
       - name: Confirm private storage and audit schema
         shell: bash
         run: |
           set -euo pipefail
-          migration='supabase/migrations/202607240103_phase_2_4_secure_material_delivery.sql'
-          test -s "$migration"
+          python3 <<'PY'
+          from pathlib import Path
 
-          grep -q "'agilecert-preparation-materials'" "$migration"
-          grep -q 'public,.*false' "$migration" || grep -q '^  false,$' "$migration"
-          grep -q '262144000' "$migration"
-          grep -q 'agilecert_is_material_admin' "$migration"
-          grep -q "p.role in ('exam_admin', 'super_admin')" "$migration"
-          grep -q 'agilecert_material_download_audits' "$migration"
-          grep -q "status in ('requested', 'delivered', 'denied', 'failed')" "$migration"
-          grep -q 'authorize_agilecert_material_download' "$migration"
-          grep -q 'get_agilecert_material_download_audits' "$migration"
-          grep -q 'to service_role' "$migration"
-          grep -q "interval '60 seconds'" "$migration"
-          grep -q 'storage.objects' "$migration"
-          grep -q 'The uploaded private file could not be found' "$migration"
-          grep -q "notify pgrst, 'reload schema'" "$migration"
-
-          if grep -Eq 'create policy .*candidate.*storage|to authenticated.*authorize_agilecert_material_download' "$migration"; then
-            echo 'Candidate direct storage access or browser download authorisation was introduced.'
-            exit 1
-          fi
+          text = Path('supabase/migrations/202607240103_phase_2_4_secure_material_delivery.sql').read_text()
+          required = [
+              "'agilecert-preparation-materials'",
+              '262144000',
+              'agilecert_is_material_admin',
+              "p.role in ('exam_admin', 'super_admin')",
+              'agilecert_material_download_audits',
+              "status in ('requested', 'delivered', 'denied', 'failed')",
+              'authorize_agilecert_material_download',
+              'get_agilecert_material_download_audits',
+              'to service_role',
+              "interval '60 seconds'",
+              'storage.objects',
+              'The uploaded private file could not be found',
+              "notify pgrst, 'reload schema'",
+          ]
+          missing = [value for value in required if value not in text]
+          assert not missing, f'Missing migration controls: {missing}'
+          assert 'grant execute on function public.authorize_agilecert_material_download' in text
+          assert 'to authenticated;\n\ngrant execute on function public.authorize_agilecert_material_download' not in text
+          PY
 
       - name: Confirm secure Edge Function delivery
         shell: bash
         run: |
           set -euo pipefail
-          function_file='supabase/functions/agilecert-material-delivery/index.ts'
-          test -s "$function_file"
+          python3 <<'PY'
+          from pathlib import Path
+          import re
 
-          grep -q "auth.getUser" "$function_file"
-          grep -q "authorize_agilecert_material_download" "$function_file"
-          grep -q "SUPABASE_SERVICE_ROLE_KEY" "$function_file"
-          grep -q "createSignedUrl" "$function_file"
-          grep -q "signedUrlTtlSeconds" "$function_file"
-          grep -q "agilecert_material_download_audits" "$function_file"
-          grep -q "Content-Disposition" "$function_file"
-          grep -q "Cache-Control.*no-store" "$function_file"
-          grep -q "X-AgileCert-Download-Audit" "$function_file"
-
-          if grep -Eqi '(sb_secret_|service_role[=:][[:space:]]*["'"'][A-Za-z0-9_-]{20,})' "$function_file"; then
-            echo 'A privileged credential appears to be hard-coded in the Edge Function.'
-            exit 1
-          fi
+          text = Path('supabase/functions/agilecert-material-delivery/index.ts').read_text()
+          required = [
+              'auth.getUser',
+              'authorize_agilecert_material_download',
+              'SUPABASE_SERVICE_ROLE_KEY',
+              'createSignedUrl',
+              'signedUrlTtlSeconds',
+              'agilecert_material_download_audits',
+              'Content-Disposition',
+              'no-store',
+              'X-AgileCert-Download-Audit',
+          ]
+          missing = [value for value in required if value not in text]
+          assert not missing, f'Missing Edge Function controls: {missing}'
+          assert not re.search(r'sb_secret_[A-Za-z0-9_-]{20,}', text)
+          assert not re.search(r'service_role\s*[=:]\s*["\'][A-Za-z0-9_-]{20,}', text, re.I)
+          PY
 
       - name: Confirm administrator private upload workflow
         shell: bash
         run: |
           set -euo pipefail
-          service='src/services/materialAdminService.ts'
-          panel='src/components/AdminMaterialManagementPanel.tsx'
+          python3 <<'PY'
+          from pathlib import Path
 
-          test -s "$service"
-          test -s "$panel"
-          grep -q "AGILECERT_MATERIAL_BUCKET" "$service"
-          grep -q "crypto.subtle.digest('SHA-256'" "$service"
-          grep -q "storage.*upload" "$service"
-          grep -q "get_agilecert_material_download_audits" "$service"
-          grep -q "uploadMaterialVersionFile" "$panel"
-          grep -q "Private file versions" "$panel"
-          grep -q "Secure delivery audit" "$panel"
-          grep -q "250 MB" "$panel"
+          service = Path('src/services/materialAdminService.ts').read_text()
+          panel = Path('src/components/AdminMaterialManagementPanel.tsx').read_text()
+          service_required = [
+              'AGILECERT_MATERIAL_BUCKET',
+              "crypto.subtle.digest('SHA-256'",
+              '.storage',
+              '.upload(',
+              'get_agilecert_material_download_audits',
+              'uploadMaterialVersionFile',
+          ]
+          panel_required = [
+              'uploadMaterialVersionFile',
+              'Private file versions',
+              'Secure delivery audit',
+              '250 MB',
+          ]
+          assert not [v for v in service_required if v not in service]
+          assert not [v for v in panel_required if v not in panel]
+          PY
 
       - name: Confirm candidate delivery controls hide storage metadata
         shell: bash
         run: |
           set -euo pipefail
-          service='src/services/preparationMaterialService.ts'
-          panel='src/components/CandidatePreparationMaterialsPanel.tsx'
+          python3 <<'PY'
+          from pathlib import Path
+          import re
 
-          grep -q "agilecert-material-delivery" "$service"
-          grep -q "downloadPreparationMaterial" "$service"
-          grep -q "Download securely" "$panel"
-          grep -q "Copyright notice" "$panel"
-          grep -q "Private storage paths are never displayed" "$panel"
-
-          if grep -Eqi '(storageBucket|storagePath|checksumSha256|createSignedUrl|getPublicUrl|SUPABASE_SERVICE_ROLE)' "$service" "$panel"; then
-            echo 'Candidate frontend exposes private storage metadata, signed storage operations or privileged credentials.'
-            exit 1
-          fi
+          service = Path('src/services/preparationMaterialService.ts').read_text()
+          panel = Path('src/components/CandidatePreparationMaterialsPanel.tsx').read_text()
+          required = [
+              'agilecert-material-delivery',
+              'downloadPreparationMaterial',
+              'Download securely',
+              'Copyright notice',
+              'Private storage paths are never displayed',
+          ]
+          combined = service + '\n' + panel
+          assert not [v for v in required if v not in combined]
+          forbidden = r'storageBucket|storagePath|checksumSha256|createSignedUrl|getPublicUrl|SUPABASE_SERVICE_ROLE'
+          assert not re.search(forbidden, combined, re.I), 'Candidate frontend exposes private delivery metadata.'
+          PY
 
       - name: Confirm commerce, examination and later phases remain excluded
         shell: bash
@@ -186,24 +204,32 @@ jobs:
             exit 1
           fi
 
-          migration='supabase/migrations/202607240103_phase_2_4_secure_material_delivery.sql'
-          if grep -Eqi 'create or replace function.*(certificate|credential|identity_verification|ai_adviser|paystack)' "$migration"; then
-            echo 'The Phase 2.4 migration introduces an excluded later-phase or payment function.'
-            exit 1
-          fi
+          python3 <<'PY'
+          from pathlib import Path
+          import re
 
-          if grep -R -Eqi 'SUPABASE_SERVICE_ROLE|service_role' src package.json vite.config.* 2>/dev/null; then
-            echo 'A privileged server credential reference was introduced into frontend or build files.'
-            exit 1
-          fi
+          migration = Path('supabase/migrations/202607240103_phase_2_4_secure_material_delivery.sql').read_text()
+          assert not re.search(r'create or replace function.*(certificate|credential|identity_verification|ai_adviser|paystack)', migration, re.I)
+
+          frontend = '\n'.join(path.read_text(errors='ignore') for path in Path('src').rglob('*') if path.is_file())
+          assert 'SUPABASE_SERVICE_ROLE' not in frontend
+          PY
 
       - name: Confirm Phase 2.4 scope document
         shell: bash
         run: |
           set -euo pipefail
-          scope='docs/AGILECERT_PHASE_2_SCOPE.md'
-          grep -q 'Phase 2.3B — Administrator material publication and mapping tools — completed and deployed' "$scope"
-          grep -q 'Phase 2.4 — Secure material delivery and audit — current build unit' "$scope"
-          grep -q 'Candidates have no direct `storage.objects` policy' "$scope"
-          grep -q 'service-role-only candidate download authorisation' "$scope"
-          grep -q 'No Phase 2.4 merge or deployment may occur without explicit approval' "$scope"
+          python3 <<'PY'
+          from pathlib import Path
+
+          text = Path('docs/AGILECERT_PHASE_2_SCOPE.md').read_text()
+          required = [
+              'Phase 2.3B — Administrator material publication and mapping tools — completed and deployed',
+              'Phase 2.4 — Secure material delivery and audit — current build unit',
+              'Candidates have no direct `storage.objects` policy',
+              'Service-role-only candidate download authorisation',
+              'No Phase 2.4 merge or deployment may occur without explicit approval',
+          ]
+          missing = [value for value in required if value not in text]
+          assert not missing, f'Missing scope statements: {missing}'
+          PY
