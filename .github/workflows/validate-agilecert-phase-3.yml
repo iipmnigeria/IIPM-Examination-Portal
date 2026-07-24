@@ -1,0 +1,255 @@
+name: Validate AgileCert Phase 3
+
+on:
+  push:
+    branches:
+      - phase-3-certificate-eligibility-issuance-verification
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'vite.config.*'
+      - 'supabase/migrations/202607240104_phase_3_certificate_eligibility_issuance_verification.sql'
+      - 'docs/AGILECERT_PHASE_3_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-3.yml'
+      - '.github/workflows/validate-agilecert-phase-2.yml'
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'vite.config.*'
+      - 'supabase/migrations/202607240104_phase_3_certificate_eligibility_issuance_verification.sql'
+      - 'docs/AGILECERT_PHASE_3_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-3.yml'
+      - '.github/workflows/validate-agilecert-phase-2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-phase-3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Phase 3 TypeScript, build and authority controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Phase 3 branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify AgileCert browser output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          grep -q 'root' dist/index.html
+
+      - name: Confirm exact Phase 3 backend scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_migrations="$(git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/migrations/' || true)"
+          test "$changed_migrations" = 'supabase/migrations/202607240104_phase_3_certificate_eligibility_issuance_verification.sql'
+
+          changed_functions="$(git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/' || true)"
+          test -z "$changed_functions"
+
+      - name: Confirm authoritative eligibility and issuance schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          text = Path('supabase/migrations/202607240104_phase_3_certificate_eligibility_issuance_verification.sql').read_text()
+          required = [
+              'agilecert_certificate_policies',
+              'agilecert_certificate_eligibility_records',
+              'agilecert_issued_certificates',
+              'evaluate_agilecert_certificate_eligibility',
+              'agilecert_certificate_eligibility_attempt_trigger',
+              'request_my_agilecert_certificate',
+              'issue_agilecert_certificate',
+              'set_agilecert_certificate_status',
+              'reconcile_agilecert_certificate_eligibilities',
+              'get_agilecert_certificate_admin_console',
+              'verify_agilecert_certificate',
+              "p.role in ('exam_admin', 'super_admin')",
+              "status in ('active', 'suspended', 'revoked')",
+              "notify pgrst, 'reload schema'",
+          ]
+          missing = [value for value in required if value not in text]
+          assert not missing, f'Missing Phase 3 authority controls: {missing}'
+
+          assert 'after insert or update of percentage, status, suspicious_score, submitted_at' in text
+          assert "v_score < v_pass_mark" in text
+          assert "v_integrity = 'flagged'" in text
+          assert "nextval('public.agilecert_certificate_serial_seq')" in text
+          assert "gen_random_bytes(9)" in text
+          assert 'unique references public.attempts(id)' in text
+          assert not re.search(r'create\s+table.*certificate_(orders|payments)', text, re.I | re.S)
+          PY
+
+      - name: Confirm row security and public verification boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          text = Path('supabase/migrations/202607240104_phase_3_certificate_eligibility_issuance_verification.sql').read_text()
+          required = [
+              'alter table public.agilecert_certificate_policies enable row level security',
+              'alter table public.agilecert_certificate_eligibility_records enable row level security',
+              'alter table public.agilecert_issued_certificates enable row level security',
+              'candidate_id = auth.uid() or public.agilecert_is_certificate_admin()',
+              'grant execute on function public.verify_agilecert_certificate(text) to anon, authenticated',
+              'grant execute on function public.request_my_agilecert_certificate(uuid) to authenticated',
+              'grant execute on function public.issue_agilecert_certificate(uuid) to authenticated',
+          ]
+          missing = [value for value in required if value not in text]
+          assert not missing, f'Missing Phase 3 security controls: {missing}'
+
+          verification = text.split('create or replace function public.verify_agilecert_certificate(', 1)[1]
+          verification = verification.split('alter table public.agilecert_certificate_policies', 1)[0]
+          forbidden = ['candidateId', 'candidate_id', 'candidateEmail', 'email', 'answers', 'proctorLogs', 'payment']
+          exposed = [value for value in forbidden if value in verification]
+          assert not exposed, f'Public verification exposes private fields: {exposed}'
+          PY
+
+      - name: Confirm candidate and administrator certificate controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          service = Path('src/services/certificateService.ts').read_text()
+          candidate = Path('src/components/CandidateCertificateWorkspace.tsx').read_text()
+          admin = Path('src/components/AdminCertificateManagementPanel.tsx').read_text()
+          launcher = Path('src/components/AdminCertificateManagementLauncher.tsx').read_text()
+          verification = Path('src/components/PublicCertificateVerification.tsx').read_text()
+          gate = Path('src/components/LegacyCertificateSecurityGate.tsx').read_text()
+          main = Path('src/main.tsx').read_text()
+
+          required = [
+              'get_my_agilecert_certificate_workspace',
+              'request_my_agilecert_certificate',
+              'verify_agilecert_certificate',
+              'issue_agilecert_certificate',
+              'set_agilecert_certificate_status',
+              'Request certificate issuance',
+              'Download issued PDF',
+              'Certificate Authority Administration',
+              "['exam_admin', 'super_admin']",
+              'IIPM Certificate Verification',
+              'Server issuance required',
+              'CandidateCertificateWorkspace',
+              'PublicCertificateVerification',
+              'LegacyCertificateSecurityGate',
+              'AdminCertificateManagementLauncher',
+          ]
+          combined = '\n'.join([service, candidate, admin, launcher, verification, gate, main])
+          missing = [value for value in required if value not in combined]
+          assert not missing, f'Missing Phase 3 frontend controls: {missing}'
+
+          assert 'certificate.certificateNumber' in candidate
+          assert 'certificate.verificationCode' in candidate
+          assert 'downloadIssuedCertificate(certificate)' in candidate
+          assert 'View Verifiable Certificate' in gate
+          assert 'Download Certificate PDF (jsPDF)' in gate
+          PY
+
+      - name: Confirm legacy dashboard and existing runtimes remain unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_files="$(git diff --name-only origin/supabase-integration...HEAD)"
+          if printf '%s\n' "$changed_files" | grep -Eq '^src/components/(StudentDashboard|AdminPortal|ExamScreen|CandidatePreparationMaterialsPanel|AdminMaterialManagementPanel)\.tsx$'; then
+            echo "$changed_files"
+            echo 'Phase 3 must not rewrite the legacy gradebook, examination, audit or material interfaces.'
+            exit 1
+          fi
+          if printf '%s\n' "$changed_files" | grep -Eq '^src/services/(examService|commerceService|preparationMaterialService|materialAdminService)\.ts$'; then
+            echo "$changed_files"
+            echo 'Phase 3 must not change examination, payment or material services.'
+            exit 1
+          fi
+
+      - name: Confirm later phases and certificate commerce remain excluded
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          migration = Path('supabase/migrations/202607240104_phase_3_certificate_eligibility_issuance_verification.sql').read_text()
+          forbidden = [
+              r'paystack',
+              r'certificate_order',
+              r'certificate_payment',
+              r'digital_badge',
+              r'transcript_storage',
+              r'linkedin',
+              r'identity_verification',
+              r'facial',
+              r'biometric',
+              r'automation_job',
+              r'ai_adviser',
+              r'createSignedUrl',
+              r'storage\.objects',
+              r'service_role',
+          ]
+          found = [pattern for pattern in forbidden if re.search(pattern, migration, re.I)]
+          assert not found, f'Excluded Phase 3 backend capability found: {found}'
+
+          frontend = '\n'.join(path.read_text(errors='ignore') for path in Path('src').rglob('*') if path.is_file())
+          assert 'SUPABASE_SERVICE_ROLE' not in frontend
+          assert 'initialize-certificate-payment' not in frontend
+          assert 'verify-certificate-payment' not in frontend
+          PY
+
+      - name: Confirm Phase 3 scope document
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          text = Path('docs/AGILECERT_PHASE_3_SCOPE.md').read_text()
+          required = [
+              'Certificate eligibility is calculated from the authoritative `attempts` record',
+              'Candidates cannot insert, update or issue certificate records directly',
+              'Certificate verification is available before sign-in',
+              'Legacy-certificate security boundary',
+              'Only migration `202607240104_phase_3_certificate_eligibility_issuance_verification.sql` is permitted',
+              'No Supabase Edge Function is permitted',
+              'No Phase 3 merge or deployment may occur without explicit approval',
+          ]
+          missing = [value for value in required if value not in text]
+          assert not missing, f'Missing Phase 3 scope statements: {missing}'
+          PY
