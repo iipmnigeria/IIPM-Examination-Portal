@@ -74,12 +74,12 @@ A paid-order entitlement is valid only when all of the following are true:
 
 1. The candidate has an examination assignment.
 2. The related `exam_orders` record has status `paid` and a non-null `fulfilled_at` value.
-3. A related `exam_payments` record has status `success`.
+3. A successful `exam_payments` record is present for the fulfilled order.
 4. The payment amount and currency match the fulfilled order.
 
 A waived order must have status `waived` and a non-null `fulfilled_at` value. Administrator assignments are recognised only when `exam_assignments.assigned_by` is present. Client-side payment flags are never used as entitlement evidence.
 
-Entitlements are refreshed when assignments, orders, examination mappings or published material versions change. Removing a mapping, retiring the only published version, revoking an assignment or expiring an assignment removes active candidate access.
+Entitlements are refreshed when assignments, orders, payments, examination mappings, material publication states or published material versions change. Removing a mapping, retiring the only published version, refunding a payment, revoking an assignment or expiring an assignment removes active candidate access.
 
 ## Explicit exclusions from Phase 2.3A
 
