@@ -1,0 +1,3 @@
+Deploy the approved Phase 2.3B compiled bundle to GitHub Pages.
+Approved application commit: f3d6caae56e4a4ba9e0563a8549764d84dcc7f87
+Publish `dist` only.
