@@ -1,5 +1,22 @@
 import { supabase } from '../lib/supabase';
 
+export const AGILECERT_MATERIAL_BUCKET = 'agilecert-preparation-materials';
+export const AGILECERT_MATERIAL_MAX_BYTES = 250 * 1024 * 1024;
+
+const allowedMaterialMimeTypes = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/plain',
+  'text/csv',
+  'application/zip',
+  'video/mp4',
+]);
+
 export type MaterialType =
   | 'study_guide'
   | 'workbook'
@@ -11,6 +28,7 @@ export type MaterialType =
 
 export type MaterialStatus = 'draft' | 'published' | 'archived';
 export type MaterialVersionStatus = 'draft' | 'published' | 'retired';
+export type MaterialDownloadStatus = 'requested' | 'delivered' | 'denied' | 'failed';
 
 export interface MaterialAdminSummary {
   materials: number;
@@ -95,6 +113,24 @@ export interface MaterialAdminConsole {
   materials: MaterialAdminRecord[];
 }
 
+export interface MaterialDownloadAudit {
+  id: string;
+  requestId: string;
+  candidateId: string;
+  examinationId: string;
+  examinationTitle: string;
+  programmeCode: string;
+  materialId: string;
+  materialTitle: string;
+  versionId?: string | null;
+  versionLabel?: string | null;
+  status: MaterialDownloadStatus;
+  failureCode?: string | null;
+  bytesDelivered?: number | null;
+  requestedAt: string;
+  completedAt?: string | null;
+}
+
 export interface MaterialInput {
   id?: string;
   title: string;
@@ -113,6 +149,13 @@ export interface MaterialVersionInput {
   mimeType: string;
   sizeBytes: number;
   checksumSha256?: string;
+}
+
+export interface MaterialVersionUploadInput {
+  materialId: string;
+  versionLabel?: string;
+  file?: File | null;
+  existingVersion?: MaterialAdminVersion | null;
 }
 
 export interface MaterialMappingInput {
@@ -139,6 +182,33 @@ const cleanOptional = (value?: string | null): string | null => {
   return clean ? clean : null;
 };
 
+const safeFileName = (value: string): string => {
+  const clean = value
+    .normalize('NFKD')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 140);
+  return clean || 'material-file';
+};
+
+const sha256File = async (file: File): Promise<string> => {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+};
+
+const validateMaterialFile = (file: File): void => {
+  if (!allowedMaterialMimeTypes.has(file.type)) {
+    throw new Error('Unsupported file type. Upload PDF, Office, text, CSV, ZIP or MP4 material files only.');
+  }
+  if (file.size <= 0) throw new Error('The selected file is empty.');
+  if (file.size > AGILECERT_MATERIAL_MAX_BYTES) {
+    throw new Error('The selected file exceeds the 250 MB private-material limit.');
+  }
+};
+
 export async function getMaterialAdminConsole(): Promise<MaterialAdminConsole> {
   const { data, error } = await supabase.rpc('get_agilecert_material_admin_console');
   if (error) throw new Error(error.message);
@@ -146,6 +216,14 @@ export async function getMaterialAdminConsole(): Promise<MaterialAdminConsole> {
     throw new Error('The preparation-material administration console was not returned.');
   }
   return data as MaterialAdminConsole;
+}
+
+export async function getMaterialDownloadAudits(limit = 50): Promise<MaterialDownloadAudit[]> {
+  const { data, error } = await supabase.rpc('get_agilecert_material_download_audits', {
+    p_limit: Math.max(1, Math.min(limit, 200)),
+  });
+  if (error) throw new Error(error.message);
+  return Array.isArray(data) ? (data as MaterialDownloadAudit[]) : [];
 }
 
 export async function savePreparationMaterial(input: MaterialInput): Promise<void> {
@@ -223,6 +301,74 @@ export async function saveMaterialVersion(input: MaterialVersionInput): Promise<
     status: 'draft',
   });
   if (error) throw new Error(error.message);
+}
+
+export async function uploadMaterialVersionFile(input: MaterialVersionUploadInput): Promise<void> {
+  const existing = input.existingVersion || null;
+  const file = input.file || null;
+
+  if (!file && !existing) {
+    throw new Error('Select a private preparation-material file to create this version.');
+  }
+
+  if (!file && existing) {
+    await saveMaterialVersion({
+      id: existing.id,
+      materialId: input.materialId,
+      versionLabel: input.versionLabel,
+      storageBucket: existing.storageBucket,
+      storagePath: existing.storagePath,
+      fileName: existing.fileName,
+      mimeType: existing.mimeType,
+      sizeBytes: existing.sizeBytes,
+      checksumSha256: existing.checksumSha256 || undefined,
+    });
+    return;
+  }
+
+  validateMaterialFile(file!);
+  const objectPath = `${input.materialId}/${crypto.randomUUID()}-${safeFileName(file!.name)}`;
+  const checksum = await sha256File(file!);
+
+  const { error: uploadError } = await supabase.storage
+    .from(AGILECERT_MATERIAL_BUCKET)
+    .upload(objectPath, file!, {
+      cacheControl: '3600',
+      contentType: file!.type,
+      upsert: false,
+    });
+
+  if (uploadError) throw new Error(`Private file upload failed: ${uploadError.message}`);
+
+  try {
+    await saveMaterialVersion({
+      id: existing?.id,
+      materialId: input.materialId,
+      versionLabel: input.versionLabel,
+      storageBucket: AGILECERT_MATERIAL_BUCKET,
+      storagePath: objectPath,
+      fileName: file!.name,
+      mimeType: file!.type,
+      sizeBytes: file!.size,
+      checksumSha256: checksum,
+    });
+  } catch (metadataError) {
+    await supabase.storage.from(AGILECERT_MATERIAL_BUCKET).remove([objectPath]);
+    throw metadataError;
+  }
+
+  if (
+    existing
+    && existing.storageBucket === AGILECERT_MATERIAL_BUCKET
+    && existing.storagePath !== objectPath
+  ) {
+    const { error: removalError } = await supabase.storage
+      .from(AGILECERT_MATERIAL_BUCKET)
+      .remove([existing.storagePath]);
+    if (removalError) {
+      console.warn('The superseded draft material object could not be removed.', removalError.message);
+    }
+  }
 }
 
 export async function setMaterialVersionStatus(
