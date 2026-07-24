@@ -4,7 +4,6 @@ import App from './App.tsx';
 import AdminAssignmentWidget from './components/AdminAssignmentWidget';
 import AdminCommerceConsole from './components/AdminCommerceConsole';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
-import CandidateProfilePhotoLauncher from './components/CandidateProfilePhotoLauncher';
 import PaymentReturnHandler from './components/PaymentReturnHandler';
 import SupabaseSessionBoundary from './components/SupabaseSessionBoundary';
 import './index.css';
@@ -139,7 +138,6 @@ createRoot(rootElement).render(
   <StrictMode>
     <SupabaseSessionBoundary>
       <App />
-      <CandidateProfilePhotoLauncher />
       <CandidateCommerceOverlay />
       <PaymentReturnHandler />
       <AdminCommerceConsole />
