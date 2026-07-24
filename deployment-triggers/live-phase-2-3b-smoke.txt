@@ -1,4 +1,4 @@
 Verify live AgileCert Phase 2.3B application deployment.
 Application merge: f3d6caae56e4a4ba9e0563a8549764d84dcc7f87
 Migration: 202607240102
-Verification refresh: confirm compiled Pages deployment from pages-deploy.
+Verification refresh: confirm official GitHub Actions Pages deployment from main.
