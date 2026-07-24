@@ -1,0 +1,296 @@
+name: Validate AgileCert Phase 4
+
+on:
+  push:
+    branches:
+      - phase-4-certificate-payment-credential-issuance
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'vite.config.*'
+      - 'supabase/config.toml'
+      - 'supabase/migrations/202607240105_phase_4_certificate_payment_credential_issuance.sql'
+      - 'supabase/functions/initialize-certificate-payment/**'
+      - 'supabase/functions/verify-certificate-payment/**'
+      - 'supabase/functions/paystack-certificate-webhook/**'
+      - 'supabase/functions/_shared/agilecertCertificatePaystack.ts'
+      - 'docs/AGILECERT_PHASE_4_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-4.yml'
+      - '.github/workflows/validate-agilecert-phase-3.yml'
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'vite.config.*'
+      - 'supabase/config.toml'
+      - 'supabase/migrations/202607240105_phase_4_certificate_payment_credential_issuance.sql'
+      - 'supabase/functions/initialize-certificate-payment/**'
+      - 'supabase/functions/verify-certificate-payment/**'
+      - 'supabase/functions/paystack-certificate-webhook/**'
+      - 'supabase/functions/_shared/agilecertCertificatePaystack.ts'
+      - 'docs/AGILECERT_PHASE_4_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-4.yml'
+      - '.github/workflows/validate-agilecert-phase-3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-phase-4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Phase 4 build, payment and credential controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Phase 4 branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify AgileCert browser output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          grep -q 'root' dist/index.html
+          if grep -q '/src/main.tsx' dist/index.html; then
+            echo 'Compiled output references the Vite source entry.'
+            exit 1
+          fi
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check certificate payment functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno check --node-modules-dir=auto supabase/functions/initialize-certificate-payment/index.ts
+          deno check --node-modules-dir=auto supabase/functions/verify-certificate-payment/index.ts
+          deno check --node-modules-dir=auto supabase/functions/paystack-certificate-webhook/index.ts
+
+      - name: Confirm exact Phase 4 backend scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_migrations="$(git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/migrations/' || true)"
+          test "$changed_migrations" = 'supabase/migrations/202607240105_phase_4_certificate_payment_credential_issuance.sql'
+
+          changed_functions="$(git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/' | sort || true)"
+          expected_functions="$(printf '%s\n' \
+            'supabase/functions/_shared/agilecertCertificatePaystack.ts' \
+            'supabase/functions/initialize-certificate-payment/index.ts' \
+            'supabase/functions/paystack-certificate-webhook/index.ts' \
+            'supabase/functions/verify-certificate-payment/index.ts' | sort)"
+          test "$changed_functions" = "$expected_functions"
+
+      - name: Confirm certificate products, pricing and order authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          text = Path('supabase/migrations/202607240105_phase_4_certificate_payment_credential_issuance.sql').read_text()
+          required = [
+              'agilecert_certificate_products',
+              'agilecert_certificate_product_prices',
+              'agilecert_certificate_orders',
+              'agilecert_certificate_payments',
+              'agilecert_paid_credentials',
+              'agilecert_certificate_commerce_audits',
+              'get_my_agilecert_certificate_commerce',
+              'create_agilecert_certificate_order',
+              'fulfil_paid_agilecert_certificate_order',
+              'waive_agilecert_certificate_order',
+              'get_agilecert_certificate_commerce_admin_console',
+              'upsert_agilecert_certificate_product_price',
+              "interval '7 days'",
+              "now() + interval '30 minutes'",
+              "('achievement', 'NGN', 2000000, 2500000, true)",
+              "('achievement', 'USD', 3500, 5000, true)",
+              "('professional', 'NGN', 5000000, 7500000, true)",
+              "('professional', 'USD', 6000, 7500, true)",
+              'Verified payment or an authorised waiver is required',
+              "grant execute on function public.fulfil_paid_agilecert_certificate_order(uuid, text, jsonb)\n  to service_role",
+              "notify pgrst, 'reload schema'",
+          ]
+          missing = [value for value in required if value not in text]
+          assert not missing, f'Missing Phase 4 commerce controls: {missing}'
+          assert "v_product.requires_identity_verification" in text
+          assert "Professional Certificate checkout will open after identity verification is available" in text
+          assert "Professional Certificate issuance requires the identity-verification phase" in text
+          assert not re.search(r'insert\s+into\s+storage\.buckets', text, re.I)
+          PY
+
+      - name: Confirm payment verification and secret isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          helper = Path('supabase/functions/_shared/agilecertCertificatePaystack.ts').read_text()
+          initialise = Path('supabase/functions/initialize-certificate-payment/index.ts').read_text()
+          verify = Path('supabase/functions/verify-certificate-payment/index.ts').read_text()
+          webhook = Path('supabase/functions/paystack-certificate-webhook/index.ts').read_text()
+          combined = '\n'.join([helper, initialise, verify, webhook])
+
+          required = [
+              'AGILECERT_PAYSTACK_SECRET_KEY',
+              'crypto.subtle.importKey',
+              "hash: 'SHA-512'",
+              'constantTimeEqual',
+              'requireAuthenticatedUser',
+              'create_agilecert_certificate_order',
+              'fulfil_paid_agilecert_certificate_order',
+              'transactionReference !== order.reference',
+              'transactionCurrency !== order.currency.toUpperCase()',
+              'requestedAmount !== Number(order.payable_amount_minor)',
+              'transactionEmail',
+              'verifyAgileCertCertificateWebhookSignature',
+              'verifyAgileCertCertificateTransaction(reference)',
+              "callback_url: `${portalUrl.replace(/\\/$/, '')}/?certificate_payment=callback`",
+          ]
+          missing = [value for value in required if value not in combined]
+          assert not missing, f'Missing Phase 4 payment controls: {missing}'
+          assert "Deno.env.get('PAYSTACK_SECRET_KEY')" not in combined
+          assert not re.search(r'(sk_live_|sk_test_|sb_secret_)[A-Za-z0-9_-]{12,}', combined)
+
+          frontend = '\n'.join(path.read_text(errors='ignore') for path in Path('src').rglob('*') if path.is_file())
+          assert 'AGILECERT_PAYSTACK_SECRET_KEY' not in frontend
+          assert 'SUPABASE_SERVICE_ROLE' not in frontend
+          PY
+
+      - name: Confirm candidate and administrator commerce controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          service = Path('src/services/certificateCommerceService.ts').read_text()
+          candidate = Path('src/components/CandidateCertificateCommerce.tsx').read_text()
+          callback = Path('src/components/CertificatePaymentReturnHandler.tsx').read_text()
+          admin = Path('src/components/AdminCertificateCommerceLauncher.tsx').read_text()
+          main = Path('src/main.tsx').read_text()
+          combined = '\n'.join([service, candidate, callback, admin, main])
+          required = [
+              'get_my_agilecert_certificate_commerce',
+              'initialize-certificate-payment',
+              'verify-certificate-payment',
+              'get_agilecert_certificate_commerce_admin_console',
+              'waive_agilecert_certificate_order',
+              'upsert_agilecert_certificate_product_price',
+              'Certificate Payment & Credential Centre',
+              'Examination and certificate fees are separate',
+              'Professional Certificate checkout opens after the identity-verification phase',
+              'Credential Store',
+              'downloadBadge',
+              'downloadTranscript',
+              'Certificate Commerce Administration',
+              'Authorised Certificate of Achievement waiver',
+              "['exam_admin', 'super_admin']",
+              'CandidateCertificateCommerce',
+              'CertificatePaymentReturnHandler',
+              'AdminCertificateCommerceLauncher',
+          ]
+          missing = [value for value in required if value not in combined]
+          assert not missing, f'Missing Phase 4 frontend controls: {missing}'
+          PY
+
+      - name: Confirm examination and material runtime remain unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_files="$(git diff --name-only origin/supabase-integration...HEAD)"
+          forbidden='^src/services/(commerceService|examService|preparationMaterialService|materialAdminService)\.ts$|^src/components/(CandidateCommerceOverlay|PaymentReturnHandler|AdminCommerceConsole|ExamScreen|StudentDashboard|AdminPortal|CandidatePreparationMaterialsPanel|AdminMaterialManagementPanel)\.tsx$|^supabase/functions/(initialize-exam-payment|verify-exam-payment|paystack-webhook)/|^supabase/functions/_shared/paystack\.ts$'
+          if printf '%s\n' "$changed_files" | grep -Eq "$forbidden"; then
+            echo "$changed_files"
+            echo 'Phase 4 must not modify examination commerce, examination runtime or material delivery.'
+            exit 1
+          fi
+
+      - name: Confirm identity, communications and AI remain excluded
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_files="$(git diff --name-only origin/supabase-integration...HEAD)"
+          if printf '%s\n' "$changed_files" | grep -Eqi '(identity-verification|identity_provider|facial|biometric|email_automation|automation_job|ai-adviser|ai_adviser)'; then
+            echo "$changed_files"
+            echo 'A later-phase implementation file was introduced in Phase 4.'
+            exit 1
+          fi
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          migration = Path('supabase/migrations/202607240105_phase_4_certificate_payment_credential_issuance.sql').read_text()
+          forbidden = [
+              r'create\s+table.*identity_verification',
+              r'create\s+or\s+replace\s+function.*identity_provider',
+              r'create\s+table.*automation_job',
+              r'create\s+or\s+replace\s+function.*ai_adviser',
+              r'create\s+table.*email_delivery',
+          ]
+          found = [pattern for pattern in forbidden if re.search(pattern, migration, re.I | re.S)]
+          assert not found, f'Excluded Phase 4 capability found: {found}'
+          PY
+
+      - name: Confirm function registration and Phase 4 scope document
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          config = Path('supabase/config.toml').read_text()
+          for function_name in [
+              'initialize-certificate-payment',
+              'verify-certificate-payment',
+              'paystack-certificate-webhook',
+          ]:
+              marker = f'[functions.{function_name}]\nverify_jwt = false'
+              assert marker in config, f'Missing function registration: {function_name}'
+
+          text = Path('docs/AGILECERT_PHASE_4_SCOPE.md').read_text()
+          required = [
+              'Passing an examination continues to establish eligibility only',
+              'NGN 20,000',
+              'USD 35',
+              'NGN 50,000',
+              'USD 60',
+              '`AGILECERT_PAYSTACK_SECRET_KEY`',
+              'Professional Certificate checkout opens only after identity verification is implemented',
+              'Existing Phase 3 certificates are grandfathered',
+              'No Phase 4 merge or deployment may occur without explicit approval',
+          ]
+          missing = [value for value in required if value not in text]
+          assert not missing, f'Missing Phase 4 scope statements: {missing}'
+          PY
