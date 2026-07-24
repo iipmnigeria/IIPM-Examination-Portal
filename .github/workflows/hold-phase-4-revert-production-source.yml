@@ -1,0 +1,166 @@
+name: Hold Phase 4 by Reverting Production Source
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/phase-4-certificate-production.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: phase-4-production-source-hold
+  cancel-in-progress: false
+
+jobs:
+  revert-and-verify:
+    name: Revert Phase 4 source until payment secret is configured
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
+      PHASE_4_MERGE_COMMIT: 'a0aca15360c07d2e2f6bada0cf80cd35060bb9ae'
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+
+    steps:
+      - name: Confirm Phase 4 activation remains blocked
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          npx --yes supabase@latest secrets list --project-ref "$SUPABASE_PROJECT_REF" \
+            2>&1 | tee "$RUNNER_TEMP/phase-4-source-hold-secret-audit.log"
+          if grep -q 'AGILECERT_PAYSTACK_SECRET_KEY' "$RUNNER_TEMP/phase-4-source-hold-secret-audit.log"; then
+            echo 'Dedicated Phase 4 payment secret exists; refusing to revert the approved source.'
+            exit 1
+          fi
+
+      - name: Checkout production source branch
+        uses: actions/checkout@v4
+        with:
+          ref: supabase-integration
+          fetch-depth: 0
+
+      - name: Confirm exact reversible source state
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git rev-parse HEAD)"
+          echo "current_source_head=$current" | tee "$RUNNER_TEMP/phase-4-source-hold-state.log"
+          test "$current" = "$PHASE_4_MERGE_COMMIT"
+          git cat-file -e "$PHASE_4_MERGE_COMMIT^{commit}"
+
+      - name: Revert only the Phase 4 squash merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git revert --no-edit "$PHASE_4_MERGE_COMMIT"
+          changed="$(git diff-tree --no-commit-id --name-only -r HEAD)"
+          printf '%s\n' "$changed" | tee "$RUNNER_TEMP/phase-4-source-hold-changed-files.log"
+          for expected in \
+            .github/workflows/validate-agilecert-phase-3.yml \
+            .github/workflows/validate-agilecert-phase-4.yml \
+            docs/AGILECERT_PHASE_4_SCOPE.md \
+            src/components/AdminCertificateCommerceLauncher.tsx \
+            src/components/CandidateCertificateCommerce.tsx \
+            src/components/CertificatePaymentReturnHandler.tsx \
+            src/main.tsx \
+            src/services/certificateCommerceService.ts \
+            supabase/config.toml \
+            supabase/functions/_shared/agilecertCertificatePaystack.ts \
+            supabase/functions/initialize-certificate-payment/index.ts \
+            supabase/functions/paystack-certificate-webhook/index.ts \
+            supabase/functions/verify-certificate-payment/index.ts \
+            supabase/migrations/202607240105_phase_4_certificate_payment_credential_issuance.sql; do
+            grep -Fxq "$expected" "$RUNNER_TEMP/phase-4-source-hold-changed-files.log"
+          done
+          test "$(wc -l < "$RUNNER_TEMP/phase-4-source-hold-changed-files.log")" -eq 14
+
+      - name: Validate restored Phase 3 application
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
+          test -s "$js_file"
+          grep -q 'IIPM Certificate Verification' "$js_file"
+          if grep -q 'Credential Store' "$js_file"; then
+            echo 'Phase 4 interface remains after the exact revert.'
+            exit 1
+          fi
+          sha256sum "$js_file" | awk '{print $1}' | tee "$RUNNER_TEMP/phase-4-source-hold-expected-js.sha256"
+
+      - name: Push reversible hold commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          revert_sha="$(git rev-parse HEAD)"
+          echo "revert_commit=$revert_sha" | tee -a "$RUNNER_TEMP/phase-4-source-hold-state.log"
+          git push origin HEAD:supabase-integration
+
+      - name: Wait for automatic production publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(cat "$RUNNER_TEMP/phase-4-source-hold-expected-js.sha256")"
+          success=0
+          for attempt in $(seq 1 60); do
+            status="$(curl -L --silent --show-error --max-time 60 -o "$RUNNER_TEMP/phase-4-source-hold-live-index.html" -w '%{http_code}' "${LIVE_URL}?phase4-source-hold=${GITHUB_RUN_ID}-${attempt}" || true)"
+            if [ "$status" = '200' ] && grep -q 'AgileCert Global' "$RUNNER_TEMP/phase-4-source-hold-live-index.html"; then
+              asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/phase-4-source-hold-live-index.html" | head -n 1 | cut -d'"' -f2)"
+              if [ -n "$asset" ]; then
+                asset_url="$(python3 - "$LIVE_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+                )"
+                if curl -L --fail --silent --show-error --max-time 60 "${asset_url}?phase4-source-hold=${GITHUB_RUN_ID}-${attempt}" -o "$RUNNER_TEMP/phase-4-source-hold-live-app.js"; then
+                  live="$(sha256sum "$RUNNER_TEMP/phase-4-source-hold-live-app.js" | awk '{print $1}')"
+                  if [ "$live" = "$expected" ]; then
+                    success=1
+                    break
+                  fi
+                fi
+              fi
+            fi
+            sleep 10
+          done
+          test "$success" -eq 1
+          grep -q 'IIPM Certificate Verification' "$RUNNER_TEMP/phase-4-source-hold-live-app.js"
+          if grep -q 'Credential Store' "$RUNNER_TEMP/phase-4-source-hold-live-app.js"; then
+            echo 'Phase 4 commerce interface remains live after source rollback.'
+            exit 1
+          fi
+          {
+            echo 'phase4_source_hold_live=yes'
+            echo "expected_sha256=$expected"
+            echo "live_sha256=$(sha256sum "$RUNNER_TEMP/phase-4-source-hold-live-app.js" | awk '{print $1}')"
+          } | tee "$RUNNER_TEMP/phase-4-source-hold-result.log"
+
+      - name: Upload reversible hold evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-4-production-source-hold-evidence
+          path: |
+            ${{ runner.temp }}/phase-4-source-hold-secret-audit.log
+            ${{ runner.temp }}/phase-4-source-hold-state.log
+            ${{ runner.temp }}/phase-4-source-hold-changed-files.log
+            ${{ runner.temp }}/phase-4-source-hold-expected-js.sha256
+            ${{ runner.temp }}/phase-4-source-hold-live-index.html
+            ${{ runner.temp }}/phase-4-source-hold-live-app.js
+            ${{ runner.temp }}/phase-4-source-hold-result.log
+          if-no-files-found: warn
+          retention-days: 3
