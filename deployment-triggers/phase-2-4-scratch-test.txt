@@ -1,0 +1,3 @@
+Apply and exercise Phase 2.4 in an isolated PostgreSQL 16 scratch service only.
+Approved Phase 2.4 head: fd197afa1f00b3a8c3b7f854fc05641858046d75
+No production connection, SQL application or Edge Function deployment is permitted.
