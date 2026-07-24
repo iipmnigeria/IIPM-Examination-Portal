@@ -58,24 +58,57 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_DB_PASSWORD"
           test "$(git rev-parse HEAD)" = "$APPROVED_APP_COMMIT"
-          test -s "$PROFILE_FILE"
-          test -s "$PHOTO_FILE"
-          test -s "$ENTITLEMENT_FILE"
-          test -s "$ADMIN_FILE"
-          test -s "$DELIVERY_FILE"
-          test -s "$FUNCTION_FILE"
-          test "$DELIVERY_VERSION" = '202607240103'
-          grep -q 'agilecert_material_download_audits' "$DELIVERY_FILE"
-          grep -q 'authorize_agilecert_material_download' "$DELIVERY_FILE"
-          grep -q "to service_role" "$DELIVERY_FILE"
-          grep -q "bucket_id = 'agilecert-preparation-materials'" "$DELIVERY_FILE"
-          grep -q 'createSignedUrl' "$FUNCTION_FILE"
-          grep -q 'signedUrlTtlSeconds' "$FUNCTION_FILE"
-          grep -q 'auth.getUser' "$FUNCTION_FILE"
-          if grep -Eqi '(sb_secret_|service_role[=:][[:space:]]*["'"'][A-Za-z0-9_-]{20,})' "$FUNCTION_FILE"; then
-            echo 'A privileged credential appears to be hard-coded.'
-            exit 1
-          fi
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          required_files = [
+              os.environ['PROFILE_FILE'],
+              os.environ['PHOTO_FILE'],
+              os.environ['ENTITLEMENT_FILE'],
+              os.environ['ADMIN_FILE'],
+              os.environ['DELIVERY_FILE'],
+              os.environ['FUNCTION_FILE'],
+          ]
+          for file_name in required_files:
+              path = Path(file_name)
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'Required deployment input is missing: {file_name}')
+
+          if os.environ['DELIVERY_VERSION'] != '202607240103':
+              raise SystemExit('Unexpected Phase 2.4 migration version.')
+
+          migration = Path(os.environ['DELIVERY_FILE']).read_text()
+          function = Path(os.environ['FUNCTION_FILE']).read_text()
+
+          migration_markers = [
+              'agilecert_material_download_audits',
+              'authorize_agilecert_material_download',
+              'to service_role',
+              "bucket_id = 'agilecert-preparation-materials'",
+          ]
+          function_markers = [
+              'createSignedUrl',
+              'signedUrlTtlSeconds',
+              'auth.getUser',
+              'SUPABASE_SERVICE_ROLE_KEY',
+          ]
+          for marker in migration_markers:
+              if marker not in migration:
+                  raise SystemExit(f'Migration marker is missing: {marker}')
+          for marker in function_markers:
+              if marker not in function:
+                  raise SystemExit(f'Edge Function marker is missing: {marker}')
+
+          hardcoded_secret = re.compile(
+              r'sb_secret_|service_role\s*[=:]\s*["\'][A-Za-z0-9_-]{20,}',
+              re.IGNORECASE,
+          )
+          if hardcoded_secret.search(function):
+              raise SystemExit('A privileged credential appears to be hard-coded.')
+          print('Controlled Phase 2.4 deployment inputs verified.')
+          PY
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
