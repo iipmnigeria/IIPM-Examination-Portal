@@ -1,0 +1,44 @@
+name: Apply Phase 2.2B Profile Copy Fix
+
+on:
+  push:
+    branches:
+      - phase-2-2b-profile-avatar-integration
+    paths:
+      - 'automation-triggers/phase-2-2b-copy-fix.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-copy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase-2-2b-profile-avatar-integration
+          fetch-depth: 0
+
+      - name: Replace stale profile-photo copy
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/CandidateProfilePanel.tsx')
+          text = path.read_text()
+          old = 'Profile-photo upload and preparation materials will be added in later Phase 2 increments.'
+          new = 'Private profile-photo management is active. Preparation materials will be added in the next approved Phase 2 increment.'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one stale profile-photo sentence; found {text.count(old)}.')
+          path.write_text(text.replace(old, new))
+          PY
+
+      - name: Commit copy correction
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/CandidateProfilePanel.tsx
+          git commit -m 'Update Phase 2.2B profile workspace copy'
+          git push origin HEAD:phase-2-2b-profile-avatar-integration
