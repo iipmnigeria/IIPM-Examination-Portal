@@ -1325,16 +1325,16 @@ set template_id = t.id,
       'issuerName', t.issuer_name
     ),
     updated_at = now()
-from public.examinations e
-join public.agilecert_certificate_templates t
-  on t.programme_id = e.programme_id
- and t.product_code = case
-   when lower(coalesce(nullif(c.metadata->>'productCode', ''), 'achievement')) = 'professional'
-     then 'professional'
-   else 'achievement'
- end
- and t.active = true
+from public.examinations e,
+     public.agilecert_certificate_templates t
 where e.id = c.examination_id
+  and t.programme_id = e.programme_id
+  and t.product_code = case
+    when lower(coalesce(nullif(c.metadata->>'productCode', ''), 'achievement')) = 'professional'
+      then 'professional'
+    else 'achievement'
+  end
+  and t.active = true
   and c.template_id is null;
 
 alter table public.agilecert_certificate_templates enable row level security;
