@@ -1,0 +1,118 @@
+name: Format Commerce Modal Auto-Close
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/format-commerce-auto-close.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.head_ref == 'auto-close-commerce-success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: auto-close-commerce-success
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Correct focused formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          overlay = Path('src/components/CandidateCommerceOverlay.tsx')
+          text = overlay.read_text(encoding='utf-8')
+          old = """      const accessQuote = nextQuote as PurchaseQuote & {
+              status?: string;
+              canLaunch?: boolean;
+            };
+
+            if (accessQuote.canLaunch || accessQuote.status === 'already_unlocked') {
+              await refreshCatalogue();
+              window.dispatchEvent(new Event('iipm-commerce-refresh'));
+              setSelectedTest(null);
+              return;
+            }
+
+            setQuote(nextQuote);
+            setMessage("""
+          new = """      const accessQuote = nextQuote as PurchaseQuote & {
+                status?: string;
+                canLaunch?: boolean;
+              };
+
+              if (accessQuote.canLaunch || accessQuote.status === 'already_unlocked') {
+                await refreshCatalogue();
+                window.dispatchEvent(new Event('iipm-commerce-refresh'));
+                setSelectedTest(null);
+                return;
+              }
+
+              setQuote(nextQuote);
+              setMessage("""
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected one overlay formatting block, found {text.count(old)}')
+          overlay.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          payment = Path('src/components/PaymentReturnHandler.tsx')
+          payment_text = payment.read_text(encoding='utf-8')
+          old_payment = """  useEffect(() => {
+              if (state !== 'success') return;
+
+              const closeTimer = window.setTimeout(() => {
+                clearPaymentParameters();
+                setState('idle');
+              }, 1200);
+
+              return () => window.clearTimeout(closeTimer);
+            }, [state]);
+
+            if (state === 'idle') return null;"""
+          new_payment = """  useEffect(() => {
+                if (state !== 'success') return;
+
+                const closeTimer = window.setTimeout(() => {
+                  clearPaymentParameters();
+                  setState('idle');
+                }, 1200);
+
+                return () => window.clearTimeout(closeTimer);
+              }, [state]);
+
+              if (state === 'idle') return null;"""
+          if payment_text.count(old_payment) != 1:
+              raise SystemExit(f'Expected one payment formatting block, found {payment_text.count(old_payment)}')
+          payment.write_text(payment_text.replace(old_payment, new_payment, 1), encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate TypeScript and build
+        run: |
+          npx tsc --noEmit
+          npm run build
+
+      - name: Remove workflow and commit formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/format-commerce-auto-close.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/CandidateCommerceOverlay.tsx src/components/PaymentReturnHandler.tsx .github/workflows/format-commerce-auto-close.yml
+          git diff --cached --check
+          git commit -m 'Format commerce auto-close changes'
+          git push origin HEAD:auto-close-commerce-success
