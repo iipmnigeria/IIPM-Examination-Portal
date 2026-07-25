@@ -1,0 +1,138 @@
+name: Validate CIPMN ACCESS88 Coupon
+
+on:
+  push:
+    branches: [phase-9-cipmn-module-mock-examinations]
+    paths:
+      - 'supabase/migrations/202607251714_cipmn_module_mock_access88_coupon.sql'
+      - '.github/workflows/validate-cipmn-access88.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/202607251714_cipmn_module_mock_access88_coupon.sql'
+      - '.github/workflows/validate-cipmn-access88.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-cipmn-access88-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Validate 14-day programme coupon
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Neutralise production bootstrap in CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          commit;
+          SQL
+      - name: Start Supabase
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee cipmn-access88-supabase-start.log
+      - name: Reset database
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee cipmn-access88-db-reset.log
+      - name: Verify coupon across all modules
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -v ON_ERROR_STOP=1 <<'SQL' | tee cipmn-access88-verification.log
+          do $$
+          declare
+            v_programme_id uuid;
+            v_candidate_id uuid := gen_random_uuid();
+            v_exam record;
+            v_quote record;
+            v_exam_count integer := 0;
+          begin
+            select id into v_programme_id
+            from public.programmes
+            where code='CIPMN-MOCK' and is_active=true;
+
+            if v_programme_id is null then
+              raise exception 'CIPMN-MOCK programme is missing.';
+            end if;
+
+            if not exists (
+              select 1 from public.coupons c
+              where upper(c.code)='CIPMN12-ACCESS88'
+                and c.discount_type='percentage'
+                and c.discount_value=88
+                and c.currency='NGN'
+                and c.scope='programme'
+                and c.programme_id=v_programme_id
+                and c.examination_id is null
+                and c.maximum_redemptions is null
+                and c.per_candidate_limit=12
+                and c.is_active=true
+                and c.expires_at=c.starts_at+interval '14 days'
+            ) then
+              raise exception 'CIPMN12-ACCESS88 configuration is incorrect.';
+            end if;
+
+            for v_exam in
+              select e.id
+              from public.examinations e
+              where e.programme_id=v_programme_id
+                and e.status='published'
+              order by e.title
+            loop
+              v_exam_count := v_exam_count + 1;
+              select * into v_quote
+              from public.resolve_exam_purchase_quote(
+                v_exam.id,
+                v_candidate_id,
+                'NGN',
+                'CIPMN12-ACCESS88'
+              );
+
+              if v_quote.list_amount_minor<>2500000
+                 or v_quote.discount_amount_minor<>2200000
+                 or v_quote.payable_amount_minor<>300000
+                 or v_quote.coupon_code<>'CIPMN12-ACCESS88' then
+                raise exception 'Coupon quote failed for examination %.',v_exam.id;
+              end if;
+            end loop;
+
+            if v_exam_count<>12 then
+              raise exception 'Expected 12 eligible examinations, found %.',v_exam_count;
+            end if;
+          end;
+          $$;
+
+          select code,discount_value,currency,scope,starts_at,expires_at,per_candidate_limit
+          from public.coupons
+          where upper(code)='CIPMN12-ACCESS88';
+          SQL
+          grep -q 'CIPMN12-ACCESS88' cipmn-access88-verification.log
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-access88-evidence
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            cipmn-access88-supabase-start.log
+            cipmn-access88-db-reset.log
+            cipmn-access88-verification.log
