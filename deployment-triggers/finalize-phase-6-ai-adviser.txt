@@ -1,0 +1,1 @@
+Finalize the validated Phase 6 AI Certification Adviser after the Gemini project was returned to Free Tier. This trigger PR must remain unmerged.
