@@ -2,7 +2,9 @@ name: Validate CIPMN Module Mock Examinations
 
 on:
   push:
-    branches: [phase-9-cipmn-module-mock-examinations]
+    branches:
+      - phase-9-cipmn-module-mock-examinations
+      - hotfix-cipmn-pass-mark-70
     paths:
       - 'supabase/migrations/202607251701_cipmn_module_mock_exam_catalogue.sql'
       - 'supabase/migrations/202607251702_cipmn_mod_001_mock_questions.sql'
@@ -17,6 +19,7 @@ on:
       - 'supabase/migrations/202607251711_cipmn_mod_010_mock_questions.sql'
       - 'supabase/migrations/202607251712_cipmn_mod_011_mock_questions.sql'
       - 'supabase/migrations/202607251713_cipmn_mod_012_mock_questions.sql'
+      - 'supabase/migrations/202607251715_cipmn_module_mock_pass_mark_70.sql'
       - '.github/workflows/validate-cipmn-module-mock-examinations.yml'
   pull_request:
     branches: [supabase-integration]
@@ -34,6 +37,7 @@ on:
       - 'supabase/migrations/202607251711_cipmn_mod_010_mock_questions.sql'
       - 'supabase/migrations/202607251712_cipmn_mod_011_mock_questions.sql'
       - 'supabase/migrations/202607251713_cipmn_mod_012_mock_questions.sql'
+      - 'supabase/migrations/202607251715_cipmn_module_mock_pass_mark_70.sql'
       - '.github/workflows/validate-cipmn-module-mock-examinations.yml'
   workflow_dispatch:
 
@@ -106,7 +110,7 @@ jobs:
               select 1 from public.examinations e
               left join public.exam_prices ep on ep.examination_id=e.id and ep.currency='NGN' and ep.is_active
               where e.programme_id=v_pid and (
-                e.duration_minutes<>120 or e.pass_mark<>50 or e.max_attempts<>1 or e.allow_self_enrollment
+                e.duration_minutes<>120 or e.pass_mark<>70 or e.max_attempts<>1 or e.allow_self_enrollment
                 or not e.requires_payment or not e.randomize_questions or not e.randomize_options
                 or ep.amount_minor<>2500000 or not ep.is_default
               )

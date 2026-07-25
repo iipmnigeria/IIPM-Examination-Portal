@@ -11,7 +11,7 @@ Each module is configured as a separate paid mock examination with:
 - one protected answer key and explanation per question
 - case-based, scenario-based and application-focused wording
 - 120-minute duration
-- 50% pass mark, aligned with the CIPMN licensing curriculum structure
+- 70% pass mark
 - one permitted attempt per purchase/assignment
 - question and option randomisation
 - payment or approved assignment required before launch
@@ -50,9 +50,9 @@ The phase validation workflow resets an isolated Supabase environment and verifi
 - unique question text within each module examination
 - case/application framing for every question
 - NGN 25,000 pricing for every module
-- 120-minute duration and 50% pass mark
+- 120-minute duration and 70% pass mark
 
-The examination portal build and the complete database integrity test passed successfully before the programme coupon was activated.
+The examination portal build and the complete database integrity test passed successfully before the programme coupon was activated. A corrective migration sets and verifies the approved 70% pass mark across all twelve module examinations.
 
 ## Active 88% programme coupon
 
