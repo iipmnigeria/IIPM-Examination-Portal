@@ -79,6 +79,17 @@ jobs:
 
           do $$
           begin
+            if has_table_privilege('anon', 'public.agilecert_ai_adviser_sessions', 'SELECT')
+               or has_table_privilege('authenticated', 'public.agilecert_ai_adviser_sessions', 'SELECT')
+               or has_table_privilege('anon', 'public.agilecert_ai_adviser_messages', 'INSERT')
+               or has_table_privilege('authenticated', 'public.agilecert_ai_adviser_messages', 'INSERT') then
+              raise exception 'Browser roles unexpectedly have direct AI adviser table privileges.';
+            end if;
+          end;
+          $$;
+
+          do $$
+          begin
             perform set_config('request.jwt.claim.role', 'authenticated', true);
             begin
               perform public.register_agilecert_ai_adviser_request(
@@ -148,6 +159,36 @@ jobs:
 
           do $$
           declare
+            v_rate jsonb;
+          begin
+            if exists (
+              select 1 from public.agilecert_ai_adviser_sessions
+              where session_key_hash = repeat('c', 64)
+            ) then
+              raise exception 'The 90-day AI adviser retention cleanup did not remove the old session.';
+            end if;
+
+            if not exists (
+              select 1 from public.agilecert_ai_adviser_sessions
+              where session_key_hash = repeat('d', 64)
+                and message_count = 5
+                and total_message_count = 5
+            ) then
+              raise exception 'The hourly AI adviser message counter is incorrect.';
+            end if;
+
+            v_rate := public.register_agilecert_ai_adviser_request(
+              repeat('d', 64), null, true, 5
+            );
+            if coalesce((v_rate->>'allowed')::boolean, true)
+               or coalesce((v_rate->>'remaining')::integer, -1) <> 0 then
+              raise exception 'The AI adviser hourly rate limit did not remain blocked.';
+            end if;
+          end;
+          $$;
+
+          do $$
+          declare
             v_session_id uuid;
             v_message_id uuid;
           begin
@@ -191,9 +232,6 @@ jobs:
 
           grep -q 'agilecert_ai_adviser_sessions' phase-6-behaviour-evidence.log
           grep -q 'agilecert_ai_adviser_messages' phase-6-behaviour-evidence.log
-          grep -Eq 'anon_session_read[[:space:]]*\|[[:space:]]*f' phase-6-behaviour-evidence.log
-          grep -Eq 'authenticated_session_read[[:space:]]*\|[[:space:]]*f' phase-6-behaviour-evidence.log
-          grep -Eq 'old_sessions_remaining[[:space:]]*\|[[:space:]]*0' phase-6-behaviour-evidence.log
           grep -q '"allowed": false' phase-6-behaviour-evidence.log
           grep -q 'test-model' phase-6-behaviour-evidence.log
           grep -q 'answerKeysExcluded' phase-6-behaviour-evidence.log
