@@ -1,0 +1,277 @@
+name: Validate CIPMN Module Mock Examinations
+
+on:
+  push:
+    branches: [phase-9-cipmn-module-mock-examinations]
+    paths:
+      - 'supabase/migrations/202607250106_cipmn_module_mock_exam_catalogue.sql'
+      - 'supabase/migrations/202607250107_cipmn_mod_001_mock_questions.sql'
+      - 'supabase/migrations/202607250108_cipmn_mod_002_mock_questions.sql'
+      - 'supabase/migrations/202607250109_cipmn_mod_003_mock_questions.sql'
+      - 'supabase/migrations/202607250110_cipmn_mod_004_mock_questions.sql'
+      - 'supabase/migrations/202607250111_cipmn_mod_005_mock_questions.sql'
+      - 'supabase/migrations/202607250112_cipmn_mod_006_mock_questions.sql'
+      - 'supabase/migrations/202607250113_cipmn_mod_007_mock_questions.sql'
+      - 'supabase/migrations/202607250114_cipmn_mod_008_mock_questions.sql'
+      - 'supabase/migrations/202607250115_cipmn_mod_009_mock_questions.sql'
+      - 'supabase/migrations/202607250116_cipmn_mod_010_mock_questions.sql'
+      - 'supabase/migrations/202607250117_cipmn_mod_011_mock_questions.sql'
+      - 'supabase/migrations/202607250118_cipmn_mod_012_mock_questions.sql'
+      - '.github/workflows/validate-cipmn-module-mock-examinations.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/202607250106_cipmn_module_mock_exam_catalogue.sql'
+      - 'supabase/migrations/202607250107_cipmn_mod_001_mock_questions.sql'
+      - 'supabase/migrations/202607250108_cipmn_mod_002_mock_questions.sql'
+      - 'supabase/migrations/202607250109_cipmn_mod_003_mock_questions.sql'
+      - 'supabase/migrations/202607250110_cipmn_mod_004_mock_questions.sql'
+      - 'supabase/migrations/202607250111_cipmn_mod_005_mock_questions.sql'
+      - 'supabase/migrations/202607250112_cipmn_mod_006_mock_questions.sql'
+      - 'supabase/migrations/202607250113_cipmn_mod_007_mock_questions.sql'
+      - 'supabase/migrations/202607250114_cipmn_mod_008_mock_questions.sql'
+      - 'supabase/migrations/202607250115_cipmn_mod_009_mock_questions.sql'
+      - 'supabase/migrations/202607250116_cipmn_mod_010_mock_questions.sql'
+      - 'supabase/migrations/202607250117_cipmn_mod_011_mock_questions.sql'
+      - 'supabase/migrations/202607250118_cipmn_mod_012_mock_questions.sql'
+      - '.github/workflows/validate-cipmn-module-mock-examinations.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-cipmn-module-mocks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application:
+    name: Build examination portal
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+  database:
+    name: Validate 12 examinations and 900 MCQs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap='supabase/migrations/202607200003_bootstrap_super_admin.sql'
+          test -s "$bootstrap"
+          cat > "$bootstrap" <<'SQL'
+          begin;
+          -- Isolated CI only: production already has its authorised Super Administrator.
+          commit;
+          SQL
+
+      - name: Start isolated Supabase services
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee cipmn-mock-supabase-start.log
+
+      - name: Apply all repository migrations from scratch
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee cipmn-mock-db-reset.log
+
+      - name: Verify catalogue, pricing and question-bank integrity
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL' | tee cipmn-mock-integrity.log
+          do $$
+          declare
+            v_programme_id uuid;
+            v_exam_count integer;
+            v_question_count integer;
+            v_option_count integer;
+            v_key_count integer;
+          begin
+            select id into v_programme_id
+            from public.programmes
+            where code = 'CIPMN-MOCK'
+              and is_active = true;
+
+            if v_programme_id is null then
+              raise exception 'CIPMN-MOCK programme is missing.';
+            end if;
+
+            select count(*) into v_exam_count
+            from public.examinations
+            where programme_id = v_programme_id
+              and status = 'published';
+
+            if v_exam_count <> 12 then
+              raise exception 'Expected 12 published CIPMN module mock examinations, found %.', v_exam_count;
+            end if;
+
+            if exists (
+              select 1
+              from public.examinations e
+              left join public.exam_prices ep
+                on ep.examination_id = e.id
+               and ep.currency = 'NGN'
+               and ep.is_active = true
+              where e.programme_id = v_programme_id
+                and (
+                  e.duration_minutes <> 120
+                  or e.pass_mark <> 50
+                  or e.max_attempts <> 1
+                  or e.allow_self_enrollment
+                  or not e.requires_payment
+                  or not e.randomize_questions
+                  or not e.randomize_options
+                  or ep.amount_minor <> 2500000
+                  or not ep.is_default
+                )
+            ) then
+              raise exception 'One or more CIPMN mock examinations have incorrect runtime or price settings.';
+            end if;
+
+            if exists (
+              select 1
+              from public.examinations e
+              where e.programme_id = v_programme_id
+                and (
+                  select count(*)
+                  from public.questions q
+                  where q.examination_id = e.id
+                    and q.is_active = true
+                ) <> 75
+            ) then
+              raise exception 'Every CIPMN module mock examination must contain exactly 75 active questions.';
+            end if;
+
+            select count(*) into v_question_count
+            from public.questions q
+            join public.examinations e on e.id = q.examination_id
+            where e.programme_id = v_programme_id
+              and q.is_active = true;
+
+            if v_question_count <> 900 then
+              raise exception 'Expected 900 active questions, found %.', v_question_count;
+            end if;
+
+            select count(*) into v_option_count
+            from public.question_options qo
+            join public.questions q on q.id = qo.question_id
+            join public.examinations e on e.id = q.examination_id
+            where e.programme_id = v_programme_id
+              and q.is_active = true;
+
+            if v_option_count <> 3600 then
+              raise exception 'Expected 3,600 options, found %.', v_option_count;
+            end if;
+
+            if exists (
+              select 1
+              from public.questions q
+              join public.examinations e on e.id = q.examination_id
+              left join lateral (
+                select count(*) as option_count
+                from public.question_options qo
+                where qo.question_id = q.id
+              ) o on true
+              where e.programme_id = v_programme_id
+                and q.is_active = true
+                and o.option_count <> 4
+            ) then
+              raise exception 'At least one active question does not have exactly four options.';
+            end if;
+
+            select count(*) into v_key_count
+            from public.question_answer_keys k
+            join public.questions q on q.id = k.question_id
+            join public.examinations e on e.id = q.examination_id
+            join public.question_options qo
+              on qo.id = k.correct_option_id
+             and qo.question_id = q.id
+            where e.programme_id = v_programme_id
+              and q.is_active = true;
+
+            if v_key_count <> 900 then
+              raise exception 'Expected 900 valid answer keys, found %.', v_key_count;
+            end if;
+
+            if exists (
+              select 1
+              from public.examinations e
+              join public.questions q on q.examination_id = e.id and q.is_active = true
+              where e.programme_id = v_programme_id
+              group by e.id
+              having count(*) <> count(distinct q.question_text)
+            ) then
+              raise exception 'Duplicate question text exists within a CIPMN module examination.';
+            end if;
+
+            if exists (
+              select 1
+              from public.questions q
+              join public.examinations e on e.id = q.examination_id
+              where e.programme_id = v_programme_id
+                and q.is_active = true
+                and q.question_text !~* '(public-sector project|health-sector programme|ICT delivery team|infrastructure contractor|donor-funded initiative)'
+            ) then
+              raise exception 'A CIPMN mock question is not framed as a case or application scenario.';
+            end if;
+          end;
+          $$;
+
+          select
+            split_part(e.title, ' - ', 1) as module_code,
+            count(q.id) filter (where q.is_active) as active_questions,
+            ep.amount_minor as ngn_amount_minor,
+            e.duration_minutes,
+            e.pass_mark
+          from public.examinations e
+          join public.programmes p on p.id = e.programme_id
+          left join public.questions q on q.examination_id = e.id
+          left join public.exam_prices ep
+            on ep.examination_id = e.id
+           and ep.currency = 'NGN'
+           and ep.is_active = true
+          where p.code = 'CIPMN-MOCK'
+          group by e.id, ep.amount_minor
+          order by e.title;
+          SQL
+
+          grep -q 'CIPMN-MOD-001' cipmn-mock-integrity.log
+          grep -q 'CIPMN-MOD-012' cipmn-mock-integrity.log
+          grep -Eq 'CIPMN-MOD-001[[:space:]]*\|[[:space:]]*75' cipmn-mock-integrity.log
+          grep -Eq 'CIPMN-MOD-012[[:space:]]*\|[[:space:]]*75' cipmn-mock-integrity.log
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-module-mock-examination-evidence
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            cipmn-mock-supabase-start.log
+            cipmn-mock-db-reset.log
+            cipmn-mock-integrity.log
