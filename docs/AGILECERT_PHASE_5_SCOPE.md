@@ -54,7 +54,7 @@ Only active `exam_admin` and `super_admin` users may review a submitted record.
 
 Every decision requires a recorded reason or review note. Approval records the reviewer, approval timestamp, verified legal-name snapshot and evidence category. Candidate edits to legal name, phone or country after approval automatically expire the approval and require a new submission.
 
-Identity changes and withdrawal are blocked while a non-expired Professional Certificate payment is active, preventing a verified payment from becoming detached from its approved identity record.
+Identity changes and withdrawal are blocked while an active Professional Certificate payment is pending or awaiting fulfilment, preventing a verified payment from becoming detached from its approved identity record.
 
 ## Private evidence storage
 
