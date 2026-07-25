@@ -1,1 +1,1 @@
-Run the Phase 5 read-only production migration preview. This trigger must not be merged.
+Run the Phase 5 read-only production migration preview attempt 2 using only remotely recorded migrations plus Phase 5. This trigger must not be merged.
