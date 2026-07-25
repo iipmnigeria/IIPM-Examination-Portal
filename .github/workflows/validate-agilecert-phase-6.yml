@@ -1,0 +1,234 @@
+name: Validate AgileCert Phase 6
+
+on:
+  push:
+    branches: [phase-6-ai-certification-adviser]
+    paths:
+      - 'src/**'
+      - 'supabase/migrations/202607250103_phase_6_ai_certification_adviser.sql'
+      - 'supabase/functions/agilecert-ai-adviser/**'
+      - 'docs/AGILECERT_PHASE_6_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-5.yml'
+      - '.github/workflows/validate-agilecert-phase-6*.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/**'
+      - 'supabase/migrations/202607250103_phase_6_ai_certification_adviser.sql'
+      - 'supabase/functions/agilecert-ai-adviser/**'
+      - 'docs/AGILECERT_PHASE_6_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-5.yml'
+      - '.github/workflows/validate-agilecert-phase-6*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-phase-6-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Phase 6 AI adviser application and safety controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install, type-check and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'AI Certification Adviser'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Catalogue-grounded guidance'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Credential Store'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Identity Assurance'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check AI adviser Edge Function
+        run: deno check --node-modules-dir=auto supabase/functions/agilecert-ai-adviser/index.ts
+
+      - name: Validate exact Phase 6 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          changed = set(subprocess.check_output([
+              'git', 'diff', '--name-only', 'origin/supabase-integration...HEAD'
+          ], text=True).splitlines())
+          expected = {
+              '.github/workflows/validate-agilecert-phase-5.yml',
+              '.github/workflows/validate-agilecert-phase-6-database.yml',
+              '.github/workflows/validate-agilecert-phase-6.yml',
+              'docs/AGILECERT_PHASE_6_SCOPE.md',
+              'src/components/AiCertificationAdviser.tsx',
+              'src/main.tsx',
+              'src/services/aiCertificationAdviserService.ts',
+              'supabase/functions/agilecert-ai-adviser/index.ts',
+              'supabase/migrations/202607250103_phase_6_ai_certification_adviser.sql',
+          }
+          assert changed == expected, f'Unexpected Phase 6 file scope: {sorted(changed ^ expected)}'
+
+          migrations = sorted(p for p in changed if p.startswith('supabase/migrations/'))
+          assert migrations == ['supabase/migrations/202607250103_phase_6_ai_certification_adviser.sql']
+          functions = sorted(p for p in changed if p.startswith('supabase/functions/'))
+          assert functions == ['supabase/functions/agilecert-ai-adviser/index.ts']
+
+          protected = {
+              'src/services/authService.ts', 'src/services/commerceService.ts',
+              'src/services/examService.ts', 'src/services/preparationMaterialService.ts',
+              'src/services/materialAdminService.ts', 'src/services/certificateAuthorityService.ts',
+              'src/services/certificateCommerceService.ts', 'src/services/identityAssuranceService.ts',
+              'src/components/ExamScreen.tsx', 'src/components/StudentDashboard.tsx',
+              'src/components/AdminPortal.tsx', 'src/components/CandidateCommerceOverlay.tsx',
+              'src/components/CandidateCertificateCommerce.tsx',
+              'src/components/CandidateIdentityAssurance.tsx',
+              'supabase/functions/initialize-exam-payment/index.ts',
+              'supabase/functions/verify-exam-payment/index.ts',
+              'supabase/functions/paystack-webhook/index.ts',
+              'supabase/functions/initialize-certificate-payment/index.ts',
+              'supabase/functions/verify-certificate-payment/index.ts',
+              'supabase/functions/paystack-certificate-webhook/index.ts',
+              'supabase/functions/agilecert-material-delivery/index.ts',
+          }
+          assert not changed & protected, f'Protected boundaries changed: {sorted(changed & protected)}'
+          PY
+
+      - name: Validate private database controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          sql = Path('supabase/migrations/202607250103_phase_6_ai_certification_adviser.sql').read_text()
+          required = [
+              'agilecert_ai_adviser_sessions', 'agilecert_ai_adviser_messages',
+              'register_agilecert_ai_adviser_request', 'record_agilecert_ai_adviser_response',
+              'session_key_hash', 'consent_recorded_at', "interval '1 hour'",
+              "interval '90 days'", 'p_consent boolean',
+              'Explicit AI adviser privacy consent is required',
+              "current_setting('request.jwt.claim.role'", 'to service_role',
+              'enable row level security', 'rawSessionKeyStored',
+          ]
+          missing = [m for m in required if m not in sql]
+          assert not missing, f'Missing Phase 6 database controls: {missing}'
+
+          lower = sql.lower()
+          forbidden = [
+              'grant select on public.agilecert_ai_adviser_sessions to authenticated',
+              'grant select on public.agilecert_ai_adviser_messages to authenticated',
+              'grant insert on public.agilecert_ai_adviser_sessions to authenticated',
+              'grant insert on public.agilecert_ai_adviser_messages to authenticated',
+          ]
+          found = [m for m in forbidden if m in lower]
+          assert not found, f'Browser access granted to private adviser data: {found}'
+          PY
+
+      - name: Validate catalogue grounding and safety boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          edge = Path('supabase/functions/agilecert-ai-adviser/index.ts').read_text()
+          browser = '\n'.join(Path(p).read_text() for p in [
+              'src/services/aiCertificationAdviserService.ts',
+              'src/components/AiCertificationAdviser.tsx',
+              'src/main.tsx',
+          ])
+          required_edge = [
+              "from('programmes')", "from('examinations')", "from('exam_prices')",
+              "from('agilecert_certificate_products')",
+              "from('agilecert_certificate_product_prices')",
+              "eq('status', 'published')", 'examinationById.has(recommendation.examinationId)',
+              'AGILECERT_CHAT_SALT', 'GEMINI_API_KEY', 'AGILECERT_GEMINI_MODEL',
+              'gemini-3.6-flash', 'responseMimeType', 'responseJsonSchema',
+              'detectsExaminationContentRequest', 'detectsSensitiveData',
+              'detectsPromptInjection', '[BLOCKED EXAMINATION-CONTENT REQUEST]',
+              '[REDACTED SENSITIVE INPUT]',
+              'Never provide, reconstruct, guess or discuss examination questions',
+              'Never request passwords', 'human_escalation', 'privateRecordsExcluded',
+          ]
+          missing = [m for m in required_edge if m not in edge]
+          assert not missing, f'Missing AI safety controls: {missing}'
+
+          forbidden_context = [
+              "from('questions')", "from('question_options')", "from('attempt_answers')",
+              "from('proctor_logs')", "from('agilecert_identity_verifications')",
+              "from('agilecert_certificate_payments')", "select('*')",
+          ]
+          found = [m for m in forbidden_context if m in edge]
+          assert not found, f'Private or examination content entered AI context: {found}'
+
+          required_browser = [
+              'AI Certification Adviser', 'privacy notice', 'I will not share passwords',
+              'Catalogue-grounded guidance', 'askAiCertificationAdviser',
+              'consent: true', 'AiCertificationAdviser',
+          ]
+          missing = [m for m in required_browser if m not in browser]
+          assert not missing, f'Missing browser controls: {missing}'
+          assert 'GEMINI_API_KEY' not in browser
+          assert 'AGILECERT_CHAT_SALT' not in browser
+          assert 'SUPABASE_SERVICE_ROLE_KEY' not in browser
+          assert not re.search(r'AIza[0-9A-Za-z_-]{20,}', edge + browser)
+          PY
+
+      - name: Confirm Phase 1-5 authority remains present
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          checks = {
+              'supabase/migrations/202607240103_phase_2_4_secure_material_delivery.sql': ['authorize_agilecert_material_download'],
+              'supabase/migrations/202607240104_phase_3_certificate_eligibility_issuance_verification.sql': ['agilecert_certificate_eligibility_records', 'verify_agilecert_certificate'],
+              'supabase/migrations/202607240105_phase_4_certificate_payment_credential_issuance.sql': ['agilecert_certificate_products', 'fulfil_paid_agilecert_certificate_order'],
+              'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql': ['agilecert_identity_verifications', 'create_agilecert_professional_certificate_order'],
+              'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql': ['agilecert_guard_and_invalidate_identity_on_profile_change', 'same active approved IIPM identity-assurance record'],
+          }
+          for path, markers in checks.items():
+              text = Path(path).read_text()
+              missing = [m for m in markers if m not in text]
+              assert not missing, f'Missing prior-phase controls in {path}: {missing}'
+          PY
+
+      - name: Validate Phase 6 scope document
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          scope = Path('docs/AGILECERT_PHASE_6_SCOPE.md').read_text()
+          required = [
+              'AI Certification Adviser', 'guidance-only', 'Grounded adviser model',
+              'explicit consent', '90 days', 'AGILECERT_CHAT_SALT', 'GEMINI_API_KEY',
+              'gemini-3.6-flash', 'examination questions, answer options, answer keys',
+              'email, SMS or WhatsApp campaigns',
+              'No Phase 6 merge or deployment may occur without separate explicit approval',
+          ]
+          missing = [m for m in required if m not in scope]
+          assert not missing, f'Missing Phase 6 scope controls: {missing}'
+          PY
