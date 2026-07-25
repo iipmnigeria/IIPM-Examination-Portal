@@ -1,0 +1,1 @@
+Change GitHub Pages from the uncompiled supabase-integration root to the validated compiled main root, then verify the exact Phase 6 bundle and live Adviser. This trigger PR must remain unmerged.
