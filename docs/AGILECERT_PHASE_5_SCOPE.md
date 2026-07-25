@@ -102,6 +102,10 @@ The immutable credential metadata must include:
 
 Public verification may state that identity was manually verified by IIPM, but must not expose the evidence file, reviewer notes, phone number, email address, internal user identifier or private document metadata.
 
+## Supabase issuer compatibility
+
+The shared Phase 3/4 certificate issuer generates verification codes with the pgcrypto `gen_random_bytes` helper. Supabase exposes that helper through its `extensions` schema. Phase 5 therefore adds a narrowly scoped function-configuration migration that extends the issuer search path to `public, extensions` without replacing its business logic. This enables both existing Achievement issuance and the new Professional issuance on Supabase.
+
 ## Candidate experience
 
 The candidate workspace provides:
@@ -130,10 +134,11 @@ The administrator console provides:
 
 ## Database and function boundaries
 
-Phase 5 uses two numbered migrations because validation identified a lifecycle and payment-binding hardening unit that is safer to review independently:
+Phase 5 uses three numbered migrations so identity assurance, lifecycle/payment binding, and the Supabase issuer compatibility correction remain independently reviewable:
 
 1. `202607250101_phase_5_identity_assurance_professional_certificate.sql` — identity submissions, private storage, manual review, Professional Certificate order creation and identity-aware fulfilment;
-2. `202607250102_phase_5_identity_assurance_hardening.sql` — profile-change invalidation, active-payment withdrawal guards and exact identity-record binding at issuance.
+2. `202607250102_phase_5_identity_assurance_hardening.sql` — profile-change invalidation, active-payment withdrawal guards and exact identity-record binding at issuance;
+3. `202607250103_phase_5_supabase_issuer_compatibility.sql` — adds the Supabase extensions schema to the existing shared certificate issuer search path so pgcrypto verification-code generation works.
 
 Phase 5 may add:
 
@@ -142,8 +147,9 @@ Phase 5 may add:
 - review decisions and audit records;
 - candidate and administrator RPCs;
 - a private storage bucket and storage policies;
-- server checks that unlock Professional Certificate order creation; and
-- issuance checks and identity snapshots for Professional Credentials.
+- server checks that unlock Professional Certificate order creation;
+- issuance checks and identity snapshots for Professional Credentials; and
+- the narrowly scoped Supabase extensions-schema compatibility setting required by the existing certificate issuer.
 
 ## Explicit exclusions
 
@@ -170,7 +176,7 @@ Before Phase 5 can be proposed for merge and deployment, it must pass:
 
 - TypeScript validation;
 - production build;
-- exact two-migration and file-scope review;
+- exact three-migration and file-scope review;
 - isolated PostgreSQL behaviour tests;
 - storage-policy and private-file access tests;
 - candidate isolation tests;
@@ -179,7 +185,7 @@ Before Phase 5 can be proposed for merge and deployment, it must pass:
 - active-payment profile-change and withdrawal-guard tests;
 - Professional Certificate checkout lock/unlock tests;
 - exact order-to-identity issuance-binding tests;
-- payment and issuance regression tests;
+- Achievement and Professional payment/issuance regression tests;
 - Phase 1 through Phase 4 regression validation;
 - read-only production migration dry run; and
 - explicit review of every changed file.
