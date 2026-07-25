@@ -7,6 +7,7 @@ import AdminCertificateManagementLauncher from './components/AdminCertificateMan
 import AdminCommerceConsole from './components/AdminCommerceConsole';
 import AdminIdentityAssuranceLauncher from './components/AdminIdentityAssuranceLauncher';
 import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
+import AiCertificationAdviser from './components/AiCertificationAdviser';
 import CandidateCertificateCommerce from './components/CandidateCertificateCommerce';
 import CandidateCertificateWorkspace from './components/CandidateCertificateWorkspace';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
@@ -162,6 +163,7 @@ createRoot(rootElement).render(
       <CertificatePaymentReturnHandler />
       <AdminIdentityAssuranceLauncher />
       <AdminCertificateCommerceLauncher />
+      <AiCertificationAdviser />
     </SupabaseSessionBoundary>
   </StrictMode>,
 );
