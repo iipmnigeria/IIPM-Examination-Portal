@@ -9,6 +9,13 @@ export type CertificateEligibilityStatus =
 
 export type CertificateIntegrityStatus = 'pending' | 'cleared' | 'flagged' | 'rejected';
 export type IssuedCertificateStatus = 'active' | 'suspended' | 'revoked';
+export type CertificateVerificationStatus = IssuedCertificateStatus | 'superseded';
+export type CertificateApprovalStatus =
+  | 'not_required'
+  | 'pending'
+  | 'approved'
+  | 'changes_requested'
+  | 'rejected';
 
 export interface IssuedCertificateRecord {
   id: string;
@@ -25,6 +32,9 @@ export interface IssuedCertificateRecord {
   status: IssuedCertificateStatus;
   statusChangedAt?: string | null;
   revocationReason?: string | null;
+  revisionNumber?: number;
+  templateId?: string | null;
+  templateVersion?: number | null;
 }
 
 export interface CandidateCertificateItem {
@@ -43,6 +53,11 @@ export interface CandidateCertificateItem {
   completedAt: string | null;
   requestedAt: string | null;
   issuedAt: string | null;
+  approvalStatus?: CertificateApprovalStatus;
+  approvalReason?: string | null;
+  approvalDecidedAt?: string | null;
+  approvalMode?: 'automatic' | 'manual';
+  requireCandidateRequest?: boolean;
   certificate: IssuedCertificateRecord | null;
 }
 
@@ -59,7 +74,7 @@ export interface CandidateCertificateWorkspace {
 export interface CertificateVerificationResult {
   found: boolean;
   valid: boolean;
-  status?: IssuedCertificateStatus;
+  status?: CertificateVerificationStatus;
   certificateNumber?: string;
   verificationCode?: string;
   holderName?: string;
@@ -70,6 +85,7 @@ export interface CertificateVerificationResult {
   passMark?: number;
   issueDate?: string;
   issuedAt?: string;
+  revisionNumber?: number;
   issuer?: string;
   poweredBy?: string;
   message: string;
@@ -93,6 +109,9 @@ export interface AdminCertificateEligibility {
   requestedAt: string | null;
   issuedAt: string | null;
   evaluatedAt: string;
+  approvalStatus?: CertificateApprovalStatus;
+  approvalReason?: string | null;
+  approvalDecidedAt?: string | null;
 }
 
 export interface AdminCertificateRecord extends IssuedCertificateRecord {
@@ -108,6 +127,8 @@ export interface CertificatePolicyRecord {
   examPassMark: number;
   maxSuspiciousScore: number;
   active: boolean;
+  approvalMode?: 'automatic' | 'manual';
+  requireCandidateRequest?: boolean;
   updatedAt: string;
 }
 
@@ -145,7 +166,7 @@ const emptyAdminConsole: AdminCertificateConsole = {
 };
 
 export async function getMyCertificateWorkspace(): Promise<CandidateCertificateWorkspace> {
-  const { data, error } = await supabase.rpc('get_my_agilecert_certificate_workspace');
+  const { data, error } = await supabase.rpc('get_my_agilecert_certificate_workspace_v2');
   if (error) throw new Error(`Unable to load certificate eligibility: ${error.message}`);
   if (!data || typeof data !== 'object') return emptyWorkspace;
 
