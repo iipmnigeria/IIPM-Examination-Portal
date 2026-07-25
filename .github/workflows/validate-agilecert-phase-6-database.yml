@@ -1,0 +1,228 @@
+name: Validate AgileCert Phase 6 Database
+
+on:
+  push:
+    branches: [phase-6-ai-certification-adviser]
+    paths:
+      - 'supabase/migrations/202607250103_phase_6_ai_certification_adviser.sql'
+      - '.github/workflows/validate-agilecert-phase-6-database.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/202607250103_phase_6_ai_certification_adviser.sql'
+      - '.github/workflows/validate-agilecert-phase-6-database.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-phase-6-database-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Phase 6 isolated Supabase migration and behaviour validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap='supabase/migrations/202607200003_bootstrap_super_admin.sql'
+          test -s "$bootstrap"
+          sha256sum "$bootstrap" | tee phase-6-bootstrap-original.sha256
+          cat > "$bootstrap" <<'SQL'
+          begin;
+          -- Isolated CI only: the production bootstrap requires a pre-created
+          -- Supabase Auth user. Behaviour tests create their own local records.
+          commit;
+          SQL
+          sha256sum "$bootstrap" | tee phase-6-bootstrap-ci.sha256
+
+      - name: Start isolated Supabase services
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee phase-6-supabase-start.log
+
+      - name: Apply all repository migrations from scratch
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee phase-6-db-reset.log
+
+      - name: Verify Phase 6 schema, privileges and behaviour
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL' | tee phase-6-behaviour-evidence.log
+          select to_regclass('public.agilecert_ai_adviser_sessions') as sessions_table;
+          select to_regclass('public.agilecert_ai_adviser_messages') as messages_table;
+
+          select has_table_privilege('anon', 'public.agilecert_ai_adviser_sessions', 'SELECT') as anon_session_read;
+          select has_table_privilege('authenticated', 'public.agilecert_ai_adviser_sessions', 'SELECT') as authenticated_session_read;
+          select has_table_privilege('anon', 'public.agilecert_ai_adviser_messages', 'INSERT') as anon_message_write;
+          select has_table_privilege('authenticated', 'public.agilecert_ai_adviser_messages', 'INSERT') as authenticated_message_write;
+
+          do $$
+          begin
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+            begin
+              perform public.register_agilecert_ai_adviser_request(
+                repeat('a', 64), null, true, 5
+              );
+              raise exception 'Authenticated browser role unexpectedly registered an adviser request.';
+            exception when others then
+              if position('Service-role access is required' in sqlerrm) = 0 then
+                raise;
+              end if;
+            end;
+          end;
+          $$;
+
+          do $$
+          begin
+            perform set_config('request.jwt.claim.role', 'service_role', true);
+            begin
+              perform public.register_agilecert_ai_adviser_request(
+                repeat('b', 64), null, false, 5
+              );
+              raise exception 'Request without explicit consent unexpectedly succeeded.';
+            exception when others then
+              if position('Explicit AI adviser privacy consent is required' in sqlerrm) = 0 then
+                raise;
+              end if;
+            end;
+          end;
+          $$;
+
+          insert into public.agilecert_ai_adviser_sessions (
+            session_key_hash,
+            consent_recorded_at,
+            message_count,
+            total_message_count,
+            rate_window_started_at,
+            updated_at
+          ) values (
+            repeat('c', 64),
+            now() - interval '100 days',
+            1,
+            1,
+            now() - interval '100 days',
+            now() - interval '100 days'
+          );
+
+          select set_config('request.jwt.claim.role', 'service_role', false);
+
+          select public.register_agilecert_ai_adviser_request(
+            repeat('d', 64), null, true, 5
+          ) as first_request;
+          select public.register_agilecert_ai_adviser_request(
+            repeat('d', 64), null, true, 5
+          ) as second_request;
+          select public.register_agilecert_ai_adviser_request(
+            repeat('d', 64), null, true, 5
+          ) as third_request;
+          select public.register_agilecert_ai_adviser_request(
+            repeat('d', 64), null, true, 5
+          ) as fourth_request;
+          select public.register_agilecert_ai_adviser_request(
+            repeat('d', 64), null, true, 5
+          ) as fifth_request;
+          select public.register_agilecert_ai_adviser_request(
+            repeat('d', 64), null, true, 5
+          ) as blocked_sixth_request;
+
+          do $$
+          declare
+            v_session_id uuid;
+            v_message_id uuid;
+          begin
+            select id into v_session_id
+            from public.agilecert_ai_adviser_sessions
+            where session_key_hash = repeat('d', 64);
+
+            v_message_id := public.record_agilecert_ai_adviser_response(
+              v_session_id,
+              null,
+              'Which examination fits project planning?',
+              'Review the published project planning examination.',
+              '{}'::uuid[],
+              'comparison',
+              false,
+              'test-model',
+              'test-request',
+              jsonb_build_object('answerKeysExcluded', true),
+              jsonb_build_object('remainingMessages', 0)
+            );
+
+            if v_message_id is null then
+              raise exception 'AI adviser response record was not created.';
+            end if;
+          end;
+          $$;
+
+          select count(*) as old_sessions_remaining
+          from public.agilecert_ai_adviser_sessions
+          where session_key_hash = repeat('c', 64);
+
+          select message_count, total_message_count, escalation_required
+          from public.agilecert_ai_adviser_sessions
+          where session_key_hash = repeat('d', 64);
+
+          select user_message, assistant_message, lead_intent, model, safety_metadata
+          from public.agilecert_ai_adviser_messages
+          order by created_at desc
+          limit 1;
+          SQL
+
+          grep -q 'agilecert_ai_adviser_sessions' phase-6-behaviour-evidence.log
+          grep -q 'agilecert_ai_adviser_messages' phase-6-behaviour-evidence.log
+          grep -Eq 'anon_session_read[[:space:]]*\|[[:space:]]*f' phase-6-behaviour-evidence.log
+          grep -Eq 'authenticated_session_read[[:space:]]*\|[[:space:]]*f' phase-6-behaviour-evidence.log
+          grep -Eq 'old_sessions_remaining[[:space:]]*\|[[:space:]]*0' phase-6-behaviour-evidence.log
+          grep -q '"allowed": false' phase-6-behaviour-evidence.log
+          grep -q 'test-model' phase-6-behaviour-evidence.log
+          grep -q 'answerKeysExcluded' phase-6-behaviour-evidence.log
+
+      - name: Capture Phase 6 table and function structures
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL' | tee phase-6-structures.log
+          \d+ public.agilecert_ai_adviser_sessions
+          \d+ public.agilecert_ai_adviser_messages
+          \df+ public.register_agilecert_ai_adviser_request
+          \df+ public.record_agilecert_ai_adviser_response
+          SQL
+
+      - name: Upload isolated database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-phase-6-isolated-database-evidence
+          retention-days: 5
+          if-no-files-found: warn
+          path: |
+            phase-6-bootstrap-original.sha256
+            phase-6-bootstrap-ci.sha256
+            phase-6-supabase-start.log
+            phase-6-db-reset.log
+            phase-6-behaviour-evidence.log
+            phase-6-structures.log
