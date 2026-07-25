@@ -1,7 +1,7 @@
 begin;
 
 -- Supabase opaque server secret keys are authorised as the service_role database
--- role but do not populate the legacy request.jwt.claim.role setting. These RPCs
+-- role but do not populate the legacy single-claim setting. These RPCs
 -- already revoke browser-role execution and grant execution only to service_role,
 -- so the obsolete in-function claim check is removed while preserving the
 -- database privilege boundary.
