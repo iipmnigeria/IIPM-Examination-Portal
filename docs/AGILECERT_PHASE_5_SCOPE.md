@@ -104,7 +104,7 @@ Public verification may state that identity was manually verified by IIPM, but m
 
 ## Supabase issuer compatibility
 
-The shared Phase 3/4 certificate issuer generates verification codes with the pgcrypto `gen_random_bytes` helper. Supabase exposes that helper through its `extensions` schema. Phase 5 therefore adds a narrowly scoped function-configuration migration that extends the issuer search path to `public, extensions` without replacing its business logic. This enables both existing Achievement issuance and the new Professional issuance on Supabase.
+The shared Phase 3/4 certificate issuer generates verification codes with the pgcrypto `gen_random_bytes` helper. Supabase exposes that helper through its `extensions` schema. The Phase 5 hardening migration therefore extends the issuer search path to `public, extensions` without replacing its business logic. This enables both existing Achievement issuance and the new Professional issuance on Supabase.
 
 ## Candidate experience
 
@@ -134,11 +134,10 @@ The administrator console provides:
 
 ## Database and function boundaries
 
-Phase 5 uses three numbered migrations so identity assurance, lifecycle/payment binding, and the Supabase issuer compatibility correction remain independently reviewable:
+Phase 5 uses two numbered migrations so the core identity workflow and the lifecycle/payment/issuer hardening remain independently reviewable:
 
 1. `202607250101_phase_5_identity_assurance_professional_certificate.sql` — identity submissions, private storage, manual review, Professional Certificate order creation and identity-aware fulfilment;
-2. `202607250102_phase_5_identity_assurance_hardening.sql` — profile-change invalidation, active-payment withdrawal guards and exact identity-record binding at issuance;
-3. `202607250103_phase_5_supabase_issuer_compatibility.sql` — adds the Supabase extensions schema to the existing shared certificate issuer search path so pgcrypto verification-code generation works.
+2. `202607250102_phase_5_identity_assurance_hardening.sql` — profile-change invalidation, active-payment withdrawal guards, exact identity-record binding at issuance, and the Supabase `extensions` search-path setting required by the inherited shared certificate issuer.
 
 Phase 5 may add:
 
@@ -176,7 +175,7 @@ Before Phase 5 can be proposed for merge and deployment, it must pass:
 
 - TypeScript validation;
 - production build;
-- exact three-migration and file-scope review;
+- exact two-migration and file-scope review;
 - isolated PostgreSQL behaviour tests;
 - storage-policy and private-file access tests;
 - candidate isolation tests;
