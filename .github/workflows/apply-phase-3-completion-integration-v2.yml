@@ -1,0 +1,70 @@
+name: Integrate Phase 3 Certificate Completion V2
+
+on:
+  push:
+    branches: [phase-3-certificate-completion]
+    paths:
+      - '.github/workflows/apply-phase-3-completion-integration-v2.yml'
+      - 'scripts/phase3-completion-integrate.py'
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/apply-phase-3-completion-integration-v2.yml'
+      - 'scripts/phase3-completion-integrate.py'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: github.event_name == 'push' || github.head_ref == 'phase-3-certificate-completion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase-3-certificate-completion
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Apply Phase 3 completion integration
+        run: python3 scripts/phase3-completion-integrate.py
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate TypeScript and production build
+        run: |
+          npm run lint
+          npm run build
+
+      - name: Confirm controlled scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s src/components/AdminCertificateCompletionPanel.tsx
+          test -s src/components/AdminCertificateCompletionLauncher.tsx
+          test -s src/services/certificateCompletionService.ts
+          test -s src/services/certificatePdfService.ts
+          grep -q 'approvalQueue' supabase/migrations/202607251800_phase_3_certificate_completion.sql
+          grep -q 'request_submitted_for_approval' supabase/migrations/202607251800_phase_3_certificate_completion.sql
+          grep -q 'QRCode.toDataURL' src/services/certificatePdfService.ts
+          grep -q 'AdminCertificateCompletionLauncher' src/main.tsx
+
+      - name: Remove one-time integration tools and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/apply-phase-3-completion-integration.yml
+          rm -f .github/workflows/apply-phase-3-completion-integration-v2.yml
+          rm -f scripts/phase3-completion-integrate.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/migrations/202607251800_phase_3_certificate_completion.sql src package.json .github/workflows scripts
+          git diff --cached --check
+          git commit -m 'Integrate Phase 3 certificate completion controls'
+          git push origin HEAD:phase-3-certificate-completion
