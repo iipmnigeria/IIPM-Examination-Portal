@@ -4,36 +4,36 @@ on:
   push:
     branches: [phase-9-cipmn-module-mock-examinations]
     paths:
-      - 'supabase/migrations/202607250106_cipmn_module_mock_exam_catalogue.sql'
-      - 'supabase/migrations/202607250107_cipmn_mod_001_mock_questions.sql'
-      - 'supabase/migrations/202607250108_cipmn_mod_002_mock_questions.sql'
-      - 'supabase/migrations/202607250109_cipmn_mod_003_mock_questions.sql'
-      - 'supabase/migrations/202607250110_cipmn_mod_004_mock_questions.sql'
-      - 'supabase/migrations/202607250111_cipmn_mod_005_mock_questions.sql'
-      - 'supabase/migrations/202607250112_cipmn_mod_006_mock_questions.sql'
-      - 'supabase/migrations/202607250113_cipmn_mod_007_mock_questions.sql'
-      - 'supabase/migrations/202607250114_cipmn_mod_008_mock_questions.sql'
-      - 'supabase/migrations/202607250115_cipmn_mod_009_mock_questions.sql'
-      - 'supabase/migrations/202607250116_cipmn_mod_010_mock_questions.sql'
-      - 'supabase/migrations/202607250117_cipmn_mod_011_mock_questions.sql'
-      - 'supabase/migrations/202607250118_cipmn_mod_012_mock_questions.sql'
+      - 'supabase/migrations/202607251701_cipmn_module_mock_exam_catalogue.sql'
+      - 'supabase/migrations/202607251702_cipmn_mod_001_mock_questions.sql'
+      - 'supabase/migrations/202607251703_cipmn_mod_002_mock_questions.sql'
+      - 'supabase/migrations/202607251704_cipmn_mod_003_mock_questions.sql'
+      - 'supabase/migrations/202607251705_cipmn_mod_004_mock_questions.sql'
+      - 'supabase/migrations/202607251706_cipmn_mod_005_mock_questions.sql'
+      - 'supabase/migrations/202607251707_cipmn_mod_006_mock_questions.sql'
+      - 'supabase/migrations/202607251708_cipmn_mod_007_mock_questions.sql'
+      - 'supabase/migrations/202607251709_cipmn_mod_008_mock_questions.sql'
+      - 'supabase/migrations/202607251710_cipmn_mod_009_mock_questions.sql'
+      - 'supabase/migrations/202607251711_cipmn_mod_010_mock_questions.sql'
+      - 'supabase/migrations/202607251712_cipmn_mod_011_mock_questions.sql'
+      - 'supabase/migrations/202607251713_cipmn_mod_012_mock_questions.sql'
       - '.github/workflows/validate-cipmn-module-mock-examinations.yml'
   pull_request:
     branches: [supabase-integration]
     paths:
-      - 'supabase/migrations/202607250106_cipmn_module_mock_exam_catalogue.sql'
-      - 'supabase/migrations/202607250107_cipmn_mod_001_mock_questions.sql'
-      - 'supabase/migrations/202607250108_cipmn_mod_002_mock_questions.sql'
-      - 'supabase/migrations/202607250109_cipmn_mod_003_mock_questions.sql'
-      - 'supabase/migrations/202607250110_cipmn_mod_004_mock_questions.sql'
-      - 'supabase/migrations/202607250111_cipmn_mod_005_mock_questions.sql'
-      - 'supabase/migrations/202607250112_cipmn_mod_006_mock_questions.sql'
-      - 'supabase/migrations/202607250113_cipmn_mod_007_mock_questions.sql'
-      - 'supabase/migrations/202607250114_cipmn_mod_008_mock_questions.sql'
-      - 'supabase/migrations/202607250115_cipmn_mod_009_mock_questions.sql'
-      - 'supabase/migrations/202607250116_cipmn_mod_010_mock_questions.sql'
-      - 'supabase/migrations/202607250117_cipmn_mod_011_mock_questions.sql'
-      - 'supabase/migrations/202607250118_cipmn_mod_012_mock_questions.sql'
+      - 'supabase/migrations/202607251701_cipmn_module_mock_exam_catalogue.sql'
+      - 'supabase/migrations/202607251702_cipmn_mod_001_mock_questions.sql'
+      - 'supabase/migrations/202607251703_cipmn_mod_002_mock_questions.sql'
+      - 'supabase/migrations/202607251704_cipmn_mod_003_mock_questions.sql'
+      - 'supabase/migrations/202607251705_cipmn_mod_004_mock_questions.sql'
+      - 'supabase/migrations/202607251706_cipmn_mod_005_mock_questions.sql'
+      - 'supabase/migrations/202607251707_cipmn_mod_006_mock_questions.sql'
+      - 'supabase/migrations/202607251708_cipmn_mod_007_mock_questions.sql'
+      - 'supabase/migrations/202607251709_cipmn_mod_008_mock_questions.sql'
+      - 'supabase/migrations/202607251710_cipmn_mod_009_mock_questions.sql'
+      - 'supabase/migrations/202607251711_cipmn_mod_010_mock_questions.sql'
+      - 'supabase/migrations/202607251712_cipmn_mod_011_mock_questions.sql'
+      - 'supabase/migrations/202607251713_cipmn_mod_012_mock_questions.sql'
       - '.github/workflows/validate-cipmn-module-mock-examinations.yml'
   workflow_dispatch:
 
@@ -69,20 +69,30 @@ jobs:
         with:
           version: latest
       - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
         run: |
+          set -euo pipefail
           cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
           begin;
           -- CI only: production already has its authorised Super Administrator.
           commit;
           SQL
       - name: Start isolated Supabase services
-        run: supabase start 2>&1 | tee cipmn-mock-supabase-start.log
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee cipmn-mock-supabase-start.log
       - name: Apply all migrations from scratch
-        run: supabase db reset --local 2>&1 | tee cipmn-mock-db-reset.log
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee cipmn-mock-db-reset.log
       - name: Verify catalogue, commerce and bank integrity
+        shell: bash
         env:
           PGPASSWORD: postgres
         run: |
+          set -euo pipefail
           psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -v ON_ERROR_STOP=1 <<'SQL' | tee cipmn-mock-integrity.log
           do $$
           declare v_pid uuid;
