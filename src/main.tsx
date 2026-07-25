@@ -4,6 +4,7 @@ import App from './App.tsx';
 import AdminAssignmentWidget from './components/AdminAssignmentWidget';
 import AdminCertificateCommerceLauncher from './components/AdminCertificateCommerceLauncher';
 import AdminCertificateManagementLauncher from './components/AdminCertificateManagementLauncher';
+import AdminCertificateCompletionLauncher from './components/AdminCertificateCompletionLauncher';
 import AdminCommerceConsole from './components/AdminCommerceConsole';
 import AdminIdentityAssuranceLauncher from './components/AdminIdentityAssuranceLauncher';
 import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
@@ -157,6 +158,7 @@ createRoot(rootElement).render(
       <CandidateCertificateWorkspace />
       <LegacyCertificateSecurityGate />
       <AdminCertificateManagementLauncher />
+      <AdminCertificateCompletionLauncher />
       <PublicCertificateVerification />
       <CandidateIdentityAssurance />
       <CandidateCertificateCommerce />

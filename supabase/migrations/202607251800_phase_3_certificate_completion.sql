@@ -255,6 +255,11 @@ begin
     raise exception 'This certificate policy requires administrator approval before issuance.';
   end if;
 
+  if coalesce(v_policy.require_candidate_request, false)
+     and v_eligibility.eligibility_status not in ('requested', 'issued') then
+    raise exception 'The candidate must submit a certificate request before issuance.';
+  end if;
+
   select e.programme_id into v_programme_id
   from public.examinations e
   where e.id = new.examination_id;
@@ -780,6 +785,93 @@ begin
 end;
 $$;
 
+create or replace function public.request_my_agilecert_certificate(
+  p_attempt_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_candidate_id uuid := auth.uid();
+  v_eligibility_id uuid;
+  v_record public.agilecert_certificate_eligibility_records%rowtype;
+  v_policy public.agilecert_certificate_policies%rowtype;
+begin
+  if v_candidate_id is null then
+    raise exception 'Authentication is required.';
+  end if;
+
+  v_eligibility_id := public.evaluate_agilecert_certificate_eligibility(p_attempt_id);
+
+  select * into v_record
+  from public.agilecert_certificate_eligibility_records
+  where id = v_eligibility_id
+    and candidate_id = v_candidate_id
+  for update;
+
+  if not found then
+    raise exception 'The certificate eligibility record is unavailable.';
+  end if;
+  if v_record.eligibility_status in ('blocked', 'revoked') then
+    raise exception 'Certificate issuance is unavailable: %.', replace(v_record.reason_code, '_', ' ');
+  end if;
+  if v_record.eligibility_status = 'issued' then
+    return jsonb_build_object(
+      'eligibilityId', v_record.id,
+      'status', 'issued',
+      'message', 'This certificate has already been issued.'
+    );
+  end if;
+  if v_record.approval_status = 'rejected' then
+    raise exception 'This certificate request was rejected. Contact IIPM support for further review.';
+  end if;
+
+  select * into v_policy
+  from public.agilecert_certificate_policies
+  where examination_id = v_record.examination_id;
+
+  update public.agilecert_certificate_eligibility_records
+  set eligibility_status = 'requested',
+      requested_at = now(),
+      approval_status = case
+        when coalesce(v_policy.approval_mode, 'automatic') = 'manual' then 'pending'
+        else 'not_required'
+      end,
+      approval_reason = null,
+      approval_decided_at = null,
+      approval_decided_by = null,
+      approval_updated_at = now(),
+      updated_at = now()
+  where id = v_record.id
+  returning * into v_record;
+
+  insert into public.agilecert_certificate_audit_events (
+    eligibility_id, candidate_id, actor_id, event_type, metadata
+  ) values (
+    v_record.id,
+    v_record.candidate_id,
+    v_candidate_id,
+    case when v_record.approval_status = 'pending'
+      then 'request_submitted_for_approval'
+      else 'request_submitted'
+    end,
+    jsonb_build_object('approvalStatus', v_record.approval_status)
+  );
+
+  return jsonb_build_object(
+    'eligibilityId', v_record.id,
+    'status', 'requested',
+    'approvalStatus', v_record.approval_status,
+    'message', case when v_record.approval_status = 'pending'
+      then 'Your certificate request has been submitted for administrator approval.'
+      else 'Your certificate request has been recorded.'
+    end
+  );
+end;
+$$;
+
 create or replace function public.get_my_agilecert_certificate_workspace_v2()
 returns jsonb
 language plpgsql
@@ -926,6 +1018,7 @@ set search_path = public
 as $$
 declare
   v_limit integer := greatest(1, least(coalesce(p_limit, 100), 250));
+  v_queue jsonb;
   v_templates jsonb;
   v_decisions jsonb;
   v_revisions jsonb;
@@ -933,6 +1026,39 @@ declare
   v_policies jsonb;
 begin
   perform public.agilecert_require_certificate_admin();
+
+
+  select coalesce(jsonb_agg(payload order by approval_updated_at desc), '[]'::jsonb)
+  into v_queue
+  from (
+    select er.approval_updated_at,
+      jsonb_build_object(
+        'eligibilityId', er.id,
+        'candidateName', candidate.full_name,
+        'candidateEmail', candidate.email,
+        'examinationId', er.examination_id,
+        'examinationTitle', e.title,
+        'programmeCode', p.code,
+        'score', er.score,
+        'passMark', er.pass_mark,
+        'integrityStatus', er.integrity_status,
+        'eligibilityStatus', er.eligibility_status,
+        'approvalStatus', er.approval_status,
+        'approvalReason', er.approval_reason,
+        'requestedAt', er.requested_at,
+        'approvalUpdatedAt', er.approval_updated_at
+      ) payload
+    from public.agilecert_certificate_eligibility_records er
+    join public.profiles candidate on candidate.id = er.candidate_id
+    join public.examinations e on e.id = er.examination_id
+    join public.programmes p on p.id = e.programme_id
+    join public.agilecert_certificate_policies cp on cp.examination_id = er.examination_id
+    where cp.approval_mode = 'manual'
+      and er.eligibility_status <> 'issued'
+      and er.approval_status in ('pending', 'changes_requested', 'rejected')
+    order by er.approval_updated_at desc
+    limit v_limit
+  ) recent;
 
   select coalesce(jsonb_agg(jsonb_build_object(
     'id', t.id,
@@ -1041,6 +1167,7 @@ begin
 
   return jsonb_build_object(
     'templates', v_templates,
+    'approvalQueue', v_queue,
     'decisions', v_decisions,
     'revisions', v_revisions,
     'auditEvents', v_audits,

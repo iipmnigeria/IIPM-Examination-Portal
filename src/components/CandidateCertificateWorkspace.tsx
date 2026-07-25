@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react';
-import { jsPDF } from 'jspdf';
+import { downloadCertificatePdf } from '../services/certificatePdfService';
 import { supabase } from '../lib/supabase';
 import { getCurrentPortalUser } from '../services/authService';
 import {
@@ -21,7 +21,6 @@ import {
   requestMyCertificate,
   type CandidateCertificateItem,
   type CandidateCertificateWorkspace as CertificateWorkspace,
-  type IssuedCertificateRecord,
 } from '../services/certificateService';
 
 const reasonLabels: Record<string, string> = {
@@ -46,140 +45,6 @@ const formatDate = (value?: string | null): string => {
   return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
-const verificationUrl = (code: string): string => {
-  const url = new URL(window.location.href);
-  url.hash = '';
-  url.search = '';
-  url.searchParams.set('verify', code);
-  return url.toString();
-};
-
-const drawBarcode = (doc: jsPDF, value: string, x: number, y: number, maxWidth: number) => {
-  const units = Array.from(value).flatMap((character) => {
-    const code = character.charCodeAt(0);
-    return [1 + (code % 3), 1, 1 + ((code >> 2) % 3), 1];
-  });
-  const totalUnits = units.reduce((sum, unit) => sum + unit, 0) + units.length;
-  const unitWidth = maxWidth / Math.max(totalUnits, 1);
-  let cursor = x;
-
-  doc.setDrawColor(15, 23, 42);
-  units.forEach((unit, index) => {
-    const width = unit * unitWidth;
-    if (index % 2 === 0) {
-      doc.setLineWidth(Math.max(width, 0.15));
-      doc.line(cursor, y, cursor, y + 8);
-    }
-    cursor += width + unitWidth;
-  });
-};
-
-const downloadIssuedCertificate = (certificate: IssuedCertificateRecord) => {
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const verifyUrl = verificationUrl(certificate.verificationCode);
-
-  doc.setFillColor(255, 254, 248);
-  doc.rect(0, 0, 297, 210, 'F');
-  doc.setDrawColor(15, 42, 74);
-  doc.setLineWidth(1.4);
-  doc.rect(9, 9, 279, 192);
-  doc.setLineWidth(0.45);
-  doc.rect(12, 12, 273, 186);
-  doc.setDrawColor(217, 119, 6);
-  doc.setLineWidth(0.8);
-  doc.line(72, 43, 225, 43);
-
-  doc.setTextColor(15, 42, 74);
-  doc.setFont('times', 'bold');
-  doc.setFontSize(20);
-  doc.text('INTEGRATED INSTITUTE OF PROFESSIONAL MANAGEMENT', 148.5, 31, { align: 'center' });
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'bold');
-  doc.text('AGILECERT GLOBAL · SERVER-ISSUED AND PUBLICLY VERIFIABLE', 148.5, 38, { align: 'center' });
-
-  doc.setFont('times', 'bold');
-  doc.setFontSize(27);
-  doc.text(certificate.certificateTitle.toUpperCase(), 148.5, 59, { align: 'center' });
-  doc.setFont('times', 'italic');
-  doc.setFontSize(13);
-  doc.setTextColor(71, 85, 105);
-  doc.text('This is to certify that', 148.5, 73, { align: 'center' });
-
-  doc.setFont('times', 'bold');
-  doc.setFontSize(27);
-  doc.setTextColor(15, 42, 74);
-  doc.text(certificate.holderName.toUpperCase(), 148.5, 91, { align: 'center' });
-  doc.setLineWidth(0.35);
-  doc.line(65, 95, 232, 95);
-
-  doc.setFont('times', 'normal');
-  doc.setFontSize(12);
-  doc.setTextColor(71, 85, 105);
-  doc.text('has satisfied the examination and integrity requirements for', 148.5, 108, { align: 'center' });
-  doc.setFont('times', 'bold');
-  doc.setFontSize(19);
-  doc.setTextColor(15, 42, 74);
-  const titleLines = doc.splitTextToSize(certificate.examinationTitle.toUpperCase(), 210);
-  doc.text(titleLines, 148.5, 119, { align: 'center' });
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10.5);
-  doc.setTextColor(71, 85, 105);
-  doc.text(
-    `Assessment score: ${certificate.score}% · Required pass mark: ${certificate.passMark}% · Programme: ${certificate.programmeCode || 'IIPM'}`,
-    148.5,
-    141,
-    { align: 'center' },
-  );
-  doc.text(`Issued on ${formatDate(certificate.issueDate)}.`, 148.5, 149, { align: 'center' });
-
-  doc.setDrawColor(203, 213, 225);
-  doc.line(28, 172, 96, 172);
-  doc.line(201, 172, 269, 172);
-  doc.setTextColor(15, 42, 74);
-  doc.setFont('times', 'bold');
-  doc.setFontSize(10);
-  doc.text('Certificate Authority', 62, 178, { align: 'center' });
-  doc.text('Registrar', 235, 178, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(100, 116, 139);
-  doc.text('Integrated Institute of Professional Management', 62, 183, { align: 'center' });
-  doc.text('AgileCert Global by IIPM', 235, 183, { align: 'center' });
-
-  doc.setFillColor(153, 27, 27);
-  doc.circle(148.5, 174, 11, 'F');
-  doc.setDrawColor(251, 191, 36);
-  doc.setLineWidth(0.5);
-  doc.circle(148.5, 174, 8.5, 'D');
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('times', 'bold');
-  doc.setFontSize(7);
-  doc.text('IIPM', 148.5, 173, { align: 'center' });
-  doc.setFontSize(4.5);
-  doc.text('VERIFIED', 148.5, 177, { align: 'center' });
-
-  doc.setTextColor(71, 85, 105);
-  doc.setFont('courier', 'bold');
-  doc.setFontSize(7.5);
-  doc.text(`Certificate No: ${certificate.certificateNumber}`, 16, 193);
-  doc.text(`Verification Code: ${certificate.verificationCode}`, 16, 198);
-  drawBarcode(doc, certificate.verificationCode, 220, 188, 55);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(5.5);
-  const verifyLines = doc.splitTextToSize(`Verify: ${verifyUrl}`, 88);
-  doc.text(verifyLines, 278, 199, { align: 'right' });
-
-  doc.setTextColor(148, 163, 184);
-  doc.setFontSize(5.5);
-  doc.text('This PDF is a rendering of the immutable server-issued certificate record.', 148.5, 205, {
-    align: 'center',
-  });
-
-  const safeName = certificate.holderName.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '');
-  doc.save(`IIPM_${safeName || 'Certificate'}_${certificate.verificationCode}.pdf`);
-};
-
 const eligibilityBadge = (item: CandidateCertificateItem) => {
   if (item.certificate?.status === 'active') {
     return { label: 'Issued & active', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' };
@@ -189,6 +54,15 @@ const eligibilityBadge = (item: CandidateCertificateItem) => {
   }
   if (item.certificate?.status === 'revoked') {
     return { label: 'Revoked', className: 'border-rose-200 bg-rose-50 text-rose-700' };
+  }
+  if (item.approvalStatus === 'changes_requested') {
+    return { label: 'Changes requested', className: 'border-amber-200 bg-amber-50 text-amber-700' };
+  }
+  if (item.approvalStatus === 'rejected') {
+    return { label: 'Request rejected', className: 'border-rose-200 bg-rose-50 text-rose-700' };
+  }
+  if (item.approvalStatus === 'pending') {
+    return { label: 'Approval pending', className: 'border-blue-200 bg-blue-50 text-blue-700' };
   }
   if (item.eligibilityStatus === 'requested') {
     return { label: 'Issuance requested', className: 'border-blue-200 bg-blue-50 text-blue-700' };
@@ -205,6 +79,7 @@ export default function CandidateCertificateWorkspace() {
   const [workspace, setWorkspace] = useState<CertificateWorkspace>(emptyWorkspace);
   const [isLoading, setIsLoading] = useState(false);
   const [requestingAttemptId, setRequestingAttemptId] = useState('');
+  const [downloadingCertificateId, setDownloadingCertificateId] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -277,6 +152,20 @@ export default function CandidateCertificateWorkspace() {
       setError(requestError instanceof Error ? requestError.message : 'Unable to request certificate issuance.');
     } finally {
       setRequestingAttemptId('');
+    }
+  };
+
+  const handleDownload = async (certificateId: string) => {
+    try {
+      setDownloadingCertificateId(certificateId);
+      setError('');
+      setMessage('');
+      await downloadCertificatePdf(certificateId);
+      setMessage('The QR-coded certificate PDF was generated from the current server record.');
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : 'Unable to download the certificate PDF.');
+    } finally {
+      setDownloadingCertificateId('');
     }
   };
 
@@ -391,7 +280,7 @@ export default function CandidateCertificateWorkspace() {
             {workspace.items.map((item) => {
               const badge = eligibilityBadge(item);
               const certificate = item.certificate;
-              const canRequest = item.eligibilityStatus === 'eligible' && !certificate;
+              const canRequest = (item.eligibilityStatus === 'eligible' || item.approvalStatus === 'changes_requested') && !certificate;
               return (
                 <article key={item.eligibilityId} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                   <div className="flex items-start justify-between gap-4">
@@ -455,24 +344,37 @@ export default function CandidateCertificateWorkspace() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => downloadIssuedCertificate(certificate)}
-                          disabled={certificate.status !== 'active'}
+                          onClick={() => void handleDownload(certificate.id)}
+                          disabled={certificate.status !== 'active' || downloadingCertificateId === certificate.id}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                         >
-                          <Download className="h-3.5 w-3.5" /> Download issued PDF
+                          {downloadingCertificateId === certificate.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download QR-coded PDF
                         </button>
                       </div>
                     </div>
                   ) : canRequest ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleRequest(item)}
-                      disabled={requestingAttemptId === item.attemptId}
-                      className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-extrabold text-white transition hover:bg-emerald-700 disabled:opacity-60"
-                    >
-                      {requestingAttemptId === item.attemptId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                      Request certificate issuance
-                    </button>
+                    <div className="mt-5 space-y-3">
+                      {item.approvalStatus === 'changes_requested' && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                          <p className="font-extrabold">Administrator changes requested</p>
+                          <p className="mt-1">{item.approvalReason || 'Update the required candidate information before resubmitting.'}</p>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void handleRequest(item)}
+                        disabled={requestingAttemptId === item.attemptId}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-extrabold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+                      >
+                        {requestingAttemptId === item.attemptId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                        {item.approvalStatus === 'changes_requested' ? 'Resubmit certificate request' : 'Request certificate issuance'}
+                      </button>
+                    </div>
+                  ) : item.approvalStatus === 'rejected' ? (
+                    <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+                      <p className="font-extrabold">Certificate request rejected</p>
+                      <p className="mt-1 text-xs">{item.approvalReason || 'Contact IIPM support for further review.'}</p>
+                    </div>
                   ) : item.eligibilityStatus === 'requested' ? (
                     <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
                       <p className="font-extrabold">Issuance request submitted</p>
