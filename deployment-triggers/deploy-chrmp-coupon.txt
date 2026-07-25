@@ -1,0 +1,1 @@
+Deploy exact approved commit 2aab54f4f75791e9bc85825791ff648ccaea3b50 by applying only migration 202607250105 and verify the live CHRMP100 five-use checkout waiver.
