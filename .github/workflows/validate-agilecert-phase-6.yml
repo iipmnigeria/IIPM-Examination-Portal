@@ -202,7 +202,7 @@ jobs:
           from pathlib import Path
 
           checks = {
-              'supabase/migrations/202607240103_phase_2_4_secure_material_delivery.sql': ['agilecert-material-delivery'],
+              'supabase/migrations/202607240103_phase_2_4_secure_material_delivery.sql': ['authorize_agilecert_material_download'],
               'supabase/migrations/202607240104_phase_3_certificate_eligibility_issuance_verification.sql': ['agilecert_certificate_eligibility_records', 'verify_agilecert_certificate'],
               'supabase/migrations/202607240105_phase_4_certificate_payment_credential_issuance.sql': ['agilecert_certificate_products', 'fulfil_paid_agilecert_certificate_order'],
               'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql': ['agilecert_identity_verifications', 'create_agilecert_professional_certificate_order'],
