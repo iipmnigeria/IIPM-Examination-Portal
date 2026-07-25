@@ -36,6 +36,21 @@ jobs:
         with:
           version: latest
 
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap='supabase/migrations/202607200003_bootstrap_super_admin.sql'
+          test -s "$bootstrap"
+          sha256sum "$bootstrap" | tee phase-5-bootstrap-original.sha256
+          cat > "$bootstrap" <<'SQL'
+          begin;
+          -- Isolated CI only: the production bootstrap requires a pre-created
+          -- Supabase Auth user. Schema tests create their own test identities.
+          commit;
+          SQL
+          sha256sum "$bootstrap" | tee phase-5-bootstrap-ci.sha256
+
       - name: Start isolated Supabase services
         shell: bash
         run: |
@@ -116,6 +131,8 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
           path: |
+            phase-5-bootstrap-original.sha256
+            phase-5-bootstrap-ci.sha256
             phase-5-supabase-start.log
             phase-5-db-reset.log
             phase-5-schema-evidence.log
