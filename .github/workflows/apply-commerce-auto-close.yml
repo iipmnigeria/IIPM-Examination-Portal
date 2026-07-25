@@ -5,12 +5,18 @@ on:
     branches: [auto-close-commerce-success]
     paths:
       - '.github/workflows/apply-commerce-auto-close.yml'
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/apply-commerce-auto-close.yml'
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.event_name == 'push' || github.head_ref == 'auto-close-commerce-success'
     name: Patch, validate and commit commerce auto-close
     runs-on: ubuntu-latest
     timeout-minutes: 20
