@@ -28,6 +28,7 @@ jobs:
       PHASE_5_MIGRATION_1: '202607250101_phase_5_identity_assurance_professional_certificate.sql'
       PHASE_5_MIGRATION_2: '202607250102_phase_5_identity_assurance_hardening.sql'
       LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+      WORKDIR: /tmp/agilecert-phase-5-production
 
     steps:
       - name: Checkout exact merged Phase 5 source
@@ -75,8 +76,30 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_DB_PASSWORD"
 
+      - name: Prepare recorded production migration window
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$WORKDIR"
+          mkdir -p "$WORKDIR/supabase/migrations"
+          cp supabase/config.toml "$WORKDIR/supabase/config.toml"
+          for migration in \
+            202607230101_phase_2_candidate_profile_foundation.sql \
+            202607230102_phase_2_candidate_profile_photo.sql \
+            202607240101_phase_2_3a_preparation_material_entitlements.sql \
+            202607240102_phase_2_3b_material_admin_tools.sql \
+            202607240103_phase_2_4_secure_material_delivery.sql \
+            202607240104_phase_3_certificate_eligibility_issuance_verification.sql \
+            202607240105_phase_4_certificate_payment_credential_issuance.sql \
+            "$PHASE_5_MIGRATION_1" \
+            "$PHASE_5_MIGRATION_2"; do
+            cp "supabase/migrations/$migration" "$WORKDIR/supabase/migrations/"
+          done
+          test "$(find "$WORKDIR/supabase/migrations" -maxdepth 1 -type f | wc -l)" -eq 9
+
       - name: Link production Supabase
         shell: bash
+        working-directory: /tmp/agilecert-phase-5-production
         run: |
           set -euo pipefail
           npx --yes supabase@latest link \
@@ -85,6 +108,7 @@ jobs:
 
       - name: Preview exactly two Phase 5 migrations
         shell: bash
+        working-directory: /tmp/agilecert-phase-5-production
         run: |
           set +e
           output="$(npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD" --dry-run 2>&1)"
@@ -103,6 +127,7 @@ jobs:
 
       - name: Apply Phase 5 migrations
         shell: bash
+        working-directory: /tmp/agilecert-phase-5-production
         run: |
           set -euo pipefail
           npx --yes supabase@latest db push \
@@ -113,6 +138,7 @@ jobs:
 
       - name: Verify production migration history and schema
         shell: bash
+        working-directory: /tmp/agilecert-phase-5-production
         run: |
           set -euo pipefail
           history="$RUNNER_TEMP/phase-5-migration-history.log"
@@ -152,8 +178,8 @@ jobs:
           done
 
           grep -q 'agilecert-identity-evidence' "$storage_schema"
-          grep -q 'agilecert_candidate_identity_evidence' "$storage_schema"
-          grep -q 'agilecert_admin_identity_evidence' "$storage_schema"
+          grep -q 'agilecert_identity_evidence_insert_own' "$storage_schema"
+          grep -q 'agilecert_identity_evidence_select_own_or_admin' "$storage_schema"
 
       - name: Deploy updated certificate-payment initializer
         shell: bash
