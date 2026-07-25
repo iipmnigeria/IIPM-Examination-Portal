@@ -69,7 +69,18 @@ export default function PaymentReturnHandler() {
     void verify();
   }, [shouldVerify, reference]);
 
-  if (state === 'idle') return null;
+  useEffect(() => {
+      if (state !== 'success') return;
+
+      const closeTimer = window.setTimeout(() => {
+        clearPaymentParameters();
+        setState('idle');
+      }, 1200);
+
+      return () => window.clearTimeout(closeTimer);
+    }, [state]);
+
+    if (state === 'idle') return null;
 
   const close = () => {
     clearPaymentParameters();

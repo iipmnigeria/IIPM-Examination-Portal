@@ -263,8 +263,20 @@ export default function CandidateCommerceOverlay() {
         currency,
         couponCode,
       });
-      setQuote(nextQuote);
-      setMessage(
+      const accessQuote = nextQuote as PurchaseQuote & {
+      status?: string;
+      canLaunch?: boolean;
+    };
+
+    if (accessQuote.canLaunch || accessQuote.status === 'already_unlocked') {
+      await refreshCatalogue();
+      window.dispatchEvent(new Event('iipm-commerce-refresh'));
+      setSelectedTest(null);
+      return;
+    }
+
+    setQuote(nextQuote);
+    setMessage(
         nextQuote.payableAmountMinor === 0
           ? 'Scholarship coupon accepted. Continue to unlock the examination.'
           : couponCode.trim()
@@ -295,9 +307,9 @@ export default function CandidateCommerceOverlay() {
       setOrder(nextOrder);
 
       if (nextOrder.canLaunch || ['waived', 'already_unlocked'].includes(nextOrder.status)) {
-        setMessage('Examination unlocked successfully. You may now launch the secured session.');
         await refreshCatalogue();
         window.dispatchEvent(new Event('iipm-commerce-refresh'));
+        setSelectedTest(null);
         return;
       }
 
