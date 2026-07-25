@@ -1,0 +1,1 @@
+Run the temporary read-only browser and asset diagnostic for the live AgileCert portal. This trigger must remain unmerged.
