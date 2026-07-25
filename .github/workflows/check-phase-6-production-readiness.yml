@@ -1,0 +1,222 @@
+name: Check Phase 6 Production Readiness
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/phase-6-production-readiness.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-6-production-readiness
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    name: Verify Phase 6 production prerequisites without applying changes
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
+      PHASE_6_BRANCH: phase-6-ai-certification-adviser
+      PHASE_6_HEAD: 632e548aafb82b8ffab9e4d0c1ec898ab0d17033
+      WORKDIR: /tmp/agilecert-phase-6-production-readiness
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase-6-ai-certification-adviser
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Confirm exact validated Phase 6 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$PHASE_6_HEAD"
+          test -s supabase/migrations/202607250103_phase_6_ai_certification_adviser.sql
+          test -s supabase/functions/agilecert-ai-adviser/index.ts
+          {
+            printf 'source_commit=%s\n' "$actual_head"
+            sha256sum \
+              supabase/migrations/202607250103_phase_6_ai_certification_adviser.sql \
+              supabase/functions/agilecert-ai-adviser/index.ts
+          } > "$RUNNER_TEMP/phase-6-readiness-source.txt"
+
+      - name: Confirm required Supabase Edge Function secret names
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          secret_output="$(supabase secrets list --project-ref "$SUPABASE_PROJECT_REF" 2>&1)"
+          status=$?
+          set -e
+          test "$status" -eq 0
+
+          for secret_name in GEMINI_API_KEY AGILECERT_CHAT_SALT AGILECERT_GEMINI_MODEL; do
+            if ! printf '%s\n' "$secret_output" | grep -Eq "(^|[[:space:]|])${secret_name}([[:space:]|]|$)"; then
+              echo "Required configured secret name is missing: ${secret_name}"
+              exit 1
+            fi
+          done
+
+          {
+            echo 'Verified configured Supabase secret names:'
+            echo 'GEMINI_API_KEY'
+            echo 'AGILECERT_CHAT_SALT'
+            echo 'AGILECERT_GEMINI_MODEL'
+            echo 'Secret values and digests were not printed or retained.'
+          } > "$RUNNER_TEMP/phase-6-readiness-secrets.txt"
+
+      - name: Confirm Phase 6 Edge Function is not already deployed
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          functions_output="$(supabase functions list --project-ref "$SUPABASE_PROJECT_REF" 2>&1)"
+          status=$?
+          set -e
+          test "$status" -eq 0
+          if printf '%s\n' "$functions_output" | grep -Eq '(^|[[:space:]|])agilecert-ai-adviser([[:space:]|]|$)'; then
+            echo 'The Phase 6 Edge Function is already deployed unexpectedly.'
+            exit 1
+          fi
+          echo 'agilecert-ai-adviser is not currently deployed.' > "$RUNNER_TEMP/phase-6-readiness-function-state.txt"
+
+      - name: Prepare isolated recorded-migration workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$WORKDIR"
+          mkdir -p "$WORKDIR/supabase/migrations"
+          cp supabase/config.toml "$WORKDIR/supabase/config.toml"
+
+          for migration in \
+            202607230101_phase_2_candidate_profile_foundation.sql \
+            202607230102_phase_2_candidate_profile_photo.sql \
+            202607240101_phase_2_3a_preparation_material_entitlements.sql \
+            202607240102_phase_2_3b_material_admin_tools.sql \
+            202607240103_phase_2_4_secure_material_delivery.sql \
+            202607240104_phase_3_certificate_eligibility_issuance_verification.sql \
+            202607240105_phase_4_certificate_payment_credential_issuance.sql \
+            202607250101_phase_5_identity_assurance_professional_certificate.sql \
+            202607250102_phase_5_identity_assurance_hardening.sql \
+            202607250103_phase_6_ai_certification_adviser.sql; do
+            cp "supabase/migrations/$migration" "$WORKDIR/supabase/migrations/$migration"
+          done
+
+          test -s "$WORKDIR/supabase/config.toml"
+          test "$(find "$WORKDIR/supabase/migrations" -maxdepth 1 -type f | wc -l)" -eq 10
+
+      - name: Link production project
+        shell: bash
+        working-directory: /tmp/agilecert-phase-6-production-readiness
+        run: |
+          set -euo pipefail
+          supabase link \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Confirm production migration history is Phase 5
+        shell: bash
+        working-directory: /tmp/agilecert-phase-6-production-readiness
+        run: |
+          set -euo pipefail
+          supabase migration list --linked --password "$SUPABASE_DB_PASSWORD" \
+            2>&1 | tee "$RUNNER_TEMP/phase-6-readiness-migration-history.txt"
+
+          for version in \
+            202607230101 202607230102 \
+            202607240101 202607240102 202607240103 202607240104 202607240105 \
+            202607250101 202607250102; do
+            grep -q "$version" "$RUNNER_TEMP/phase-6-readiness-migration-history.txt"
+          done
+
+          if grep -Eq '202607250103[^|]*\|[^|]*202607250103' "$RUNNER_TEMP/phase-6-readiness-migration-history.txt"; then
+            echo 'Phase 6 migration is already recorded remotely.'
+            exit 1
+          fi
+
+      - name: Preview exactly one Phase 6 migration
+        shell: bash
+        working-directory: /tmp/agilecert-phase-6-production-readiness
+        run: |
+          set +e
+          output="$(supabase db push --linked --password "$SUPABASE_DB_PASSWORD" --dry-run 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output" | tee "$RUNNER_TEMP/phase-6-readiness-dry-run.txt"
+          test "$status" -eq 0
+
+          pending="$(printf '%s\n' "$output" \
+            | grep -Eo '202607250103_[A-Za-z0-9_.-]+\.sql' \
+            | sort -u || true)"
+          expected='202607250103_phase_6_ai_certification_adviser.sql'
+          test "$pending" = "$expected"
+
+          all_migrations="$(printf '%s\n' "$output" \
+            | grep -Eo '20[0-9]{10,12}_[A-Za-z0-9_.-]+\.sql' \
+            | sort -u || true)"
+          test "$all_migrations" = "$expected"
+
+      - name: Verify production remains Phase 5 only
+        shell: bash
+        working-directory: /tmp/agilecert-phase-6-production-readiness
+        run: |
+          set -euo pipefail
+          supabase db dump \
+            --linked \
+            --schema public \
+            --file "$RUNNER_TEMP/phase-6-readiness-public-schema.sql" \
+            --password "$SUPABASE_DB_PASSWORD"
+
+          schema="$RUNNER_TEMP/phase-6-readiness-public-schema.sql"
+          test -s "$schema"
+
+          for marker in \
+            agilecert_identity_verifications \
+            submit_my_agilecert_identity_assurance \
+            create_agilecert_professional_certificate_order \
+            agilecert_certificate_orders \
+            agilecert_paid_credentials; do
+            grep -q "$marker" "$schema"
+          done
+
+          if grep -Eq 'agilecert_ai_adviser_sessions|agilecert_ai_adviser_messages|register_agilecert_ai_adviser_request|record_agilecert_ai_adviser_response' "$schema"; then
+            echo 'Phase 6 adviser schema already exists in production.'
+            exit 1
+          fi
+
+          {
+            echo 'Production prerequisite markers confirmed:'
+            echo 'Phase 5 identity assurance present'
+            echo 'Professional Certificate authority present'
+            echo 'Phase 6 adviser schema absent'
+          } > "$RUNNER_TEMP/phase-6-readiness-schema-summary.txt"
+
+      - name: Upload sanitized readiness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-phase-6-production-readiness
+          retention-days: 5
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/phase-6-readiness-source.txt
+            ${{ runner.temp }}/phase-6-readiness-secrets.txt
+            ${{ runner.temp }}/phase-6-readiness-function-state.txt
+            ${{ runner.temp }}/phase-6-readiness-migration-history.txt
+            ${{ runner.temp }}/phase-6-readiness-dry-run.txt
+            ${{ runner.temp }}/phase-6-readiness-schema-summary.txt
