@@ -1,0 +1,223 @@
+name: Deploy AgileCert Compiled Pages
+
+on:
+  push:
+    branches: [supabase-integration]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: agilecert-pages-production
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build validated AgileCert frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      expected_sha: ${{ steps.fingerprint.outputs.expected_sha }}
+    steps:
+      - name: Checkout pushed source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate, build and fingerprint
+        id: fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          ! grep -q '/src/main.tsx' dist/index.html
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
+          test -s "$js_file"
+          grep -q 'AI Certification Adviser' "$js_file"
+          sha="$(sha256sum "$js_file" | awk '{print $1}')"
+          echo "expected_sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "$sha" > "$RUNNER_TEMP/expected-live-js.sha256"
+          rm -f dist/server.cjs dist/server.cjs.map
+          touch dist/.nojekyll
+
+      - name: Wait for legacy source build to finish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          success=0
+          for attempt in $(seq 1 90); do
+            response="$(gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/pages/builds/latest")"
+            commit="$(printf '%s' "$response" | jq -r '.commit // ""')"
+            status="$(printf '%s' "$response" | jq -r '.status // ""')"
+            echo "Attempt $attempt: commit=$commit status=$status"
+            if [ "$commit" = "$GITHUB_SHA" ] && [ "$status" = 'built' ]; then
+              success=1
+              break
+            fi
+            if [ "$commit" = "$GITHUB_SHA" ] && [ "$status" = 'errored' ]; then
+              printf '%s\n' "$response"
+              exit 1
+            fi
+            sleep 5
+          done
+          test "$success" -eq 1
+
+      - name: Configure GitHub Pages metadata
+        uses: actions/configure-pages@v5
+
+      - name: Upload compiled Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+      - name: Upload build fingerprint
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-pages-build-fingerprint
+          retention-days: 14
+          path: ${{ runner.temp }}/expected-live-js.sha256
+
+  deploy:
+    name: Deploy compiled artifact
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  verify:
+    name: Verify live portal mounts
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+      EXPECTED_SHA: ${{ needs.build.outputs.expected_sha }}
+    steps:
+      - name: Wait for exact compiled live bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          success=0
+          for attempt in $(seq 1 60); do
+            status="$(curl -L -sS -o "$RUNNER_TEMP/live-index.html" -w '%{http_code}' \
+              "$LIVE_URL?compiled-pages=${GITHUB_RUN_ID}-${attempt}" || true)"
+            echo "Attempt $attempt: HTTP $status"
+            if [ "$status" = '200' ] \
+              && grep -q 'AgileCert Global' "$RUNNER_TEMP/live-index.html" \
+              && ! grep -q '/src/main.tsx' "$RUNNER_TEMP/live-index.html"; then
+              asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/live-index.html" | head -n 1 | cut -d'"' -f2)"
+              if [ -n "$asset" ]; then
+                asset_url="$(python3 - "$LIVE_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+                )"
+                if curl -L --fail --silent --show-error \
+                  "$asset_url?compiled-pages=${GITHUB_RUN_ID}-${attempt}" \
+                  -o "$RUNNER_TEMP/live-app.js"; then
+                  actual="$(sha256sum "$RUNNER_TEMP/live-app.js" | awk '{print $1}')"
+                  echo "Expected: $EXPECTED_SHA"
+                  echo "Live:     $actual"
+                  if [ "$actual" = "$EXPECTED_SHA" ]; then
+                    success=1
+                    break
+                  fi
+                fi
+              fi
+            fi
+            sleep 10
+          done
+          test "$success" -eq 1
+
+      - name: Install Chromium
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/live-smoke"
+          cd "$RUNNER_TEMP/live-smoke"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright@latest
+          npx playwright install --with-deps chromium
+
+      - name: Confirm application replaces boot shell
+        shell: bash
+        working-directory: ${{ runner.temp }}/live-smoke
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+            const pageErrors = [];
+            const failedRequests = [];
+            page.on('pageerror', error => pageErrors.push(String(error)));
+            page.on('requestfailed', request => failedRequests.push({ url: request.url(), failure: request.failure() }));
+
+            const response = await page.goto(`${process.env.LIVE_URL}?mount-check=${process.env.GITHUB_RUN_ID}`, {
+              waitUntil: 'domcontentloaded',
+              timeout: 60000,
+            });
+            const adviserButton = page.locator('button[aria-label="Open AgileCert AI Certification Adviser"]');
+            await adviserButton.waitFor({ state: 'visible', timeout: 30000 });
+            const bootShellExists = await page.locator('#iipm-boot-shell').count() > 0;
+            const report = {
+              status: response ? response.status() : 0,
+              title: await page.title(),
+              adviserButtonVisible: await adviserButton.isVisible(),
+              bootShellExists,
+              pageErrors,
+              failedRequests,
+            };
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/agilecert-live-mount-report.json`, JSON.stringify(report, null, 2));
+            await page.screenshot({ path: `${process.env.RUNNER_TEMP}/agilecert-live-mount.png`, fullPage: true });
+            await browser.close();
+
+            if (report.status !== 200) throw new Error(`HTTP ${report.status}`);
+            if (!/AgileCert Global/i.test(report.title)) throw new Error(`Unexpected title: ${report.title}`);
+            if (!report.adviserButtonVisible || report.bootShellExists) throw new Error('The compiled application did not replace the boot shell.');
+            if (pageErrors.length || failedRequests.length) throw new Error(`Browser errors detected: ${JSON.stringify({ pageErrors, failedRequests })}`);
+          })().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Upload live verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-pages-live-verification
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/live-index.html
+            ${{ runner.temp }}/live-app.js
+            ${{ runner.temp }}/agilecert-live-mount-report.json
+            ${{ runner.temp }}/agilecert-live-mount.png
