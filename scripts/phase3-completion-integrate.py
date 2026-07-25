@@ -101,7 +101,6 @@ def patch_migration() -> None:
 """
         sql = replace_once(sql, manual_guard, guarded, 'candidate-request insert guard')
 
-    request_signature = 'create or replace function public.request_my_agilecert_certificate(\n  p_attempt_id uuid\n)'
     workspace_marker = 'create or replace function public.get_my_agilecert_certificate_workspace_v2()'
     new_request_marker = "'request_submitted_for_approval'"
     if new_request_marker not in sql:
@@ -193,8 +192,6 @@ end;
 $$;
 
 """
-        if request_signature not in sql:
-            raise SystemExit('Existing candidate request function signature is missing.')
         sql = replace_once(
             sql,
             workspace_marker,
