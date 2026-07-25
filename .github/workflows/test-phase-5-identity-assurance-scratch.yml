@@ -1,0 +1,86 @@
+name: Test Phase 5 Identity Assurance Scratch
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/phase-5-identity-assurance-scratch.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-5-identity-assurance-scratch
+  cancel-in-progress: false
+
+jobs:
+  exercise:
+    name: Exercise Phase 5 identity assurance in PostgreSQL 16
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PHASE_5_BRANCH: phase-5-identity-assurance-professional-certificate
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract exact Phase 3 through Phase 5 migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$PHASE_5_BRANCH:refs/remotes/origin/$PHASE_5_BRANCH"
+          phase5_head="$(git rev-parse "origin/$PHASE_5_BRANCH")"
+          echo "phase5_head=$phase5_head" | tee "$RUNNER_TEMP/phase-5-scratch-source.log"
+
+          git show "$phase5_head:supabase/migrations/202607240104_phase_3_certificate_eligibility_issuance_verification.sql" > /tmp/phase-3-certificate-authority.sql
+          git show "$phase5_head:supabase/migrations/202607240105_phase_4_certificate_payment_credential_issuance.sql" > /tmp/phase-4-certificate-commerce.sql
+          git show "$phase5_head:supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql" > /tmp/phase-5-identity-assurance.sql
+          git show "$phase5_head:supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql" > /tmp/phase-5-identity-hardening.sql
+
+          for migration in \
+            /tmp/phase-3-certificate-authority.sql \
+            /tmp/phase-4-certificate-commerce.sql \
+            /tmp/phase-5-identity-assurance.sql \
+            /tmp/phase-5-identity-hardening.sql; do
+            test -s "$migration"
+            sha256sum "$migration" | tee -a "$RUNNER_TEMP/phase-5-scratch-source.log"
+          done
+
+      - name: Apply and exercise migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f validation/phase-5-identity-assurance-scratch.sql \
+            2>&1 | tee "$RUNNER_TEMP/phase-5-identity-assurance-results.log"
+          grep -q 'phase-5-identity-assurance-behaviour-passed' "$RUNNER_TEMP/phase-5-identity-assurance-results.log"
+
+      - name: Upload scratch evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-5-identity-assurance-scratch-database
+          path: |
+            ${{ runner.temp }}/phase-5-scratch-source.log
+            ${{ runner.temp }}/phase-5-identity-assurance-results.log
+          if-no-files-found: warn
+          retention-days: 3
