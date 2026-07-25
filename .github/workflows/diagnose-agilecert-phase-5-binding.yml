@@ -5,6 +5,10 @@ on:
     branches: [phase-5-identity-assurance-professional-certificate]
     paths:
       - '.github/workflows/diagnose-agilecert-phase-5-binding.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - '.github/workflows/diagnose-agilecert-phase-5-binding.yml'
   workflow_dispatch:
 
 permissions:
