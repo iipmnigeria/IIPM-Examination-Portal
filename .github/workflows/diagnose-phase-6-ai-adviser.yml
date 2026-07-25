@@ -34,40 +34,70 @@ jobs:
             "$endpoint")"
           echo "Diagnostic function HTTP $status" | tee "$RUNNER_TEMP/phase-6-diagnostic-probe.log"
           cat "$RUNNER_TEMP/phase-6-diagnostic-response.json"
-          sleep 15
+          sleep 20
 
-      - name: Query recent Supabase function logs
+      - name: Query default recent edge logs
         shell: bash
         run: |
           set -euo pipefail
           test -n "$SUPABASE_ACCESS_TOKEN"
-          sql="select timestamp, severity_text, event_message from logs where source = 'function_logs' and timestamp > now() - INTERVAL 60 MINUTE order by timestamp desc limit 100"
-          curl --fail --silent --show-error \
+          start="$(date -u -d '15 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          end="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          curl --silent --show-error \
             --get "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/analytics/endpoints/logs.all" \
             --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
-            --data-urlencode "sql=${sql}" \
-            -o "$RUNNER_TEMP/phase-6-function-logs.json"
-          python3 - "$RUNNER_TEMP/phase-6-function-logs.json" <<'PY'
-          import json, sys
-          data = json.load(open(sys.argv[1], encoding='utf-8'))
-          print(json.dumps(data, indent=2)[:20000])
-          PY
+            --data-urlencode "iso_timestamp_start=${start}" \
+            --data-urlencode "iso_timestamp_end=${end}" \
+            -o "$RUNNER_TEMP/phase-6-default-edge-logs.json"
+          cat "$RUNNER_TEMP/phase-6-default-edge-logs.json"
 
-      - name: Query recent Supabase Postgres logs
+      - name: Query ClickHouse function logs
         shell: bash
         run: |
           set -euo pipefail
-          sql="select timestamp, severity_text, event_message from logs where source = 'postgres_logs' and timestamp > now() - INTERVAL 60 MINUTE order by timestamp desc limit 100"
-          curl --fail --silent --show-error \
+          start="$(date -u -d '30 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          end="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          sql="select timestamp, severity_text, event_message from logs where source = 'function_logs' order by timestamp desc limit 100"
+          curl --silent --show-error \
             --get "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/analytics/endpoints/logs.all" \
             --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
             --data-urlencode "sql=${sql}" \
-            -o "$RUNNER_TEMP/phase-6-postgres-logs.json"
-          python3 - "$RUNNER_TEMP/phase-6-postgres-logs.json" <<'PY'
-          import json, sys
-          data = json.load(open(sys.argv[1], encoding='utf-8'))
-          print(json.dumps(data, indent=2)[:20000])
-          PY
+            --data-urlencode "iso_timestamp_start=${start}" \
+            --data-urlencode "iso_timestamp_end=${end}" \
+            -o "$RUNNER_TEMP/phase-6-function-logs-clickhouse.json"
+          cat "$RUNNER_TEMP/phase-6-function-logs-clickhouse.json"
+
+      - name: Query legacy function logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          start="$(date -u -d '30 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          end="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          sql="select timestamp, event_message from function_logs order by timestamp desc limit 100"
+          curl --silent --show-error \
+            --get "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/analytics/endpoints/logs.all" \
+            --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            --data-urlencode "sql=${sql}" \
+            --data-urlencode "iso_timestamp_start=${start}" \
+            --data-urlencode "iso_timestamp_end=${end}" \
+            -o "$RUNNER_TEMP/phase-6-function-logs-legacy.json"
+          cat "$RUNNER_TEMP/phase-6-function-logs-legacy.json"
+
+      - name: Query ClickHouse Postgres logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          start="$(date -u -d '30 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          end="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          sql="select timestamp, severity_text, event_message from logs where source = 'postgres_logs' order by timestamp desc limit 100"
+          curl --silent --show-error \
+            --get "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/analytics/endpoints/logs.all" \
+            --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            --data-urlencode "sql=${sql}" \
+            --data-urlencode "iso_timestamp_start=${start}" \
+            --data-urlencode "iso_timestamp_end=${end}" \
+            -o "$RUNNER_TEMP/phase-6-postgres-logs-clickhouse.json"
+          cat "$RUNNER_TEMP/phase-6-postgres-logs-clickhouse.json"
 
       - name: Upload sanitized diagnostic evidence
         if: always()
@@ -79,5 +109,7 @@ jobs:
           path: |
             ${{ runner.temp }}/phase-6-diagnostic-probe.log
             ${{ runner.temp }}/phase-6-diagnostic-response.json
-            ${{ runner.temp }}/phase-6-function-logs.json
-            ${{ runner.temp }}/phase-6-postgres-logs.json
+            ${{ runner.temp }}/phase-6-default-edge-logs.json
+            ${{ runner.temp }}/phase-6-function-logs-clickhouse.json
+            ${{ runner.temp }}/phase-6-function-logs-legacy.json
+            ${{ runner.temp }}/phase-6-postgres-logs-clickhouse.json
