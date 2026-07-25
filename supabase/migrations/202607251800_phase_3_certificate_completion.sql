@@ -730,7 +730,7 @@ begin
     to_char(now(), 'YYYY'),
     lpad(v_serial::text, 6, '0')
   );
-  v_new_code := upper(encode(gen_random_bytes(9), 'hex'));
+  v_new_code := upper(encode(extensions.gen_random_bytes(9), 'hex'));
 
   update public.agilecert_issued_certificates
   set certificate_number = v_new_number,
@@ -752,7 +752,7 @@ begin
         'reissuedBy', v_admin_id,
         'reissueReason', left(v_reason, 1000),
         'previousCertificateNumber', v_certificate.certificate_number,
-        'previousVerificationCodeHash', encode(digest(lower(v_certificate.verification_code), 'sha256'), 'hex')
+        'previousVerificationCodeHash', encode(extensions.digest(lower(v_certificate.verification_code), 'sha256'), 'hex')
       ),
       updated_at = now()
   where id = p_certificate_id
@@ -1191,7 +1191,7 @@ declare
   v_revision public.agilecert_certificate_revisions%rowtype;
   v_issuer text;
 begin
-  v_hash := encode(digest(lower(v_code), 'sha256'), 'hex');
+  v_hash := encode(extensions.digest(lower(v_code), 'sha256'), 'hex');
 
   if length(v_code) < 6 then
     insert into public.agilecert_certificate_audit_events (
