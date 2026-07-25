@@ -108,3 +108,7 @@ The timestamp follows the separate CIPMN mock-examination migration range `20260
 15. Isolated Supabase reset and behaviour tests pass.
 16. Existing Phase 3, Phase 4, Phase 5 and AI Adviser regressions remain green.
 17. No production deployment occurs until the completion PR is reviewed and explicitly approved.
+
+## Validation trigger
+
+The completed source is validated from an authorised branch commit so GitHub Actions can run the full migration, regression and frontend suites without recursive workflow suppression.
