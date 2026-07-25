@@ -165,6 +165,11 @@ jobs:
           from public.agilecert_ai_adviser_messages
           where session_id = :'session_id'::uuid;
 
+          select count(*) as policy_guard_records
+          from public.agilecert_ai_adviser_messages
+          where model = 'policy-guard'
+            and safety_metadata @> '{"examinationContentRequestBlocked": true}'::jsonb;
+
           do $$
           declare
             v_register text;
@@ -183,9 +188,10 @@ jobs:
             end if;
 
             if not exists (
-              select 1 from public.agilecert_ai_adviser_messages
-              where session_id = :'session_id'::uuid
-                and model = 'policy-guard'
+              select 1
+              from public.agilecert_ai_adviser_messages
+              where model = 'policy-guard'
+                and safety_metadata @> '{"examinationContentRequestBlocked": true}'::jsonb
             ) then
               raise exception 'Service-role audit recording did not succeed.';
             end if;
@@ -197,6 +203,7 @@ jobs:
           grep -q 'service_role_can_record' adviser-hotfix-behaviour.log
           grep -q 'policy-guard' adviser-hotfix-behaviour.log
           grep -q 'examinationContentRequestBlocked' adviser-hotfix-behaviour.log
+          grep -Eq 'policy_guard_records[[:space:]]*\|[[:space:]]*1' adviser-hotfix-behaviour.log
 
       - name: Upload hotfix validation evidence
         if: always()
