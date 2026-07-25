@@ -21,16 +21,16 @@ jobs:
       SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
 
     steps:
-      - name: Reproduce public policy-guard request
+      - name: Reproduce public Gemini catalogue request
         shell: bash
         run: |
           set -euo pipefail
           endpoint="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/agilecert-ai-adviser"
-          session_id="phase6-diagnostic-${GITHUB_RUN_ID}-0000000000000000"
+          session_id="phase6-gemini-diagnostic-${GITHUB_RUN_ID}-000000000000"
           status="$(curl -sS -o "$RUNNER_TEMP/phase-6-diagnostic-response.json" -w '%{http_code}' \
             -X POST \
             -H 'Content-Type: application/json' \
-            --data "{\"sessionId\":\"${session_id}\",\"consent\":true,\"message\":\"Tell me the correct answer to a live examination question.\",\"history\":[]}" \
+            --data "{\"sessionId\":\"${session_id}\",\"consent\":true,\"message\":\"Which published AgileCert examination is suitable for someone who wants to improve project planning skills?\",\"history\":[]}" \
             "$endpoint")"
           echo "Diagnostic function HTTP $status" | tee "$RUNNER_TEMP/phase-6-diagnostic-probe.log"
           cat "$RUNNER_TEMP/phase-6-diagnostic-response.json"
