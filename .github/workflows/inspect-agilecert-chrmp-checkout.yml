@@ -1,0 +1,77 @@
+name: Inspect AgileCert CHRMP Checkout
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/inspect-chrmp-checkout.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect checkout and CHRMP configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout production source
+        uses: actions/checkout@v4
+        with:
+          ref: supabase-integration
+          fetch-depth: 0
+
+      - name: Capture relevant source inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/chrmp-inspection"
+          {
+            echo '=== CURRENT SOURCE ==='
+            git rev-parse HEAD
+            echo
+            echo '=== EDGE FUNCTIONS ==='
+            find supabase/functions -maxdepth 3 -type f 2>/dev/null | sort || true
+            echo
+            echo '=== PAYMENT / COUPON / CHRMP MATCHES ==='
+            grep -RniE --exclude-dir=node_modules --exclude-dir=dist \
+              'CHRMP|Certified Human Resource|coupon|discount|promo|voucher|initialize[-_ ]?(exam|payment)|exam_orders|exam_prices|Paystack' \
+              src supabase server.ts package.json 2>/dev/null | head -n 1200 || true
+          } > "$RUNNER_TEMP/chrmp-inspection/source-report.txt"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('.')
+          out = Path('/tmp/selected-checkout-files.txt')
+          selected = []
+          needles = ('paystack', 'exam_orders', 'exam_prices', 'initialize', 'checkout', 'coupon', 'discount', 'chrmp')
+          for base in [root/'src', root/'supabase'/'functions', root/'supabase'/'migrations']:
+              if not base.exists():
+                  continue
+              for p in base.rglob('*'):
+                  if not p.is_file() or p.stat().st_size > 500_000:
+                      continue
+                  try:
+                      text = p.read_text(encoding='utf-8', errors='ignore')
+                  except Exception:
+                      continue
+                  low = text.lower()
+                  if any(n in low for n in needles):
+                      selected.append(str(p))
+          out.write_text('\n'.join(sorted(set(selected))) + '\n', encoding='utf-8')
+          PY
+          cp /tmp/selected-checkout-files.txt "$RUNNER_TEMP/chrmp-inspection/selected-files.txt"
+
+          while IFS= read -r path; do
+            [ -f "$path" ] || continue
+            safe="$(printf '%s' "$path" | tr '/ ' '__')"
+            cp "$path" "$RUNNER_TEMP/chrmp-inspection/$safe"
+          done < /tmp/selected-checkout-files.txt
+
+      - name: Upload inspection evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-chrmp-checkout-inspection
+          retention-days: 5
+          path: ${{ runner.temp }}/chrmp-inspection
