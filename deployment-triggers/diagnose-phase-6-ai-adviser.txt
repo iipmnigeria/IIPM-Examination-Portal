@@ -1,1 +1,1 @@
-Reproduce the deployed Phase 6 policy request and capture sanitized Supabase function and Postgres logs. This trigger PR must remain unmerged.
+Reproduce the deployed Phase 6 policy request and capture refined sanitized Supabase function and Postgres logs. This trigger PR must remain unmerged.
