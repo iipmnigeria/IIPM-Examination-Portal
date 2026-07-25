@@ -1,0 +1,1 @@
+Reproduce the live Phase 6 Gemini catalogue request and capture sanitized Supabase Edge Function logs. This trigger PR must remain unmerged.
