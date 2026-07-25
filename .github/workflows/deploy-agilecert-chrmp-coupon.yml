@@ -54,7 +54,7 @@ jobs:
           moved=0
           for migration in supabase/migrations/*.sql; do
             version="$(basename "$migration" | cut -d_ -f1)"
-            if [[ "$version" < '202607240101' ]]; then
+            if [[ "$version" < '202607230101' ]]; then
               basename "$migration" >> chrmp-coupon-legacy-migrations.txt
               mv "$migration" "$RUNNER_TEMP/legacy-local-migrations/"
               moved=$((moved + 1))
@@ -62,10 +62,11 @@ jobs:
           done
           sort -o chrmp-coupon-legacy-migrations.txt chrmp-coupon-legacy-migrations.txt
           test "$moved" -gt 0
-          test -s supabase/migrations/202607240101_phase_2_3a_preparation_material_entitlements.sql
+          test -s supabase/migrations/202607230101_phase_2_candidate_profile_foundation.sql
+          test -s supabase/migrations/202607230102_phase_2_candidate_profile_photo.sql
           test -s supabase/migrations/202607250105_chrmp_five_candidate_coupon.sql
           find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | sort | tee chrmp-coupon-isolated-window.txt
-          awk -F_ '$1 < "202607240101" { print "Unexpected pre-tracking migration remains: " $0 > "/dev/stderr"; exit 1 }' chrmp-coupon-isolated-window.txt
+          awk -F_ '$1 < "202607230101" { print "Unexpected pre-tracking migration remains: " $0 > "/dev/stderr"; exit 1 }' chrmp-coupon-isolated-window.txt
 
       - name: Link production and require one pending migration
         shell: bash
