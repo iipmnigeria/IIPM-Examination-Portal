@@ -1,0 +1,1 @@
+Run the Phase 5 identity-assurance PostgreSQL behaviour test. This trigger must not be merged.
