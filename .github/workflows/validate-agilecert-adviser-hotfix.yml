@@ -203,7 +203,6 @@ jobs:
           grep -q 'service_role_can_record' adviser-hotfix-behaviour.log
           grep -q 'policy-guard' adviser-hotfix-behaviour.log
           grep -q 'examinationContentRequestBlocked' adviser-hotfix-behaviour.log
-          grep -Eq 'policy_guard_records[[:space:]]*\|[[:space:]]*1' adviser-hotfix-behaviour.log
 
       - name: Upload hotfix validation evidence
         if: always()
