@@ -64,7 +64,7 @@ Close the remaining gaps in the original Phase 3 — Certificate Eligibility, Is
 
 One forward-only migration:
 
-`supabase/migrations/202607251714_phase_3_certificate_completion.sql`
+`supabase/migrations/202607251800_phase_3_certificate_completion.sql`
 
 The timestamp follows the separate CIPMN mock-examination migration range `202607251701`–`202607251713` and must not modify those files.
 

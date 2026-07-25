@@ -1201,7 +1201,11 @@ set template_id = t.id,
 from public.examinations e
 join public.agilecert_certificate_templates t
   on t.programme_id = e.programme_id
- and t.product_code = 'achievement'
+ and t.product_code = case
+   when lower(coalesce(nullif(c.metadata->>'productCode', ''), 'achievement')) = 'professional'
+     then 'professional'
+   else 'achievement'
+ end
  and t.active = true
 where e.id = c.examination_id
   and c.template_id is null;
