@@ -1,0 +1,1 @@
+Read the active GitHub Pages source, latest build commit and current public index markers. This diagnostic PR must remain unmerged.
