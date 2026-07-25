@@ -1,0 +1,1 @@
+Run the Phase 6 read-only production readiness check for exact validated head 632e548aafb82b8ffab9e4d0c1ec898ab0d17033. Confirm Supabase secret names, Phase 5 production state, and exactly one pending Phase 6 migration. This trigger must not be merged.
