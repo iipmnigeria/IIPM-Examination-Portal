@@ -1,0 +1,1 @@
+Monitor the permanent compiled GitHub Pages deployment for commit b4f9bb8c3b93cc1f13d1780977b0bc6c8613a474. This trigger must remain unmerged.
