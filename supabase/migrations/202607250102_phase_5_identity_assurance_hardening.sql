@@ -322,6 +322,83 @@ begin
 end;
 $$;
 
+create or replace function public.fulfil_paid_agilecert_certificate_order(
+  p_order_id uuid,
+  p_provider_transaction_id text,
+  p_provider_payload jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order public.agilecert_certificate_orders%rowtype;
+  v_result jsonb;
+begin
+  select * into v_order
+  from public.agilecert_certificate_orders
+  where id = p_order_id
+  for update;
+
+  if not found then
+    raise exception 'The certificate order was not found.';
+  end if;
+
+  if v_order.status in ('paid', 'waived') and v_order.fulfilled_at is not null then
+    return public.agilecert_issue_identity_verified_certificate_for_order(
+      v_order.id,
+      null,
+      case when v_order.status = 'waived' then 'administrator_waiver' else 'verified_payment' end
+    );
+  end if;
+
+  if v_order.status not in ('pending', 'initialized', 'paid') then
+    raise exception 'This certificate order cannot be fulfilled from status %.', v_order.status;
+  end if;
+
+  update public.agilecert_certificate_orders
+  set status = 'paid',
+      gateway_reference = coalesce(nullif(trim(p_provider_transaction_id), ''), gateway_reference),
+      provider_transaction_id = nullif(trim(p_provider_transaction_id), ''),
+      provider_payload = coalesce(p_provider_payload, '{}'::jsonb),
+      paid_at = coalesce(paid_at, now()),
+      updated_at = now()
+  where id = v_order.id
+  returning * into v_order;
+
+  insert into public.agilecert_certificate_payments (
+    order_id, provider, reference, status, amount_minor, currency,
+    provider_transaction_id, provider_payload, verified_at
+  ) values (
+    v_order.id, v_order.payment_provider, v_order.reference, 'success',
+    v_order.payable_amount_minor, v_order.currency,
+    nullif(trim(p_provider_transaction_id), ''),
+    coalesce(p_provider_payload, '{}'::jsonb), now()
+  )
+  on conflict (provider, reference) do update
+  set status = 'success',
+      amount_minor = excluded.amount_minor,
+      currency = excluded.currency,
+      provider_transaction_id = excluded.provider_transaction_id,
+      provider_payload = excluded.provider_payload,
+      verified_at = coalesce(public.agilecert_certificate_payments.verified_at, excluded.verified_at),
+      updated_at = now();
+
+  v_result := public.agilecert_issue_identity_verified_certificate_for_order(
+    v_order.id, null, 'verified_payment'
+  );
+
+  return v_result || jsonb_build_object('verified', true, 'paymentStatus', 'success');
+end;
+$$;
+
+-- Supabase installs pgcrypto in the extensions schema. The inherited Phase 4
+-- issuer uses unqualified gen_random_bytes(), so explicitly include extensions
+-- in its secure runtime search path before Phase 5 enables Professional issuance.
+alter function public.agilecert_issue_certificate_for_order(uuid, uuid, text)
+  set search_path to public, extensions;
+
 revoke all on function public.agilecert_identity_is_approved(uuid, text)
   from public, anon, authenticated;
 
