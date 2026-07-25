@@ -1,0 +1,180 @@
+name: Deploy AgileCert Already-Unlocked Coupon Fix
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-coupon-already-unlocked.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-agilecert-coupon-already-unlocked
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Apply and verify already-unlocked coupon fix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_COMMIT: '6cc96575024ec215382b71f567386e394b0873ed'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - name: Checkout exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Verify exact source and credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          test -s supabase/migrations/202607250106_coupon_already_unlocked_quote.sql
+          test "$(git diff --name-only "${EXPECTED_COMMIT}^" "$EXPECTED_COMMIT" | sort | tr '\n' ' ')" = ".github/workflows/validate-agilecert-coupon-already-unlocked.yml supabase/migrations/202607250106_coupon_already_unlocked_quote.sql "
+
+      - name: Isolate production-tracked migration window
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/legacy-local-migrations"
+          for migration in supabase/migrations/*.sql; do
+            version="$(basename "$migration" | cut -d_ -f1)"
+            if [[ "$version" < '202607230101' ]]; then
+              mv "$migration" "$RUNNER_TEMP/legacy-local-migrations/"
+            fi
+          done
+          test -s supabase/migrations/202607230101_phase_2_candidate_profile_foundation.sql
+          test -s supabase/migrations/202607250106_coupon_already_unlocked_quote.sql
+          find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | sort | tee coupon-fix-isolated-window.txt
+          awk -F_ '$1 < "202607230101" { print "Unexpected pre-tracking migration remains: " $0 > "/dev/stderr"; exit 1 }' coupon-fix-isolated-window.txt
+
+      - name: Require exactly one pending migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" -p "$SUPABASE_DB_PASSWORD"
+          supabase db push --linked --dry-run -p "$SUPABASE_DB_PASSWORD" 2>&1 | tee coupon-fix-dry-run.log
+          grep -q '202607250106' coupon-fix-dry-run.log
+          pending="$(grep -Eo '202[0-9]{9,}[^[:space:]]*' coupon-fix-dry-run.log | sort -u || true)"
+          printf '%s\n' "$pending" | tee coupon-fix-pending.txt
+          test "$(printf '%s\n' "$pending" | grep -c '^202607250106' || true)" -eq 1
+          test "$(printf '%s\n' "$pending" | grep -cv '^202607250106' || true)" -eq 0
+
+      - name: Apply only the approved migration
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked -p "$SUPABASE_DB_PASSWORD" 2>&1 | tee coupon-fix-deploy.log
+
+      - name: Verify live function against redeemed CHRMP access
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          query = r'''
+          do $$
+          declare
+            v_candidate_id uuid;
+            v_exam_id uuid;
+            v_quote jsonb;
+          begin
+            select cr.candidate_id, eo.examination_id
+            into v_candidate_id, v_exam_id
+            from public.coupon_redemptions cr
+            join public.coupons c on c.id = cr.coupon_id
+            join public.exam_orders eo on eo.id = cr.order_id
+            where upper(c.code) = 'CHRMP100'
+              and cr.status = 'redeemed'
+              and eo.status = 'waived'
+            order by cr.created_at desc
+            limit 1;
+
+            if v_candidate_id is null then
+              raise exception 'The redeemed CHRMP100 candidate record is missing.';
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_candidate_id::text, true);
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+            v_quote := public.quote_exam_purchase(v_exam_id, 'NGN', 'CHRMP100');
+
+            if v_quote->>'status' <> 'already_unlocked'
+               or coalesce((v_quote->>'canLaunch')::boolean, false) is not true
+               or coalesce((v_quote->>'payableAmountMinor')::bigint, -1) <> 0 then
+              raise exception 'Live already-unlocked response is incorrect: %', v_quote;
+            end if;
+          end;
+          $$;
+
+          select jsonb_build_object(
+            'migrationRecorded', exists (
+              select 1 from supabase_migrations.schema_migrations
+              where version = '202607250106'
+            ),
+            'functionContainsGuard', (
+              select prosrc like '%already_unlocked%'
+              from pg_proc
+              where oid = 'public.quote_exam_purchase(uuid,text,text)'::regprocedure
+            ),
+            'couponCode', c.code,
+            'activeUsage', (
+              select count(*) from public.coupon_redemptions cr
+              where cr.coupon_id = c.id and cr.status in ('reserved','redeemed')
+            )
+          ) as verification
+          from public.coupons c
+          where upper(c.code) = 'CHRMP100';
+          '''
+          open('/tmp/query.json','w',encoding='utf-8').write(json.dumps({'query':query}))
+          PY
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/query.json \
+            -o coupon-fix-production.json
+          python3 - <<'PY'
+          import json
+          data=json.load(open('coupon-fix-production.json',encoding='utf-8'))
+          assert isinstance(data,list) and len(data)==1, data
+          verification=data[0].get('verification') or {}
+          assert verification.get('migrationRecorded') is True, verification
+          assert verification.get('functionContainsGuard') is True, verification
+          assert verification.get('couponCode') == 'CHRMP100', verification
+          assert verification.get('activeUsage') == 1, verification
+          open('coupon-fix-production-safe.json','w',encoding='utf-8').write(json.dumps(verification,indent=2))
+          PY
+
+      - name: Confirm no migration remains pending
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db push --linked --dry-run -p "$SUPABASE_DB_PASSWORD" 2>&1 | tee coupon-fix-post-dry-run.log
+          ! grep -q '202607250106' coupon-fix-post-dry-run.log
+
+      - name: Upload sanitized deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-coupon-already-unlocked-production-evidence
+          retention-days: 30
+          path: |
+            coupon-fix-isolated-window.txt
+            coupon-fix-dry-run.log
+            coupon-fix-pending.txt
+            coupon-fix-deploy.log
+            coupon-fix-production-safe.json
+            coupon-fix-post-dry-run.log
