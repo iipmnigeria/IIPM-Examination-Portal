@@ -1,0 +1,133 @@
+name: Validate AgileCert Already-Unlocked Coupon Flow
+
+on:
+  push:
+    branches: [fix-chrmp-coupon-already-unlocked]
+    paths:
+      - 'supabase/migrations/202607250106_coupon_already_unlocked_quote.sql'
+      - '.github/workflows/validate-agilecert-coupon-already-unlocked.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/202607250106_coupon_already_unlocked_quote.sql'
+      - '.github/workflows/validate-agilecert-coupon-already-unlocked.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate already-unlocked checkout handling
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          commit;
+          SQL
+
+      - name: Start isolated Supabase and apply all migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee already-unlocked-supabase-start.log
+          supabase db reset --local 2>&1 | tee already-unlocked-db-reset.log
+
+      - name: Verify active access bypasses coupon usage error
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 2>&1 <<'SQL' | tee already-unlocked-behaviour.log
+          do $$
+          declare
+            v_candidate_id uuid := gen_random_uuid();
+            v_exam_id uuid;
+            v_quote jsonb;
+          begin
+            insert into auth.users (
+              id, instance_id, aud, role, email, encrypted_password,
+              email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+              created_at, updated_at
+            ) values (
+              v_candidate_id,
+              '00000000-0000-0000-0000-000000000000',
+              'authenticated', 'authenticated',
+              'already-unlocked@example.test', crypt('temporary-password', gen_salt('bf')),
+              now(), '{}'::jsonb,
+              jsonb_build_object('full_name', 'Already Unlocked Test'),
+              now(), now()
+            );
+
+            insert into public.profiles (id, email, full_name, role, is_active)
+            values (v_candidate_id, 'already-unlocked@example.test', 'Already Unlocked Test', 'candidate', true)
+            on conflict (id) do update
+              set email = excluded.email,
+                  full_name = excluded.full_name,
+                  role = excluded.role,
+                  is_active = excluded.is_active;
+
+            select e.id into v_exam_id
+            from public.examinations e
+            join public.programmes p on p.id = e.programme_id
+            where upper(p.code) = 'CHRMP' and e.status = 'published'
+            limit 1;
+
+            if v_exam_id is null then
+              raise exception 'Published CHRMP examination is missing.';
+            end if;
+
+            insert into public.exam_assignments (
+              examination_id, candidate_id, assigned_by,
+              available_from, expires_at, max_attempts_override, status
+            ) values (
+              v_exam_id, v_candidate_id, null,
+              now(), null, null, 'assigned'
+            ) on conflict (examination_id, candidate_id) do update
+              set status = 'assigned', available_from = now(), expires_at = null;
+
+            perform set_config('request.jwt.claim.sub', v_candidate_id::text, true);
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+            v_quote := public.quote_exam_purchase(v_exam_id, 'NGN', 'CHRMP100');
+
+            if v_quote->>'status' <> 'already_unlocked'
+               or coalesce((v_quote->>'canLaunch')::boolean, false) is not true
+               or coalesce((v_quote->>'payableAmountMinor')::bigint, -1) <> 0 then
+              raise exception 'Already-unlocked quote response is incorrect: %', v_quote;
+            end if;
+          end;
+          $$;
+
+          select prosrc like '%already_unlocked%' as function_contains_unlock_guard
+          from pg_proc
+          where oid = 'public.quote_exam_purchase(uuid,text,text)'::regprocedure;
+          SQL
+
+          grep -q 'function_contains_unlock_guard' already-unlocked-behaviour.log
+          grep -q ' t' already-unlocked-behaviour.log
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-coupon-already-unlocked-evidence
+          retention-days: 5
+          path: |
+            already-unlocked-supabase-start.log
+            already-unlocked-db-reset.log
+            already-unlocked-behaviour.log
