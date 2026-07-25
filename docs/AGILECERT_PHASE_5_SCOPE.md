@@ -52,7 +52,9 @@ A submission may move through:
 
 Only active `exam_admin` and `super_admin` users may review a submitted record.
 
-Every decision requires a recorded reason or review note. Approval records the reviewer, approval timestamp, verified legal-name snapshot and evidence category. Candidate edits after approval invalidate the approval and require a new submission.
+Every decision requires a recorded reason or review note. Approval records the reviewer, approval timestamp, verified legal-name snapshot and evidence category. Candidate edits to legal name, phone or country after approval automatically expire the approval and require a new submission.
+
+Identity changes and withdrawal are blocked while a non-expired Professional Certificate payment is active, preventing a verified payment from becoming detached from its approved identity record.
 
 ## Private evidence storage
 
@@ -83,9 +85,11 @@ The browser may display the verification status, but the server remains authorit
 
 The certificate-payment Edge Function must enforce approved identity status before creating or initialising a Professional Certificate order.
 
+The order stores the exact approved identity-verification identifier, verified name and approval timestamp used at checkout.
+
 ## Professional credential issuance
 
-Before issuing a Professional Certificate, the server must re-check the approved identity-assurance record.
+Before issuing a Professional Certificate, the server must re-check the same approved identity-assurance record captured on the order. A different or expired approval cannot silently replace it.
 
 The immutable credential metadata must include:
 
@@ -126,6 +130,11 @@ The administrator console provides:
 
 ## Database and function boundaries
 
+Phase 5 uses two numbered migrations because validation identified a lifecycle and payment-binding hardening unit that is safer to review independently:
+
+1. `202607250101_phase_5_identity_assurance_professional_certificate.sql` — identity submissions, private storage, manual review, Professional Certificate order creation and identity-aware fulfilment;
+2. `202607250102_phase_5_identity_assurance_hardening.sql` — profile-change invalidation, active-payment withdrawal guards and exact identity-record binding at issuance.
+
 Phase 5 may add:
 
 - identity-verification submissions;
@@ -135,8 +144,6 @@ Phase 5 may add:
 - a private storage bucket and storage policies;
 - server checks that unlock Professional Certificate order creation; and
 - issuance checks and identity snapshots for Professional Credentials.
-
-Phase 5 should use one new numbered migration unless validation demonstrates that a safe split is required.
 
 ## Explicit exclusions
 
@@ -163,13 +170,15 @@ Before Phase 5 can be proposed for merge and deployment, it must pass:
 
 - TypeScript validation;
 - production build;
-- exact migration and file-scope review;
+- exact two-migration and file-scope review;
 - isolated PostgreSQL behaviour tests;
 - storage-policy and private-file access tests;
 - candidate isolation tests;
 - administrator authorisation tests;
 - approval invalidation and resubmission tests;
+- active-payment profile-change and withdrawal-guard tests;
 - Professional Certificate checkout lock/unlock tests;
+- exact order-to-identity issuance-binding tests;
 - payment and issuance regression tests;
 - Phase 1 through Phase 4 regression validation;
 - read-only production migration dry run; and
