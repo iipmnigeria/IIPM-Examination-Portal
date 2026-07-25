@@ -1,0 +1,1 @@
+Deploy exact approved integration commit 232df17d08687673446dd1708e2c137458596faf using production migration-history boundary 202607230101. Apply exactly migrations 202607251701 through 202607251715, verify 12 CIPMN module mock examinations, 900 MCQs, 70% pass mark, NGN 25,000 pricing and the 14-day CIPMN12-ACCESS88 coupon.
