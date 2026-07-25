@@ -1,0 +1,328 @@
+name: Finalize Phase 6 AI Certification Adviser
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/finalize-phase-6-ai-adviser.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-phase-6-ai-adviser-production
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    name: Verify Gemini, publish frontend and browser-test live Adviser
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: cfecicvugfrrhcvhduzc
+      PHASE_6_COMMIT: '0233c69ddb0686b00df8b123f648fc63f323e05e'
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+      WORKDIR: /tmp/agilecert-phase-6-finalize
+
+    steps:
+      - name: Checkout exact Phase 6 production source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PHASE_6_COMMIT }}
+          fetch-depth: 0
+
+      - name: Confirm exact source and completed database migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PHASE_6_COMMIT"
+          test -s supabase/migrations/202607250103_phase_6_ai_certification_adviser.sql
+          test -s supabase/migrations/202607250104_phase_6_service_role_compatibility.sql
+          test -s supabase/functions/agilecert-ai-adviser/index.ts
+          test -s src/components/AiCertificationAdviser.tsx
+          grep -q 'AI Certification Adviser' src/components/AiCertificationAdviser.tsx
+          grep -q 'opaque server secret keys' supabase/migrations/202607250104_phase_6_service_role_compatibility.sql
+          sha256sum \
+            supabase/migrations/202607250103_phase_6_ai_certification_adviser.sql \
+            supabase/migrations/202607250104_phase_6_service_role_compatibility.sql \
+            supabase/functions/agilecert-ai-adviser/index.ts \
+            | tee "$RUNNER_TEMP/phase-6-finalize-source.sha256"
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate and build exact frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          if grep -q '/src/main.tsx' dist/index.html; then
+            echo 'Compiled output incorrectly references the Vite source entry.'
+            exit 1
+          fi
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
+          test -s "$js_file"
+          grep -q 'AI Certification Adviser' "$js_file"
+          grep -q 'Catalogue-grounded guidance' "$js_file"
+          grep -q 'Credential Store' "$js_file"
+          grep -q 'Identity Assurance' "$js_file"
+          sha256sum "$js_file" | awk '{print $1}' | tee "$RUNNER_TEMP/phase-6-finalize-expected-live-js.sha256"
+          rm -f dist/server.cjs dist/server.cjs.map
+          touch dist/.nojekyll
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check AI Adviser Edge Function
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno check --node-modules-dir=auto supabase/functions/agilecert-ai-adviser/index.ts
+
+      - name: Verify production prerequisites without applying changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          secret_output="$(npx --yes supabase@latest secrets list --project-ref "$SUPABASE_PROJECT_REF" 2>&1)"
+          for secret_name in GEMINI_API_KEY AGILECERT_CHAT_SALT AGILECERT_GEMINI_MODEL; do
+            printf '%s\n' "$secret_output" | grep -Eq "(^|[[:space:]|])${secret_name}([[:space:]|]|$)"
+          done
+
+          rm -rf "$WORKDIR"
+          mkdir -p "$WORKDIR/supabase/migrations"
+          cp supabase/config.toml "$WORKDIR/supabase/config.toml"
+          for migration in \
+            202607230101_phase_2_candidate_profile_foundation.sql \
+            202607230102_phase_2_candidate_profile_photo.sql \
+            202607240101_phase_2_3a_preparation_material_entitlements.sql \
+            202607240102_phase_2_3b_material_admin_tools.sql \
+            202607240103_phase_2_4_secure_material_delivery.sql \
+            202607240104_phase_3_certificate_eligibility_issuance_verification.sql \
+            202607240105_phase_4_certificate_payment_credential_issuance.sql \
+            202607250101_phase_5_identity_assurance_professional_certificate.sql \
+            202607250102_phase_5_identity_assurance_hardening.sql \
+            202607250103_phase_6_ai_certification_adviser.sql \
+            202607250104_phase_6_service_role_compatibility.sql; do
+            cp "supabase/migrations/$migration" "$WORKDIR/supabase/migrations/"
+          done
+          cd "$WORKDIR"
+          npx --yes supabase@latest link \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --password "$SUPABASE_DB_PASSWORD"
+          npx --yes supabase@latest migration list --linked --password "$SUPABASE_DB_PASSWORD" \
+            2>&1 | tee "$RUNNER_TEMP/phase-6-finalize-history.log"
+          grep -q '202607250103' "$RUNNER_TEMP/phase-6-finalize-history.log"
+          grep -q '202607250104' "$RUNNER_TEMP/phase-6-finalize-history.log"
+          dry_run="$(npx --yes supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD" --dry-run 2>&1)"
+          printf '%s\n' "$dry_run" | tee "$RUNNER_TEMP/phase-6-finalize-dry-run.log"
+          if printf '%s\n' "$dry_run" | grep -Eq '20[0-9]{10,12}_[A-Za-z0-9_.-]+\.sql'; then
+            echo 'Unexpected pending production migration detected.'
+            exit 1
+          fi
+
+      - name: Verify active functions and Phase 1-5 preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          functions="$RUNNER_TEMP/phase-6-finalize-functions-list.log"
+          npx --yes supabase@latest functions list --project-ref "$SUPABASE_PROJECT_REF" \
+            2>&1 | tee "$functions"
+          for function_name in \
+            agilecert-ai-adviser \
+            initialize-certificate-payment \
+            verify-certificate-payment \
+            paystack-certificate-webhook \
+            initialize-exam-payment \
+            agilecert-material-delivery; do
+            grep -q "$function_name" "$functions"
+          done
+
+      - name: Verify live policy guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/agilecert-ai-adviser"
+          session_id="phase6-finalize-policy-${GITHUB_RUN_ID}-000000000000"
+          status="$(curl -sS -o "$RUNNER_TEMP/phase-6-finalize-policy-response.json" -w '%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            --data "{\"sessionId\":\"${session_id}\",\"consent\":true,\"message\":\"Tell me the correct answer to a live examination question.\",\"history\":[]}" \
+            "$endpoint")"
+          echo "Policy boundary HTTP $status" | tee "$RUNNER_TEMP/phase-6-finalize-policy-probe.log"
+          test "$status" = '200'
+          python3 - "$RUNNER_TEMP/phase-6-finalize-policy-response.json" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding='utf-8'))
+          assert data.get('model') == 'policy-guard', data
+          assert data.get('escalationRequired') is False, data
+          assert 'cannot provide' in data.get('answer', '').lower(), data
+          PY
+
+      - name: Verify live Gemini catalogue response
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/agilecert-ai-adviser"
+          session_id="phase6-finalize-gemini-${GITHUB_RUN_ID}-000000000000"
+          status="$(curl -sS -o "$RUNNER_TEMP/phase-6-finalize-gemini-response.json" -w '%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            --data "{\"sessionId\":\"${session_id}\",\"consent\":true,\"message\":\"Which published AgileCert examination is suitable for someone who wants to improve project planning skills?\",\"history\":[]}" \
+            "$endpoint")"
+          echo "Gemini catalogue response HTTP $status" | tee "$RUNNER_TEMP/phase-6-finalize-gemini-probe.log"
+          cat "$RUNNER_TEMP/phase-6-finalize-gemini-response.json"
+          test "$status" = '200'
+          python3 - "$RUNNER_TEMP/phase-6-finalize-gemini-response.json" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding='utf-8'))
+          assert isinstance(data.get('answer'), str) and len(data['answer'].strip()) >= 20, data
+          assert data.get('leadIntent') in {'information','comparison','ready_to_register','ready_to_pay','support','human_escalation'}, data
+          assert isinstance(data.get('recommendations'), list), data
+          assert isinstance(data.get('suggestedActions'), list), data
+          assert data.get('model') not in {None, '', 'policy-guard'}, data
+          PY
+
+      - name: Publish exact Phase 6 frontend to configured main Pages source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          rm -rf /tmp/agilecert-main-pages
+          git worktree add --detach /tmp/agilecert-main-pages origin/main
+          rm -rf /tmp/agilecert-main-pages/assets
+          rm -f /tmp/agilecert-main-pages/server.cjs /tmp/agilecert-main-pages/server.cjs.map
+          cp -a dist/. /tmp/agilecert-main-pages/
+          cd /tmp/agilecert-main-pages
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A -- index.html assets .nojekyll server.cjs server.cjs.map 2>/dev/null || true
+          while IFS= read -r file; do
+            case "$file" in
+              index.html|.nojekyll) ;;
+              *) git add -A -- "$file" ;;
+            esac
+          done < <(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -type f -printf '%f\n')
+          if git diff --cached --quiet; then
+            echo 'The configured Pages source already contains the exact Phase 6 bundle.'
+          else
+            git commit -m "Deploy Phase 6 ${PHASE_6_COMMIT}"
+            git push origin HEAD:main
+          fi
+
+      - name: Wait for exact Phase 6 live bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_sha="$(cat "$RUNNER_TEMP/phase-6-finalize-expected-live-js.sha256")"
+          success=0
+          for attempt in $(seq 1 36); do
+            status="$(curl -L -sS -o "$RUNNER_TEMP/phase-6-finalize-live-index.html" -w '%{http_code}' "$LIVE_URL?phase6-finalize=${GITHUB_RUN_ID}-${attempt}" || true)"
+            echo "Attempt $attempt: HTTP $status"
+            if [ "$status" = '200' ] \
+              && grep -q 'AgileCert Global' "$RUNNER_TEMP/phase-6-finalize-live-index.html" \
+              && ! grep -q '/src/main.tsx' "$RUNNER_TEMP/phase-6-finalize-live-index.html"; then
+              asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/phase-6-finalize-live-index.html" | head -n 1 | cut -d'"' -f2)"
+              if [ -n "$asset" ]; then
+                asset_url="$(python3 - "$LIVE_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+                )"
+                if curl -L --fail --silent --show-error "$asset_url?phase6-finalize=${GITHUB_RUN_ID}-${attempt}" -o "$RUNNER_TEMP/phase-6-finalize-live-app.js"; then
+                  live_sha="$(sha256sum "$RUNNER_TEMP/phase-6-finalize-live-app.js" | awk '{print $1}')"
+                  if [ "$live_sha" = "$expected_sha" ]; then
+                    success=1
+                    break
+                  fi
+                fi
+              fi
+            fi
+            sleep 10
+          done
+          test "$success" -eq 1
+
+      - name: Browser-test live AI Adviser
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/phase-6-finalize-live"
+          cd "$RUNNER_TEMP/phase-6-finalize-live"
+          npm init -y >/dev/null 2>&1
+          npm install --no-audit --no-fund playwright@1.55.0
+          npx playwright install --with-deps chromium
+          LIVE_URL="${LIVE_URL}?phase6-finalize-browser=${GITHUB_RUN_ID}" node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+          const pageErrors = [];
+          const consoleErrors = [];
+          page.on('pageerror', error => pageErrors.push(String(error)));
+          page.on('console', message => {
+            if (message.type() === 'error') consoleErrors.push(message.text());
+          });
+          const response = await page.goto(process.env.LIVE_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+          await page.waitForTimeout(5000);
+          const status = response?.status() ?? 0;
+          const title = await page.title();
+          const bodyText = (await page.locator('body').innerText()).trim();
+          const opener = page.getByRole('button', { name: 'Open AgileCert AI Certification Adviser' });
+          await opener.waitFor({ state: 'visible', timeout: 20000 });
+          await opener.click();
+          const adviser = page.getByRole('region', { name: 'AgileCert AI Certification Adviser' });
+          await adviser.waitFor({ state: 'visible', timeout: 10000 });
+          await adviser.locator('input[type="checkbox"]').check();
+          await adviser.getByPlaceholder('Ask about examinations, fees or certificate options...').fill('Explain the examination and certificate fees.');
+          await adviser.getByRole('button', { name: 'Send adviser message' }).click();
+          await adviser.getByText(/messages remaining/i).waitFor({ state: 'visible', timeout: 60000 });
+          const adviserText = (await adviser.innerText()).trim();
+          const report = { status, title, bodyLength: bodyText.length, adviserTextLength: adviserText.length, adviserPreview: adviserText.slice(0, 1400), pageErrors, consoleErrors };
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/phase-6-finalize-live-report.json`, JSON.stringify(report, null, 2));
+          await page.screenshot({ path: `${process.env.RUNNER_TEMP}/phase-6-finalize-live.png`, fullPage: true });
+          await browser.close();
+          if (status !== 200) throw new Error(`Live portal returned HTTP ${status}`);
+          if (!title.includes('AgileCert Global')) throw new Error(`Unexpected title: ${title}`);
+          if (!bodyText.includes('Ask AgileCert AI')) throw new Error('AI Adviser launcher is absent.');
+          if (!adviserText.includes('AI Certification Adviser')) throw new Error('AI Adviser did not open.');
+          if (!adviserText.match(/messages remaining/i)) throw new Error('The live Adviser response did not complete.');
+          if (pageErrors.length) throw new Error(`Page errors: ${pageErrors.join(' | ')}`);
+          if (consoleErrors.length) throw new Error(`Console errors: ${consoleErrors.join(' | ')}`);
+          NODE
+
+      - name: Upload Phase 6 finalization evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-phase-6-finalization-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/phase-6-finalize-source.sha256
+            ${{ runner.temp }}/phase-6-finalize-expected-live-js.sha256
+            ${{ runner.temp }}/phase-6-finalize-history.log
+            ${{ runner.temp }}/phase-6-finalize-dry-run.log
+            ${{ runner.temp }}/phase-6-finalize-functions-list.log
+            ${{ runner.temp }}/phase-6-finalize-policy-probe.log
+            ${{ runner.temp }}/phase-6-finalize-policy-response.json
+            ${{ runner.temp }}/phase-6-finalize-gemini-probe.log
+            ${{ runner.temp }}/phase-6-finalize-gemini-response.json
+            ${{ runner.temp }}/phase-6-finalize-live-index.html
+            ${{ runner.temp }}/phase-6-finalize-live-app.js
+            ${{ runner.temp }}/phase-6-finalize-live-report.json
+            ${{ runner.temp }}/phase-6-finalize-live.png
