@@ -1,0 +1,181 @@
+name: Validate AgileCert CHRMP Coupon
+
+on:
+  push:
+    branches: [phase-8-chrmp-five-use-coupon]
+    paths:
+      - 'supabase/migrations/202607250105_chrmp_five_candidate_coupon.sql'
+      - '.github/workflows/validate-agilecert-chrmp-coupon.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/202607250105_chrmp_five_candidate_coupon.sql'
+      - '.github/workflows/validate-agilecert-chrmp-coupon.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-chrmp-coupon-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Validate five-use CHRMP checkout waiver
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap='supabase/migrations/202607200003_bootstrap_super_admin.sql'
+          test -s "$bootstrap"
+          cat > "$bootstrap" <<'SQL'
+          begin;
+          -- Isolated CI only: production already has its authorised Super Administrator.
+          commit;
+          SQL
+
+      - name: Start isolated Supabase services
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee chrmp-coupon-supabase-start.log
+
+      - name: Apply all repository migrations from scratch
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee chrmp-coupon-db-reset.log
+
+      - name: Verify coupon configuration and checkout quote
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL' | tee chrmp-coupon-behaviour.log
+          select
+            c.code,
+            c.discount_type,
+            c.discount_value,
+            c.scope,
+            c.maximum_redemptions,
+            c.per_candidate_limit,
+            c.is_active,
+            c.starts_at,
+            c.expires_at,
+            p.code as programme_code,
+            e.title as examination_title
+          from public.coupons c
+          join public.examinations e on e.id = c.examination_id
+          join public.programmes p on p.id = e.programme_id
+          where upper(c.code) = 'CHRMP100';
+
+          do $$
+          declare
+            v_chrmp_id uuid;
+            v_other_id uuid;
+            v_quote record;
+          begin
+            select e.id into v_chrmp_id
+            from public.examinations e
+            join public.programmes p on p.id = e.programme_id
+            where upper(p.code) = 'CHRMP'
+              and e.status = 'published'
+            limit 1;
+
+            if v_chrmp_id is null then
+              raise exception 'Published CHRMP examination is missing.';
+            end if;
+
+            if not exists (
+              select 1
+              from public.coupons c
+              where upper(c.code) = 'CHRMP100'
+                and c.discount_type = 'percentage'
+                and c.discount_value = 100
+                and c.currency is null
+                and c.scope = 'examination'
+                and c.programme_id is null
+                and c.examination_id = v_chrmp_id
+                and c.minimum_amount_minor = 0
+                and c.maximum_discount_minor is null
+                and c.maximum_redemptions = 5
+                and c.per_candidate_limit = 1
+                and c.is_active = true
+                and c.expires_at = timestamptz '2026-08-24 22:59:59+00'
+            ) then
+              raise exception 'CHRMP100 configuration is incorrect.';
+            end if;
+
+            select * into v_quote
+            from public.resolve_exam_purchase_quote(
+              v_chrmp_id,
+              gen_random_uuid(),
+              'NGN',
+              'CHRMP100'
+            );
+
+            if v_quote.coupon_code <> 'CHRMP100'
+               or v_quote.discount_amount_minor <> v_quote.list_amount_minor
+               or v_quote.payable_amount_minor <> 0 then
+              raise exception 'CHRMP100 did not produce a complete checkout waiver.';
+            end if;
+
+            select e.id into v_other_id
+            from public.examinations e
+            where e.status = 'published'
+              and e.id <> v_chrmp_id
+            limit 1;
+
+            if v_other_id is not null then
+              begin
+                perform public.resolve_exam_purchase_quote(
+                  v_other_id,
+                  gen_random_uuid(),
+                  'NGN',
+                  'CHRMP100'
+                );
+                raise exception 'CHRMP100 unexpectedly applied to another examination.';
+              exception when others then
+                if position('invalid, expired or not applicable' in sqlerrm) = 0 then
+                  raise;
+                end if;
+              end;
+            end if;
+          end;
+          $$;
+
+          select count(*) as configured_coupon_count
+          from public.coupons
+          where upper(code) = 'CHRMP100';
+          SQL
+
+          grep -q 'CHRMP100' chrmp-coupon-behaviour.log
+          grep -q 'percentage' chrmp-coupon-behaviour.log
+          grep -q 'CHRMP' chrmp-coupon-behaviour.log
+          grep -Eq 'configured_coupon_count[[:space:]]*\|[[:space:]]*1|^[[:space:]]*1[[:space:]]*$' chrmp-coupon-behaviour.log
+
+      - name: Upload coupon validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-chrmp-coupon-evidence
+          retention-days: 5
+          if-no-files-found: warn
+          path: |
+            chrmp-coupon-supabase-start.log
+            chrmp-coupon-db-reset.log
+            chrmp-coupon-behaviour.log
