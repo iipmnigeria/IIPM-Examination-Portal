@@ -1,0 +1,1 @@
+Synchronize the exact validated Phase 6 compiled bundle to main, switch GitHub Pages to main root, and verify the live Adviser. This trigger PR must remain unmerged.
