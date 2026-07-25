@@ -45,6 +45,25 @@ jobs:
           test -s supabase/migrations/202607250105_chrmp_five_candidate_coupon.sql
           test "$(git diff --name-only "${EXPECTED_COMMIT}^" "$EXPECTED_COMMIT" | sort | tr '\n' ' ')" = ".github/workflows/validate-agilecert-chrmp-coupon.yml supabase/migrations/202607250105_chrmp_five_candidate_coupon.sql "
 
+      - name: Isolate production-tracked migration window
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/legacy-local-migrations"
+          moved=0
+          for migration in supabase/migrations/*.sql; do
+            version="$(basename "$migration" | cut -d_ -f1)"
+            if [[ "$version" < '202607240101' ]]; then
+              mv "$migration" "$RUNNER_TEMP/legacy-local-migrations/"
+              moved=$((moved + 1))
+            fi
+          done
+          test "$moved" -eq 15
+          test -s supabase/migrations/202607240101_phase_2_3a_preparation_material_entitlements.sql
+          test -s supabase/migrations/202607250105_chrmp_five_candidate_coupon.sql
+          find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | sort | tee chrmp-coupon-isolated-window.txt
+          ! grep -q '^2026072[012]' chrmp-coupon-isolated-window.txt
+
       - name: Link production and require one pending migration
         shell: bash
         run: |
@@ -167,6 +186,7 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
           path: |
+            chrmp-coupon-isolated-window.txt
             chrmp-coupon-dry-run.log
             chrmp-coupon-pending.txt
             chrmp-coupon-deploy.log
