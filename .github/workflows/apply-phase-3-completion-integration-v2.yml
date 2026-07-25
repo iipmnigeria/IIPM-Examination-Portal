@@ -68,3 +68,5 @@ jobs:
           git diff --cached --check
           git commit -m 'Integrate Phase 3 certificate completion controls'
           git push origin HEAD:phase-3-certificate-completion
+
+# Branch-owned trigger: corrected request-function assertion removed.
