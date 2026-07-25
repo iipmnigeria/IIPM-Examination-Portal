@@ -66,7 +66,7 @@ jobs:
             sha256sum "$migration" | tee -a "$RUNNER_TEMP/phase-5-scratch-source.log"
           done
 
-      - name: Mirror Supabase service-role table grants in scratch database
+      - name: Normalize Supabase grants and audit context in scratch database
         shell: bash
         run: |
           set -euo pipefail
@@ -75,14 +75,48 @@ jobs:
 
           path = Path('validation/phase-5-identity-assurance-scratch.sql')
           text = path.read_text()
-          marker = "\\i /tmp/phase-5-identity-hardening.sql\n"
+
+          migration_marker = "\\i /tmp/phase-5-identity-hardening.sql\n"
           grants = """
           grant all privileges on all tables in schema public to service_role;
           grant usage, select on all sequences in schema public to service_role;
           """
-          if marker not in text:
+          if migration_marker not in text:
               raise SystemExit('Phase 5 hardening include marker not found in scratch script.')
-          path.write_text(text.replace(marker, marker + grants, 1))
+          text = text.replace(migration_marker, migration_marker + grants, 1)
+
+          candidate_audit = """do $$
+          begin
+            if not exists (
+              select 1 from public.agilecert_identity_verification_audits
+              where candidate_id = auth.uid()
+                and action = 'identity_assurance_withdrawn'
+                and metadata->>'previousStatus' = 'submitted'
+            ) then
+              raise exception 'Withdrawal audit did not retain the previous status.';
+            end if;
+          end $$;
+          reset role;
+          """
+          admin_audit = """reset role;
+          set role authenticated;
+          select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', false);
+          do $$
+          begin
+            if not exists (
+              select 1 from public.agilecert_identity_verification_audits
+              where candidate_id = '33333333-3333-4333-8333-333333333333'
+                and action = 'identity_assurance_withdrawn'
+                and metadata->>'previousStatus' = 'submitted'
+            ) then
+              raise exception 'Withdrawal audit did not retain the previous status.';
+            end if;
+          end $$;
+          reset role;
+          """
+          if candidate_audit not in text:
+              raise SystemExit('Candidate-context audit assertion not found in scratch script.')
+          path.write_text(text.replace(candidate_audit, admin_audit, 1))
           PY
 
       - name: Apply and exercise migrations
