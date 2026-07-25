@@ -6,14 +6,12 @@ on:
     paths:
       - 'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql'
       - 'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql'
-      - 'supabase/migrations/202607250103_phase_5_supabase_issuer_compatibility.sql'
       - '.github/workflows/validate-agilecert-phase-5-database.yml'
   pull_request:
     branches: [supabase-integration]
     paths:
       - 'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql'
       - 'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql'
-      - 'supabase/migrations/202607250103_phase_5_supabase_issuer_compatibility.sql'
       - '.github/workflows/validate-agilecert-phase-5-database.yml'
   workflow_dispatch:
 
