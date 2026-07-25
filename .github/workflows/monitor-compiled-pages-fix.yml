@@ -1,0 +1,113 @@
+name: Monitor Compiled Pages Fix
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/monitor-compiled-pages-fix.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  monitor:
+    name: Wait for permanent Pages deployment
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      TARGET_SHA: b4f9bb8c3b93cc1f13d1780977b0bc6c8613a474
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+    steps:
+      - name: Locate and wait for exact push workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=''
+          for attempt in $(seq 1 60); do
+            runs="$(gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&event=push&per_page=50")"
+            run_id="$(printf '%s' "$runs" | jq -r '.workflow_runs[] | select(.name == "Deploy AgileCert Compiled Pages") | .id' | head -n 1)"
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            echo "Attempt $attempt: deployment workflow not visible yet"
+            sleep 5
+          done
+          test -n "$run_id"
+          echo "$run_id" > "$RUNNER_TEMP/target-run-id.txt"
+
+          for attempt in $(seq 1 180); do
+            run="$(gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
+            status="$(printf '%s' "$run" | jq -r '.status')"
+            conclusion="$(printf '%s' "$run" | jq -r '.conclusion // ""')"
+            echo "Attempt $attempt: status=$status conclusion=$conclusion"
+            if [ "$status" = 'completed' ]; then
+              printf '%s' "$run" | jq '{id, name, status, conclusion, event, head_branch, head_sha, run_number, created_at, updated_at, html_url}' \
+                | tee "$RUNNER_TEMP/deployment-run.json"
+              gh api \
+                -H 'Accept: application/vnd.github+json' \
+                -H 'X-GitHub-Api-Version: 2022-11-28' \
+                "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" \
+                | jq '{jobs: [.jobs[] | {name, status, conclusion, steps: [.steps[] | {name, status, conclusion}]}]}' \
+                | tee "$RUNNER_TEMP/deployment-jobs.json"
+              test "$conclusion" = 'success'
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Deployment workflow did not complete within the monitor window.'
+          exit 1
+
+      - name: Confirm public index uses compiled asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          success=0
+          for attempt in $(seq 1 30); do
+            status="$(curl -L -sS -o "$RUNNER_TEMP/fixed-live-index.html" -w '%{http_code}' \
+              "$LIVE_URL?post-fix-check=${GITHUB_RUN_ID}-${attempt}" || true)"
+            echo "Attempt $attempt: HTTP $status"
+            if [ "$status" = '200' ] \
+              && grep -q 'AgileCert Global' "$RUNNER_TEMP/fixed-live-index.html" \
+              && ! grep -q '/src/main.tsx' "$RUNNER_TEMP/fixed-live-index.html"; then
+              asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/fixed-live-index.html" | head -n 1 | cut -d'"' -f2)"
+              test -n "$asset"
+              asset_url="$(python3 - "$LIVE_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+              )"
+              asset_status="$(curl -L -sS -o "$RUNNER_TEMP/fixed-live-app.js" -w '%{http_code}' "$asset_url?post-fix-check=${GITHUB_RUN_ID}-${attempt}" || true)"
+              if [ "$asset_status" = '200' ] && grep -q 'AI Certification Adviser' "$RUNNER_TEMP/fixed-live-app.js"; then
+                success=1
+                break
+              fi
+            fi
+            sleep 5
+          done
+          test "$success" -eq 1
+
+      - name: Upload monitor evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-compiled-pages-fix-monitor
+          retention-days: 5
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/target-run-id.txt
+            ${{ runner.temp }}/deployment-run.json
+            ${{ runner.temp }}/deployment-jobs.json
+            ${{ runner.temp }}/fixed-live-index.html
+            ${{ runner.temp }}/fixed-live-app.js
