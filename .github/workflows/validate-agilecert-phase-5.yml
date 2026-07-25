@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/**'
       - 'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql'
+      - 'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql'
       - 'supabase/functions/initialize-certificate-payment/**'
       - 'docs/AGILECERT_PHASE_5_SCOPE.md'
       - '.github/workflows/validate-agilecert-phase-5.yml'
@@ -15,6 +16,7 @@ on:
     paths:
       - 'src/**'
       - 'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql'
+      - 'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql'
       - 'supabase/functions/initialize-certificate-payment/**'
       - 'docs/AGILECERT_PHASE_5_SCOPE.md'
       - '.github/workflows/validate-agilecert-phase-5.yml'
@@ -72,8 +74,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          migrations="$(git diff --name-only origin/supabase-integration...HEAD | grep '^supabase/migrations/' || true)"
-          test "$migrations" = 'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql'
+          migrations="$(git diff --name-only origin/supabase-integration...HEAD | grep '^supabase/migrations/' | sort || true)"
+          expected="$(printf '%s\n' \
+            'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql' \
+            'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql' | sort)"
+          test "$migrations" = "$expected"
           functions="$(git diff --name-only origin/supabase-integration...HEAD | grep '^supabase/functions/' || true)"
           test "$functions" = 'supabase/functions/initialize-certificate-payment/index.ts'
 
@@ -85,7 +90,10 @@ jobs:
           from pathlib import Path
           import re
 
-          sql = Path('supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql').read_text()
+          sql = '\n'.join([
+              Path('supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql').read_text(),
+              Path('supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql').read_text(),
+          ])
           required = [
               'agilecert_identity_verifications',
               'agilecert_identity_verification_audits',
@@ -97,6 +105,7 @@ jobs:
               'review_agilecert_identity_assurance',
               'create_agilecert_professional_certificate_order',
               'agilecert_issue_identity_verified_certificate_for_order',
+              'agilecert_guard_and_invalidate_identity_on_profile_change',
               'manual_iipm_review',
               "status = 'approved'",
               "approval_expires_at > now()",
@@ -104,9 +113,11 @@ jobs:
               'file_size_limit',
               'storage.foldername(name)',
               'public = false',
-              'Professional Certificate issuance requires an active approved IIPM identity-assurance record',
+              'Professional Certificate issuance requires the same active approved IIPM identity-assurance record used at checkout',
               'governmentIdProhibited',
               'biometricsProhibited',
+              'active Professional Certificate payment',
+              'identityVerificationId',
           ]
           missing = [item for item in required if item not in sql]
           assert not missing, f'Missing Phase 5 authority controls: {missing}'
@@ -208,6 +219,10 @@ jobs:
               'manual and privacy-bounded',
               'private Supabase Storage bucket',
               'Professional Certificate checkout becomes available only',
+              '202607250101_phase_5_identity_assurance_professional_certificate.sql',
+              '202607250102_phase_5_identity_assurance_hardening.sql',
+              'active Professional Certificate payment',
+              'same approved identity-assurance record captured on the order',
               'government-ID collection',
               'selfie capture',
               'facial comparison',
