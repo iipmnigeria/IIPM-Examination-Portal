@@ -1,0 +1,46 @@
+name: Capture Phase 3 Validation Database Errors
+
+on:
+  push:
+    branches: [phase-3-certificate-completion]
+    paths:
+      - '.github/workflows/fix-phase-3-validation-evidence.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase-3-certificate-completion
+          fetch-depth: 0
+
+      - name: Capture PostgreSQL stderr in validation artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/validate-agilecert-phase-3-completion.yml')
+          text = path.read_text(encoding='utf-8')
+          old = '          psql "$DB_URL" -v ON_ERROR_STOP=1 <<\'SQL\' | tee phase3-completion-behaviour.log\n'
+          new = '          psql "$DB_URL" -v ON_ERROR_STOP=1 2>&1 <<\'SQL\' | tee phase3-completion-behaviour.log\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected one psql evidence line, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+      - name: Commit validation evidence correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/fix-phase-3-validation-evidence.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/validate-agilecert-phase-3-completion.yml .github/workflows/fix-phase-3-validation-evidence.yml
+          git diff --cached --check
+          git commit -m 'Capture Phase 3 database validation errors'
+          git push origin HEAD:phase-3-certificate-completion
