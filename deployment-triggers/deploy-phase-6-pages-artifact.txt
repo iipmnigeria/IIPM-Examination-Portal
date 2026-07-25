@@ -1,1 +1,0 @@
-Deploy the exact validated Phase 6 frontend as an official GitHub Pages artifact from the configured source branch, then verify the live bundle, policy guard, Gemini response, and browser conversation.
