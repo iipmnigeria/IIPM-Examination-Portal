@@ -1,0 +1,211 @@
+name: Validate AgileCert Adviser Service-Role Hotfix
+
+on:
+  push:
+    branches: [phase-6-service-role-compatibility-hotfix]
+    paths:
+      - 'supabase/migrations/202607250104_phase_6_service_role_compatibility.sql'
+      - '.github/workflows/validate-agilecert-adviser-hotfix.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/202607250104_phase_6_service_role_compatibility.sql'
+      - '.github/workflows/validate-agilecert-adviser-hotfix.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate opaque server-key service-role compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Confirm exact hotfix scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s supabase/migrations/202607250104_phase_6_service_role_compatibility.sql
+          grep -q 'opaque server secret keys' supabase/migrations/202607250104_phase_6_service_role_compatibility.sql
+          if grep -q "request.jwt.claim.role" supabase/migrations/202607250104_phase_6_service_role_compatibility.sql; then
+            echo 'The obsolete single-claim service-role guard remains in the hotfix migration.'
+            exit 1
+          fi
+          changed="$(git diff --name-only origin/supabase-integration...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/validate-agilecert-adviser-hotfix.yml' \
+            'supabase/migrations/202607250104_phase_6_service_role_compatibility.sql' \
+            | sort)"
+          test "$changed" = "$expected"
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap='supabase/migrations/202607200003_bootstrap_super_admin.sql'
+          test -s "$bootstrap"
+          cat > "$bootstrap" <<'SQL'
+          begin;
+          -- Isolated CI only: production bootstrap requires a pre-created Auth user.
+          commit;
+          SQL
+
+      - name: Start isolated Supabase services
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee adviser-hotfix-supabase-start.log
+
+      - name: Apply all migrations including compatibility hotfix
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee adviser-hotfix-db-reset.log
+
+      - name: Verify grants and opaque-key execution behaviour
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL' | tee adviser-hotfix-behaviour.log
+          select has_function_privilege(
+            'anon',
+            'public.register_agilecert_ai_adviser_request(text,uuid,boolean,integer)',
+            'EXECUTE'
+          ) as anon_can_register;
+          select has_function_privilege(
+            'authenticated',
+            'public.register_agilecert_ai_adviser_request(text,uuid,boolean,integer)',
+            'EXECUTE'
+          ) as authenticated_can_register;
+          select has_function_privilege(
+            'service_role',
+            'public.register_agilecert_ai_adviser_request(text,uuid,boolean,integer)',
+            'EXECUTE'
+          ) as service_role_can_register;
+          select has_function_privilege(
+            'authenticated',
+            'public.record_agilecert_ai_adviser_response(uuid,uuid,text,text,uuid[],text,boolean,text,text,jsonb,jsonb)',
+            'EXECUTE'
+          ) as authenticated_can_record;
+          select has_function_privilege(
+            'service_role',
+            'public.record_agilecert_ai_adviser_response(uuid,uuid,text,text,uuid[],text,boolean,text,text,jsonb,jsonb)',
+            'EXECUTE'
+          ) as service_role_can_record;
+
+          do $$
+          begin
+            if has_function_privilege(
+              'anon',
+              'public.register_agilecert_ai_adviser_request(text,uuid,boolean,integer)',
+              'EXECUTE'
+            ) or has_function_privilege(
+              'authenticated',
+              'public.register_agilecert_ai_adviser_request(text,uuid,boolean,integer)',
+              'EXECUTE'
+            ) or not has_function_privilege(
+              'service_role',
+              'public.register_agilecert_ai_adviser_request(text,uuid,boolean,integer)',
+              'EXECUTE'
+            ) then
+              raise exception 'AI adviser registration grants are incorrect.';
+            end if;
+
+            if has_function_privilege(
+              'authenticated',
+              'public.record_agilecert_ai_adviser_response(uuid,uuid,text,text,uuid[],text,boolean,text,text,jsonb,jsonb)',
+              'EXECUTE'
+            ) or not has_function_privilege(
+              'service_role',
+              'public.record_agilecert_ai_adviser_response(uuid,uuid,text,text,uuid[],text,boolean,text,text,jsonb,jsonb)',
+              'EXECUTE'
+            ) then
+              raise exception 'AI adviser response-recording grants are incorrect.';
+            end if;
+          end;
+          $$;
+
+          set role service_role;
+          select (public.register_agilecert_ai_adviser_request(
+            repeat('f', 64), null, true, 5
+          )->>'sessionId') as session_id \gset
+
+          select public.record_agilecert_ai_adviser_response(
+            :'session_id'::uuid,
+            null,
+            '[BLOCKED EXAMINATION-CONTENT REQUEST]',
+            'I cannot provide live examination questions or answer keys.',
+            '{}'::uuid[],
+            'support',
+            false,
+            'policy-guard',
+            null,
+            jsonb_build_object('examinationContentRequestBlocked', true),
+            jsonb_build_object('remainingMessages', 4)
+          ) as message_id;
+          reset role;
+
+          select message_count, total_message_count
+          from public.agilecert_ai_adviser_sessions
+          where session_key_hash = repeat('f', 64);
+
+          select user_message, model, safety_metadata
+          from public.agilecert_ai_adviser_messages
+          where session_id = :'session_id'::uuid;
+
+          do $$
+          declare
+            v_register text;
+            v_record text;
+          begin
+            select pg_get_functiondef(
+              'public.register_agilecert_ai_adviser_request(text,uuid,boolean,integer)'::regprocedure
+            ) into v_register;
+            select pg_get_functiondef(
+              'public.record_agilecert_ai_adviser_response(uuid,uuid,text,text,uuid[],text,boolean,text,text,jsonb,jsonb)'::regprocedure
+            ) into v_record;
+
+            if position('request.jwt.claim.role' in v_register) > 0
+               or position('request.jwt.claim.role' in v_record) > 0 then
+              raise exception 'Obsolete service-role claim check remains deployed.';
+            end if;
+
+            if not exists (
+              select 1 from public.agilecert_ai_adviser_messages
+              where session_id = :'session_id'::uuid
+                and model = 'policy-guard'
+            ) then
+              raise exception 'Service-role audit recording did not succeed.';
+            end if;
+          end;
+          $$;
+          SQL
+
+          grep -q 'service_role_can_register' adviser-hotfix-behaviour.log
+          grep -q 'service_role_can_record' adviser-hotfix-behaviour.log
+          grep -q 'policy-guard' adviser-hotfix-behaviour.log
+          grep -q 'examinationContentRequestBlocked' adviser-hotfix-behaviour.log
+
+      - name: Upload hotfix validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-adviser-service-role-hotfix-evidence
+          retention-days: 5
+          if-no-files-found: warn
+          path: |
+            adviser-hotfix-supabase-start.log
+            adviser-hotfix-db-reset.log
+            adviser-hotfix-behaviour.log
