@@ -66,6 +66,25 @@ jobs:
             sha256sum "$migration" | tee -a "$RUNNER_TEMP/phase-5-scratch-source.log"
           done
 
+      - name: Mirror Supabase service-role table grants in scratch database
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('validation/phase-5-identity-assurance-scratch.sql')
+          text = path.read_text()
+          marker = "\\i /tmp/phase-5-identity-hardening.sql\n"
+          grants = """
+          grant all privileges on all tables in schema public to service_role;
+          grant usage, select on all sequences in schema public to service_role;
+          """
+          if marker not in text:
+              raise SystemExit('Phase 5 hardening include marker not found in scratch script.')
+          path.write_text(text.replace(marker, marker + grants, 1))
+          PY
+
       - name: Apply and exercise migrations
         shell: bash
         run: |
