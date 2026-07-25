@@ -26,7 +26,7 @@ jobs:
   database:
     name: Phase 5 isolated Supabase migration and schema validation
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,13 +39,13 @@ jobs:
       - name: Start isolated Supabase services
         shell: bash
         run: |
-          set -euo pipefail
-          supabase start -x studio,imgproxy,edge-runtime,logflare,vector,supavisor,realtime
+          set -o pipefail
+          supabase start 2>&1 | tee phase-5-supabase-start.log
 
       - name: Apply all repository migrations from scratch
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           supabase db reset --local 2>&1 | tee phase-5-db-reset.log
 
       - name: Verify Phase 5 schemas and policies
@@ -116,6 +116,7 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
           path: |
+            phase-5-supabase-start.log
             phase-5-db-reset.log
             phase-5-schema-evidence.log
             phase-5-table-structures.log
