@@ -1,0 +1,5 @@
+Controlled Phase 5 production activation trigger.
+
+Source merge commit: 2308162d8e9047096c0292bf8450865399700145
+
+This trigger must remain unmerged. It applies only the two validated Phase 5 migrations, deploys only the updated initialize-certificate-payment function, and verifies the live AgileCert portal.
