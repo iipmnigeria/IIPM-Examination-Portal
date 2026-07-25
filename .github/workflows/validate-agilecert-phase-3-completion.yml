@@ -1,0 +1,424 @@
+name: Validate AgileCert Phase 3 Completion
+
+on:
+  push:
+    branches: [phase-3-certificate-completion]
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'docs/AGILECERT_PHASE_3_COMPLETION_SCOPE.md'
+      - 'src/**'
+      - 'package.json'
+      - 'supabase/migrations/202607251800_phase_3_certificate_completion.sql'
+      - '.github/workflows/validate-agilecert-phase-3-completion.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-phase-3-completion-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Validate certificate lifecycle database
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Confirm migration isolation and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s supabase/migrations/202607251800_phase_3_certificate_completion.sql
+          test ! -e supabase/migrations/202607251714_phase_3_certificate_completion.sql
+          test -s supabase/migrations/202607251714_cipmn_module_mock_access88_coupon.sql
+          changed_migrations="$(git diff --name-only origin/supabase-integration...HEAD | grep '^supabase/migrations/' || true)"
+          test "$changed_migrations" = 'supabase/migrations/202607251800_phase_3_certificate_completion.sql'
+          ! git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/'
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          commit;
+          SQL
+
+      - name: Start isolated Supabase and apply all migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee phase3-completion-supabase-start.log
+          supabase db reset --local 2>&1 | tee phase3-completion-db-reset.log
+
+      - name: Verify schema, approval, templates, reissue and audits
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL' | tee phase3-completion-behaviour.log
+          do $$
+          declare
+            v_admin_id uuid := '00000000-0000-0000-0000-00000000a001';
+            v_candidate_one uuid := '00000000-0000-0000-0000-00000000c001';
+            v_candidate_two uuid := '00000000-0000-0000-0000-00000000c002';
+            v_programme_id uuid := gen_random_uuid();
+            v_exam_id uuid := gen_random_uuid();
+            v_assignment_one uuid := gen_random_uuid();
+            v_assignment_two uuid := gen_random_uuid();
+            v_session_one uuid := gen_random_uuid();
+            v_session_two uuid := gen_random_uuid();
+            v_attempt_one uuid := gen_random_uuid();
+            v_attempt_two uuid := gen_random_uuid();
+            v_eligibility_one uuid;
+            v_eligibility_two uuid;
+            v_order_one uuid := gen_random_uuid();
+            v_order_two uuid := gen_random_uuid();
+            v_certificate_one uuid;
+            v_certificate_two uuid;
+            v_old_number text;
+            v_old_code text;
+            v_new_number text;
+            v_new_code text;
+            v_result jsonb;
+            v_blocked boolean := false;
+            v_count integer;
+          begin
+            insert into auth.users (
+              id, instance_id, aud, role, email, encrypted_password,
+              email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+              created_at, updated_at
+            ) values
+              (
+                v_admin_id, '00000000-0000-0000-0000-000000000000',
+                'authenticated', 'authenticated', 'phase3-admin@example.test',
+                crypt('temporary-password', gen_salt('bf')), now(), '{}'::jsonb,
+                jsonb_build_object('full_name', 'Phase 3 Administrator'), now(), now()
+              ),
+              (
+                v_candidate_one, '00000000-0000-0000-0000-000000000000',
+                'authenticated', 'authenticated', 'phase3-one@example.test',
+                crypt('temporary-password', gen_salt('bf')), now(), '{}'::jsonb,
+                jsonb_build_object('full_name', 'Automatic Candidate'), now(), now()
+              ),
+              (
+                v_candidate_two, '00000000-0000-0000-0000-000000000000',
+                'authenticated', 'authenticated', 'phase3-two@example.test',
+                crypt('temporary-password', gen_salt('bf')), now(), '{}'::jsonb,
+                jsonb_build_object('full_name', 'Manual Candidate'), now(), now()
+              );
+
+            update public.profiles
+            set role = 'super_admin', full_name = 'Phase 3 Administrator', is_active = true
+            where id = v_admin_id;
+            update public.profiles
+            set role = 'candidate', full_name = case id
+              when v_candidate_one then 'Automatic Candidate'
+              else 'Manual Candidate'
+            end, is_active = true
+            where id in (v_candidate_one, v_candidate_two);
+
+            insert into public.agilecert_candidate_profiles (
+              user_id, legal_name, country_code, preferred_currency
+            ) values
+              (v_candidate_one, 'Automatic Candidate', 'NG', 'NGN'),
+              (v_candidate_two, 'Manual Candidate', 'NG', 'NGN');
+
+            insert into public.programmes (id, code, name, description, is_active)
+            values (v_programme_id, 'P3TEST', 'Phase 3 Completion Test', 'Isolated certificate lifecycle test programme.', true);
+
+            insert into public.examinations (
+              id, programme_id, title, duration_minutes, pass_mark,
+              status, max_attempts, randomize_questions, randomize_options
+            ) values (
+              v_exam_id, v_programme_id, 'Phase 3 Completion Examination',
+              60, 70, 'published', 2, false, false
+            );
+
+            insert into public.agilecert_certificate_policies (
+              examination_id, certificate_title, issuer_name,
+              pass_mark_override, max_suspicious_score, active,
+              approval_mode, require_candidate_request
+            ) values (
+              v_exam_id, 'Certificate of Achievement',
+              'Integrated Institute of Professional Management (IIPM)',
+              null, 49.99, true, 'automatic', false
+            );
+
+            perform set_config('request.jwt.claim.sub', v_admin_id::text, true);
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+            v_result := public.upsert_agilecert_certificate_template(
+              null, v_programme_id, 'achievement', 'P3 Test Achievement Template',
+              'Certificate of Achievement',
+              'Integrated Institute of Professional Management (IIPM)',
+              'AgileCert Global · Server-issued and publicly verifiable',
+              'Certificate Authority', 'Integrated Institute of Professional Management',
+              'Registrar', 'AgileCert Global by IIPM',
+              '#0f2a4a', '#d97706', '{}'::jsonb
+            );
+            if coalesce((v_result->>'version')::integer, 0) <> 1 then
+              raise exception 'Initial template version was not created: %', v_result;
+            end if;
+
+            insert into public.exam_assignments (
+              id, examination_id, candidate_id, assigned_by, available_from,
+              max_attempts_override, status
+            ) values
+              (v_assignment_one, v_exam_id, v_candidate_one, v_admin_id, now(), 2, 'assigned'),
+              (v_assignment_two, v_exam_id, v_candidate_two, v_admin_id, now(), 2, 'assigned');
+
+            insert into public.exam_sessions (
+              id, assignment_id, examination_id, candidate_id, status,
+              started_at, expires_at, submitted_at, suspicious_score
+            ) values
+              (v_session_one, v_assignment_one, v_exam_id, v_candidate_one,
+               'submitted', now() - interval '30 minutes', now() + interval '30 minutes', now(), 0),
+              (v_session_two, v_assignment_two, v_exam_id, v_candidate_two,
+               'submitted', now() - interval '30 minutes', now() + interval '30 minutes', now(), 0);
+
+            insert into public.attempts (
+              id, session_id, examination_id, candidate_id, raw_score,
+              maximum_score, percentage, status, suspicious_score,
+              started_at, submitted_at
+            ) values
+              (v_attempt_one, v_session_one, v_exam_id, v_candidate_one,
+               90, 100, 90, 'submitted', 0, now() - interval '30 minutes', now()),
+              (v_attempt_two, v_session_two, v_exam_id, v_candidate_two,
+               85, 100, 85, 'submitted', 0, now() - interval '30 minutes', now());
+
+            select id into v_eligibility_one
+            from public.agilecert_certificate_eligibility_records
+            where attempt_id = v_attempt_one;
+            select id into v_eligibility_two
+            from public.agilecert_certificate_eligibility_records
+            where attempt_id = v_attempt_two;
+
+            if v_eligibility_one is null or v_eligibility_two is null then
+              raise exception 'Authoritative eligibility records were not created.';
+            end if;
+
+            insert into public.agilecert_certificate_orders (
+              id, reference, candidate_id, eligibility_id, product_code,
+              currency, pricing_window, list_amount_minor, discount_amount_minor,
+              payable_amount_minor, status, payment_provider, waived_at,
+              waived_by, waiver_reason
+            ) values (
+              v_order_one, 'P3-AUTO-' || replace(gen_random_uuid()::text, '-', ''),
+              v_candidate_one, v_eligibility_one, 'achievement', 'NGN', 'waived',
+              2500000, 2500000, 0, 'waived', 'administrator_waiver', now(),
+              v_admin_id, 'Isolated automatic issuance validation.'
+            );
+
+            v_result := public.agilecert_issue_certificate_for_order(
+              v_order_one, v_admin_id, 'isolated_automatic_test'
+            );
+            v_certificate_one := (v_result->>'certificateId')::uuid;
+            if v_certificate_one is null then
+              raise exception 'Automatic paid/waived issuance did not create a certificate: %', v_result;
+            end if;
+            if not exists (
+              select 1 from public.agilecert_issued_certificates
+              where id = v_certificate_one and template_id is not null and template_version = 1
+            ) then
+              raise exception 'Automatic certificate was not linked to the active template.';
+            end if;
+
+            v_result := public.set_agilecert_certificate_approval_policy(
+              v_exam_id, 'manual', true
+            );
+            if v_result->>'approvalMode' <> 'manual' then
+              raise exception 'Manual approval mode was not saved: %', v_result;
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_candidate_two::text, true);
+            perform public.request_my_agilecert_certificate(v_attempt_two);
+
+            if not exists (
+              select 1 from public.agilecert_certificate_eligibility_records
+              where id = v_eligibility_two
+                and eligibility_status = 'requested'
+                and approval_status = 'pending'
+            ) then
+              raise exception 'Manual certificate request did not enter pending approval.';
+            end if;
+
+            insert into public.agilecert_certificate_orders (
+              id, reference, candidate_id, eligibility_id, product_code,
+              currency, pricing_window, list_amount_minor, discount_amount_minor,
+              payable_amount_minor, status, payment_provider, waived_at,
+              waived_by, waiver_reason
+            ) values (
+              v_order_two, 'P3-MANUAL-' || replace(gen_random_uuid()::text, '-', ''),
+              v_candidate_two, v_eligibility_two, 'achievement', 'NGN', 'waived',
+              2500000, 2500000, 0, 'waived', 'administrator_waiver', now(),
+              v_admin_id, 'Isolated manual issuance validation.'
+            );
+
+            begin
+              perform public.agilecert_issue_certificate_for_order(
+                v_order_two, v_admin_id, 'isolated_manual_before_approval'
+              );
+            exception when others then
+              if position('requires administrator approval' in sqlerrm) = 0 then
+                raise;
+              end if;
+              v_blocked := true;
+            end;
+            if not v_blocked then
+              raise exception 'Manual approval policy did not block certificate issuance.';
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_admin_id::text, true);
+            v_result := public.decide_agilecert_certificate_request(
+              v_eligibility_two, 'approved', null
+            );
+            if v_result->>'approvalStatus' <> 'approved' then
+              raise exception 'Administrator approval was not recorded: %', v_result;
+            end if;
+
+            v_result := public.agilecert_issue_certificate_for_order(
+              v_order_two, v_admin_id, 'isolated_manual_after_approval'
+            );
+            v_certificate_two := (v_result->>'certificateId')::uuid;
+            if v_certificate_two is null then
+              raise exception 'Approved manual issuance did not create a certificate: %', v_result;
+            end if;
+
+            select certificate_number, verification_code
+            into v_old_number, v_old_code
+            from public.agilecert_issued_certificates
+            where id = v_certificate_two;
+
+            v_result := public.correct_and_reissue_agilecert_certificate(
+              v_certificate_two,
+              'Manual Candidate Corrected',
+              'Corrected Certificate of Achievement',
+              'Correct legal name and certificate title after administrator review.'
+            );
+            v_new_number := v_result->>'certificateNumber';
+            v_new_code := v_result->>'verificationCode';
+
+            if v_new_number = v_old_number or v_new_code = v_old_code
+               or coalesce((v_result->>'revisionNumber')::integer, 0) <> 2 then
+              raise exception 'Reissuance did not create a new number, code and revision: %', v_result;
+            end if;
+
+            if not exists (
+              select 1 from public.agilecert_certificate_revisions
+              where certificate_id = v_certificate_two
+                and revision_number = 1
+                and certificate_number = v_old_number
+                and verification_code = v_old_code
+            ) then
+              raise exception 'The superseded certificate snapshot was not preserved.';
+            end if;
+
+            v_result := public.verify_agilecert_certificate(v_old_code);
+            if v_result->>'status' <> 'superseded'
+               or coalesce((v_result->>'valid')::boolean, true) is not false then
+              raise exception 'Old certificate code did not verify as superseded: %', v_result;
+            end if;
+
+            v_result := public.verify_agilecert_certificate(v_new_code);
+            if v_result->>'status' <> 'active'
+               or coalesce((v_result->>'valid')::boolean, false) is not true then
+              raise exception 'Current certificate code did not verify as active: %', v_result;
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_candidate_two::text, true);
+            v_result := public.get_my_agilecert_certificate_render_payload(v_certificate_two);
+            if v_result->>'verificationUrl' not like '%?verify=%'
+               or v_result->'template' is null
+               or v_result->'certificate'->>'revisionNumber' <> '2' then
+              raise exception 'QR/PDF render payload is incomplete: %', v_result;
+            end if;
+
+            select count(*) into v_count
+            from public.agilecert_certificate_audit_events
+            where certificate_id = v_certificate_two
+              and event_type in (
+                'issued', 'reissued', 'verification_superseded',
+                'verification_success', 'pdf_render_requested'
+              );
+            if v_count < 5 then
+              raise exception 'Expected lifecycle audit events are missing; found %.', v_count;
+            end if;
+
+            if not exists (
+              select 1 from public.agilecert_certificate_approval_decisions
+              where eligibility_id = v_eligibility_two and decision = 'approved'
+            ) then
+              raise exception 'Approval decision audit record is missing.';
+            end if;
+          end;
+          $$;
+
+          select
+            to_regclass('public.agilecert_certificate_templates') is not null as templates_present,
+            to_regclass('public.agilecert_certificate_revisions') is not null as revisions_present,
+            to_regclass('public.agilecert_certificate_audit_events') is not null as audits_present,
+            to_regprocedure('public.correct_and_reissue_agilecert_certificate(uuid,text,text,text)') is not null as reissue_present,
+            to_regprocedure('public.get_my_agilecert_certificate_render_payload(uuid)') is not null as render_present,
+            to_regprocedure('public.agilecert_issue_certificate_for_order(uuid,uuid,text)') is not null as commerce_issuance_preserved;
+          SQL
+
+          grep -q 'templates_present' phase3-completion-behaviour.log
+          grep -Eq 't[[:space:]]*\|[[:space:]]*t[[:space:]]*\|[[:space:]]*t[[:space:]]*\|[[:space:]]*t[[:space:]]*\|[[:space:]]*t[[:space:]]*\|[[:space:]]*t' phase3-completion-behaviour.log
+
+      - name: Upload database validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-phase-3-completion-database-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            phase3-completion-supabase-start.log
+            phase3-completion-db-reset.log
+            phase3-completion-behaviour.log
+
+  frontend:
+    name: Validate existing frontend and scope boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Confirm protected systems are unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          if printf '%s\n' "$changed" | grep -Eq '^supabase/functions/'; then
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+          if printf '%s\n' "$changed" | grep -Eq '^src/services/(examService|commerceService|certificateCommerceService|identityAssuranceService|aiCertificationAdviserService)\.ts$'; then
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+          if printf '%s\n' "$changed" | grep -Eq '^src/components/(ExamScreen|StudentDashboard|CertificatePaymentReturnHandler|CandidateIdentityAssurance|AiCertificationAdviser)\.tsx$'; then
+            printf '%s\n' "$changed"
+            exit 1
+          fi
