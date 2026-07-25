@@ -44,9 +44,6 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_DB_PASSWORD"
           git rev-parse HEAD | tee "$RUNNER_TEMP/phase-5-production-preview-source.log"
-          git diff --quiet origin/supabase-integration...HEAD -- \
-            supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql \
-            supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql || true
           test -s supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql
           test -s supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql
           sha256sum \
@@ -54,14 +51,29 @@ jobs:
             supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql \
             | tee -a "$RUNNER_TEMP/phase-5-production-preview-source.log"
 
-      - name: Prepare isolated linked workspace
+      - name: Prepare isolated recorded-migration workspace
         shell: bash
         run: |
           set -euo pipefail
           rm -rf "$WORKDIR"
-          mkdir -p "$WORKDIR"
-          cp -R supabase "$WORKDIR/supabase"
+          mkdir -p "$WORKDIR/supabase/migrations"
+          cp supabase/config.toml "$WORKDIR/supabase/config.toml"
+
+          for migration in \
+            202607230101_phase_2_candidate_profile_foundation.sql \
+            202607230102_phase_2_candidate_profile_photo.sql \
+            202607240101_phase_2_3a_preparation_material_entitlements.sql \
+            202607240102_phase_2_3b_material_admin_tools.sql \
+            202607240103_phase_2_4_secure_material_delivery.sql \
+            202607240104_phase_3_certificate_eligibility_issuance_verification.sql \
+            202607240105_phase_4_certificate_payment_credential_issuance.sql \
+            202607250101_phase_5_identity_assurance_professional_certificate.sql \
+            202607250102_phase_5_identity_assurance_hardening.sql; do
+            cp "supabase/migrations/$migration" "$WORKDIR/supabase/migrations/$migration"
+          done
+
           test -s "$WORKDIR/supabase/config.toml"
+          test "$(find "$WORKDIR/supabase/migrations" -maxdepth 1 -type f | wc -l)" -eq 9
 
       - name: Link production project
         shell: bash
