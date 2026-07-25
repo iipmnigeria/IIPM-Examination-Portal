@@ -113,4 +113,4 @@ The timestamp follows the separate CIPMN mock-examination migration range `20260
 
 The completed source is validated from an authorised branch commit so GitHub Actions can run the full migration, regression and frontend suites without recursive workflow suppression.
 
-The final validation uses the corrected PostgreSQL template-backfill query from the current branch head.
+The final validation uses the corrected PostgreSQL template-backfill query and schema-qualified pgcrypto functions from the current branch head.
