@@ -1,0 +1,121 @@
+name: Validate AgileCert Phase 5 Database
+
+on:
+  push:
+    branches: [phase-5-identity-assurance-professional-certificate]
+    paths:
+      - 'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql'
+      - 'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql'
+      - '.github/workflows/validate-agilecert-phase-5-database.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql'
+      - 'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql'
+      - '.github/workflows/validate-agilecert-phase-5-database.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-phase-5-database-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Phase 5 isolated Supabase migration and schema validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start isolated Supabase services
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase start -x studio,imgproxy,edge-runtime,logflare,vector,supavisor,realtime
+
+      - name: Apply all repository migrations from scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db reset --local 2>&1 | tee phase-5-db-reset.log
+
+      - name: Verify Phase 5 schemas and policies
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL' | tee phase-5-schema-evidence.log
+          select to_regclass('public.agilecert_identity_verifications') as identity_table;
+          select to_regclass('public.agilecert_identity_verification_audits') as audit_table;
+          select id, public, file_size_limit, allowed_mime_types
+          from storage.buckets
+          where id = 'agilecert-identity-evidence';
+          select proname
+          from pg_proc
+          where proname in (
+            'get_my_agilecert_identity_assurance',
+            'submit_my_agilecert_identity_assurance',
+            'withdraw_my_agilecert_identity_assurance',
+            'get_agilecert_identity_assurance_admin_console',
+            'review_agilecert_identity_assurance',
+            'create_agilecert_professional_certificate_order',
+            'agilecert_issue_identity_verified_certificate_for_order',
+            'agilecert_guard_and_invalidate_identity_on_profile_change'
+          )
+          order by proname;
+          select schemaname, tablename, policyname, roles, cmd
+          from pg_policies
+          where (schemaname = 'public' and tablename like 'agilecert_identity%')
+             or (schemaname = 'storage' and tablename = 'objects' and policyname like 'agilecert_identity%')
+          order by schemaname, tablename, policyname;
+          select tgname
+          from pg_trigger
+          where tgname = 'agilecert_candidate_profile_identity_invalidation'
+            and not tgisinternal;
+          SQL
+
+          grep -q 'agilecert_identity_verifications' phase-5-schema-evidence.log
+          grep -q 'agilecert-identity-evidence' phase-5-schema-evidence.log
+          grep -q 'agilecert_guard_and_invalidate_identity_on_profile_change' phase-5-schema-evidence.log
+          grep -q 'agilecert_candidate_profile_identity_invalidation' phase-5-schema-evidence.log
+
+      - name: Capture relevant table structures
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL' | tee phase-5-table-structures.log
+          \d+ public.profiles
+          \d+ public.agilecert_candidate_profiles
+          \d+ public.programmes
+          \d+ public.examinations
+          \d+ public.attempts
+          \d+ public.agilecert_certificate_eligibility_records
+          \d+ public.agilecert_certificate_orders
+          \d+ public.agilecert_identity_verifications
+          SQL
+
+      - name: Upload isolated database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-phase-5-isolated-database-evidence
+          retention-days: 5
+          if-no-files-found: warn
+          path: |
+            phase-5-db-reset.log
+            phase-5-schema-evidence.log
+            phase-5-table-structures.log
