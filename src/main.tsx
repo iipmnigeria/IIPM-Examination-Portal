@@ -5,10 +5,12 @@ import AdminAssignmentWidget from './components/AdminAssignmentWidget';
 import AdminCertificateCommerceLauncher from './components/AdminCertificateCommerceLauncher';
 import AdminCertificateManagementLauncher from './components/AdminCertificateManagementLauncher';
 import AdminCommerceConsole from './components/AdminCommerceConsole';
+import AdminIdentityAssuranceLauncher from './components/AdminIdentityAssuranceLauncher';
 import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
 import CandidateCertificateCommerce from './components/CandidateCertificateCommerce';
 import CandidateCertificateWorkspace from './components/CandidateCertificateWorkspace';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
+import CandidateIdentityAssurance from './components/CandidateIdentityAssurance';
 import CertificatePaymentReturnHandler from './components/CertificatePaymentReturnHandler';
 import LegacyCertificateSecurityGate from './components/LegacyCertificateSecurityGate';
 import PaymentReturnHandler from './components/PaymentReturnHandler';
@@ -155,8 +157,10 @@ createRoot(rootElement).render(
       <LegacyCertificateSecurityGate />
       <AdminCertificateManagementLauncher />
       <PublicCertificateVerification />
+      <CandidateIdentityAssurance />
       <CandidateCertificateCommerce />
       <CertificatePaymentReturnHandler />
+      <AdminIdentityAssuranceLauncher />
       <AdminCertificateCommerceLauncher />
     </SupabaseSessionBoundary>
   </StrictMode>,
