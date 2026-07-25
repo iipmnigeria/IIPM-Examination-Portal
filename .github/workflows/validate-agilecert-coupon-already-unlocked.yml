@@ -52,7 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
-          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL' | tee already-unlocked-behaviour.log
+          psql "$DB_URL" -v ON_ERROR_STOP=1 2>&1 <<'SQL' | tee already-unlocked-behaviour.log
           do $$
           declare
             v_candidate_id uuid := gen_random_uuid();
@@ -68,11 +68,18 @@ jobs:
               '00000000-0000-0000-0000-000000000000',
               'authenticated', 'authenticated',
               'already-unlocked@example.test', crypt('temporary-password', gen_salt('bf')),
-              now(), '{}'::jsonb, '{}'::jsonb, now(), now()
+              now(), '{}'::jsonb,
+              jsonb_build_object('full_name', 'Already Unlocked Test'),
+              now(), now()
             );
 
             insert into public.profiles (id, email, full_name, role, is_active)
-            values (v_candidate_id, 'already-unlocked@example.test', 'Already Unlocked Test', 'candidate', true);
+            values (v_candidate_id, 'already-unlocked@example.test', 'Already Unlocked Test', 'candidate', true)
+            on conflict (id) do update
+              set email = excluded.email,
+                  full_name = excluded.full_name,
+                  role = excluded.role,
+                  is_active = excluded.is_active;
 
             select e.id into v_exam_id
             from public.examinations e
