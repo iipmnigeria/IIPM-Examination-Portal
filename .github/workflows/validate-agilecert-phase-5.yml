@@ -7,7 +7,6 @@ on:
       - 'src/**'
       - 'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql'
       - 'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql'
-      - 'supabase/migrations/202607250103_phase_5_supabase_issuer_compatibility.sql'
       - 'supabase/functions/initialize-certificate-payment/**'
       - 'docs/AGILECERT_PHASE_5_SCOPE.md'
       - '.github/workflows/validate-agilecert-phase-5.yml'
@@ -18,7 +17,6 @@ on:
       - 'src/**'
       - 'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql'
       - 'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql'
-      - 'supabase/migrations/202607250103_phase_5_supabase_issuer_compatibility.sql'
       - 'supabase/functions/initialize-certificate-payment/**'
       - 'docs/AGILECERT_PHASE_5_SCOPE.md'
       - '.github/workflows/validate-agilecert-phase-5.yml'
@@ -79,8 +77,7 @@ jobs:
           migrations="$(git diff --name-only origin/supabase-integration...HEAD | grep '^supabase/migrations/' | sort || true)"
           expected="$(printf '%s\n' \
             'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql' \
-            'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql' \
-            'supabase/migrations/202607250103_phase_5_supabase_issuer_compatibility.sql' | sort)"
+            'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql' | sort)"
           test "$migrations" = "$expected"
           functions="$(git diff --name-only origin/supabase-integration...HEAD | grep '^supabase/functions/' || true)"
           test "$functions" = 'supabase/functions/initialize-certificate-payment/index.ts'
@@ -96,7 +93,6 @@ jobs:
           sql = '\n'.join([
               Path('supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql').read_text(),
               Path('supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql').read_text(),
-              Path('supabase/migrations/202607250103_phase_5_supabase_issuer_compatibility.sql').read_text(),
           ])
           required = [
               'agilecert_identity_verifications',
@@ -122,7 +118,7 @@ jobs:
               'biometricsProhibited',
               'active Professional Certificate payment',
               'identityVerificationId',
-              'set search_path = public, extensions',
+              'set search_path to public, extensions',
           ]
           missing = [item for item in required if item not in sql]
           assert not missing, f'Missing Phase 5 authority controls: {missing}'
@@ -226,7 +222,6 @@ jobs:
               'Professional Certificate checkout becomes available only',
               '202607250101_phase_5_identity_assurance_professional_certificate.sql',
               '202607250102_phase_5_identity_assurance_hardening.sql',
-              '202607250103_phase_5_supabase_issuer_compatibility.sql',
               'active Professional Certificate payment',
               'same approved identity-assurance record captured on the order',
               'Supabase extensions schema',
