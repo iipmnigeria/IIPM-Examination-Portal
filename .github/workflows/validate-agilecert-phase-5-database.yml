@@ -6,12 +6,14 @@ on:
     paths:
       - 'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql'
       - 'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql'
+      - 'supabase/migrations/202607250103_phase_5_supabase_issuer_compatibility.sql'
       - '.github/workflows/validate-agilecert-phase-5-database.yml'
   pull_request:
     branches: [supabase-integration]
     paths:
       - 'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql'
       - 'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql'
+      - 'supabase/migrations/202607250103_phase_5_supabase_issuer_compatibility.sql'
       - '.github/workflows/validate-agilecert-phase-5-database.yml'
   workflow_dispatch:
 
@@ -63,7 +65,7 @@ jobs:
           set -o pipefail
           supabase db reset --local 2>&1 | tee phase-5-db-reset.log
 
-      - name: Verify Phase 5 schemas and policies
+      - name: Verify Phase 5 schemas, policies and issuer configuration
         shell: bash
         env:
           PGPASSWORD: postgres
@@ -89,6 +91,9 @@ jobs:
             'agilecert_guard_and_invalidate_identity_on_profile_change'
           )
           order by proname;
+          select proname, proconfig
+          from pg_proc
+          where oid = 'public.agilecert_issue_certificate_for_order(uuid,uuid,text)'::regprocedure;
           select schemaname, tablename, policyname, roles, cmd
           from pg_policies
           where (schemaname = 'public' and tablename like 'agilecert_identity%')
@@ -104,6 +109,7 @@ jobs:
           grep -q 'agilecert-identity-evidence' phase-5-schema-evidence.log
           grep -q 'agilecert_guard_and_invalidate_identity_on_profile_change' phase-5-schema-evidence.log
           grep -q 'agilecert_candidate_profile_identity_invalidation' phase-5-schema-evidence.log
+          grep -q 'search_path=public, extensions' phase-5-schema-evidence.log
 
       - name: Capture relevant table structures
         shell: bash
