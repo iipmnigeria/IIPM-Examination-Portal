@@ -1,0 +1,1 @@
+Apply exact validated Phase 6 compatibility merge commit 0233c69ddb0686b00df8b123f648fc63f323e05e and complete function, Gemini, frontend and browser verification. This trigger PR must remain unmerged.
