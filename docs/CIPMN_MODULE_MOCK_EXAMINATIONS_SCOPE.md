@@ -52,6 +52,19 @@ The phase validation workflow resets an isolated Supabase environment and verifi
 - NGN 25,000 pricing for every module
 - 120-minute duration and 50% pass mark
 
-## Coupon sequence
+The examination portal build and the complete database integrity test passed successfully before the programme coupon was activated.
 
-The 88% programme-wide coupon is intentionally excluded from the examination creation migrations. It will be added only after the twelve examinations and all 900 questions pass the validation gate. Its 14-day validity window will begin when the coupon migration is deployed.
+## Active 88% programme coupon
+
+- Coupon code: `CIPMN12-ACCESS88`
+- Scope: all 12 `CIPMN-MOCK` module examinations
+- Discount: 88%
+- Standard price: NGN 25,000 per module
+- Discounted amount payable: NGN 3,000 per module
+- Currency: NGN
+- Validity: 14 days from deployment of the coupon migration
+- Automatic expiry: enabled
+- Candidate limit: one redemption per module, up to 12 redemptions per candidate
+- Overall redemption ceiling: none during the active window
+
+A separate isolated workflow validates the coupon configuration and confirms that it produces the correct NGN 3,000 checkout quote for every one of the twelve module examinations.
