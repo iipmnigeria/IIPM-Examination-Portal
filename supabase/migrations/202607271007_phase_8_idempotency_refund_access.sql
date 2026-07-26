@@ -11,7 +11,7 @@ security definer
 set search_path = public
 as $$
 declare
-  v_pool_id uuid := coalesce(new.seat_pool_id, old.seat_pool_id);
+  v_pool_id uuid;
   v_allocated integer;
   v_consumed integer;
   v_released integer;
@@ -21,6 +21,12 @@ declare
   v_valid_until timestamptz;
   v_purchased integer;
 begin
+  if tg_op = 'DELETE' then
+    v_pool_id := old.seat_pool_id;
+  else
+    v_pool_id := new.seat_pool_id;
+  end if;
+
   select
     count(*) filter (where status in ('nominated', 'accepted')),
     count(*) filter (where status = 'accepted'),
@@ -37,32 +43,33 @@ begin
   join public.agilecert_institution_invoices invoice on invoice.id = pool.invoice_id
   where pool.id = v_pool_id;
 
-  if not found then
-    return coalesce(new, old);
+  if found then
+    update public.agilecert_sponsorship_seat_pools
+    set allocated_seats = least(v_purchased, coalesce(v_allocated, 0)),
+        consumed_seats = least(v_purchased, coalesce(v_consumed, 0)),
+        released_seats = coalesce(v_released, 0),
+        status = case
+          when v_current_status in ('closed', 'suspended') then v_current_status
+          when v_valid_until is not null and v_valid_until <= now() then 'expired'
+          when v_invoice_status = 'paid' or v_access_authorized_at is not null then
+            case when coalesce(v_allocated, 0) >= v_purchased then 'exhausted' else 'active' end
+          else 'draft'
+        end,
+        updated_at = now()
+    where id = v_pool_id;
   end if;
 
-  update public.agilecert_sponsorship_seat_pools
-  set allocated_seats = least(v_purchased, coalesce(v_allocated, 0)),
-      consumed_seats = least(v_purchased, coalesce(v_consumed, 0)),
-      released_seats = coalesce(v_released, 0),
-      status = case
-        when v_current_status in ('closed', 'suspended') then v_current_status
-        when v_valid_until is not null and v_valid_until <= now() then 'expired'
-        when v_invoice_status = 'paid' or v_access_authorized_at is not null then
-          case when coalesce(v_allocated, 0) >= v_purchased then 'exhausted' else 'active' end
-        else 'draft'
-      end,
-      updated_at = now()
-  where id = v_pool_id;
-
-  return coalesce(new, old);
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
 end;
 $$;
 
 drop trigger if exists agilecert_sponsorship_nomination_counts_trigger
   on public.agilecert_sponsorship_nominations;
 create trigger agilecert_sponsorship_nomination_counts_trigger
-  after insert or update of status, seat_pool_id or delete
+  after insert or delete or update of status, seat_pool_id
   on public.agilecert_sponsorship_nominations
   for each row execute function public.agilecert_sync_sponsorship_pool_counts();
 
