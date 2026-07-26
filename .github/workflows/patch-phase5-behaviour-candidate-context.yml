@@ -1,0 +1,56 @@
+name: Patch Phase 5 Behaviour Candidate Context
+
+on:
+  push:
+    branches: [phase-5-advanced-identity-proctoring]
+    paths:
+      - 'deployment-triggers/patch-phase5-behaviour-candidate-context.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase-5-advanced-identity-proctoring
+          fetch-depth: 0
+
+      - name: Restore candidate context before candidate workspace assertion
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/phase5-completion-behaviour.sql')
+          text = path.read_text()
+          anchor = """  v_workspace := public.get_my_agilecert_identity_proctoring_workspace();"""
+          replacement = """  perform set_config('request.jwt.claim.sub', v_candidate_id::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+  v_workspace := public.get_my_agilecert_identity_proctoring_workspace();"""
+          if replacement not in text:
+              if anchor not in text:
+                  raise SystemExit('Candidate workspace assertion anchor was not found.')
+              text = text.replace(anchor, replacement, 1)
+          path.write_text(text)
+          PY
+
+          grep -B 3 -q "get_my_agilecert_identity_proctoring_workspace" scripts/phase5-completion-behaviour.sql
+
+      - name: Commit correction and self-remove
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/patch-phase5-behaviour-candidate-context.yml
+          rm -f deployment-triggers/patch-phase5-behaviour-candidate-context.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/phase5-completion-behaviour.sql \
+            .github/workflows/patch-phase5-behaviour-candidate-context.yml \
+            deployment-triggers/patch-phase5-behaviour-candidate-context.txt
+          git commit -m 'Correct Phase 5 candidate workspace validation context'
+          git push origin HEAD:phase-5-advanced-identity-proctoring
