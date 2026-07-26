@@ -6,6 +6,11 @@ on:
     paths:
       - 'scripts/fix-phase7-typescript.py'
       - '.github/workflows/apply-phase7-typescript-fix.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'scripts/fix-phase7-typescript.py'
+      - '.github/workflows/apply-phase7-typescript-fix.yml'
 
 permissions:
   contents: write
