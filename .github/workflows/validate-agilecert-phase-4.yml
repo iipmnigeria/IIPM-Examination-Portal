@@ -1,81 +1,200 @@
-name: Patch Original Phase 4 Credential Migration
+name: Validate AgileCert Phase 4
 
 on:
   push:
-    branches: [phase-4-professional-credential-system]
+    branches: [phase-4-certificate-payment-credential-issuance]
     paths:
-      - 'supabase/migrations/202607261200_phase_4_professional_credential_system.sql'
+      - 'src/**'
+      - 'supabase/config.toml'
+      - 'supabase/migrations/**'
+      - 'supabase/functions/initialize-certificate-payment/**'
+      - 'supabase/functions/verify-certificate-payment/**'
+      - 'supabase/functions/paystack-certificate-webhook/**'
+      - 'supabase/functions/_shared/agilecertCertificatePaystack.ts'
+      - 'docs/AGILECERT_PHASE_4_SCOPE.md'
       - '.github/workflows/validate-agilecert-phase-4.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/**'
+      - 'supabase/config.toml'
+      - 'supabase/migrations/**'
+      - 'supabase/functions/initialize-certificate-payment/**'
+      - 'supabase/functions/verify-certificate-payment/**'
+      - 'supabase/functions/paystack-certificate-webhook/**'
+      - 'supabase/functions/_shared/agilecertCertificatePaystack.ts'
+      - 'docs/AGILECERT_PHASE_4_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-4.yml'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: patch-original-phase-4-${{ github.ref }}
+  group: validate-agilecert-phase-4-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  patch:
+  validate:
+    name: Phase 4 certificate commerce regression
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: phase-4-professional-credential-system
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Correct migration queries
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify browser output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Credential Store'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Certificate Payment & Credential Centre'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check certificate payment functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno check --node-modules-dir=auto supabase/functions/initialize-certificate-payment/index.ts
+          deno check --node-modules-dir=auto supabase/functions/verify-certificate-payment/index.ts
+          deno check --node-modules-dir=auto supabase/functions/paystack-certificate-webhook/index.ts
+
+      - name: Confirm Phase 4 database authority remains present
         shell: bash
         run: |
           set -euo pipefail
           python3 <<'PY'
           from pathlib import Path
 
-          path = Path('supabase/migrations/202607261200_phase_4_professional_credential_system.sql')
-          text = path.read_text()
-          changed = False
-
-          old = """from public.agilecert_issued_certificates certificate
-join public.examinations examination on examination.id = certificate.examination_id
-left join public.agilecert_credential_policies policy
-  on policy.programme_id = examination.programme_id
- and policy.product_code = credential.product_code
- and policy.active = true
-where certificate.id = credential.certificate_id;"""
-          new = """from public.agilecert_issued_certificates certificate
-join public.examinations examination on examination.id = certificate.examination_id
-join public.agilecert_credential_policies policy
-  on policy.programme_id = examination.programme_id
- and policy.active = true
-where certificate.id = credential.certificate_id
-  and policy.product_code = credential.product_code;"""
-
-          if old in text:
-              text = text.replace(old, new, 1)
-              changed = True
-
-          if "'programmeTitle', programme.title" in text:
-              text = text.replace("'programmeTitle', programme.title", "'programmeTitle', programme.name", 1)
-              changed = True
-
-          path.write_text(text)
-          Path('.phase4_patch_changed').write_text('1' if changed else '0')
+          sql = Path('supabase/migrations/202607240105_phase_4_certificate_payment_credential_issuance.sql').read_text()
+          required = [
+              'agilecert_certificate_products',
+              'agilecert_certificate_product_prices',
+              'agilecert_certificate_orders',
+              'agilecert_certificate_payments',
+              'agilecert_paid_credentials',
+              'agilecert_certificate_commerce_audits',
+              'get_my_agilecert_certificate_commerce',
+              'create_agilecert_certificate_order',
+              'agilecert_issue_certificate_for_order',
+              'fulfil_paid_agilecert_certificate_order',
+              'waive_agilecert_certificate_order',
+              'get_agilecert_certificate_commerce_admin_console',
+              'upsert_agilecert_certificate_product_price',
+              "interval '7 days'",
+              "now() + interval '30 minutes'",
+              "('achievement', 'NGN', 2000000, 2500000, true)",
+              "('achievement', 'USD', 3500, 5000, true)",
+              "('professional', 'NGN', 5000000, 7500000, true)",
+              "('professional', 'USD', 6000, 7500, true)",
+              'Verified payment or an authorised waiver is required',
+          ]
+          missing = [item for item in required if item not in sql]
+          assert not missing, f'Missing Phase 4 regression controls: {missing}'
           PY
 
-          grep -q "policy.product_code = credential.product_code;" supabase/migrations/202607261200_phase_4_professional_credential_system.sql
-          grep -q "'programmeTitle', programme.name" supabase/migrations/202607261200_phase_4_professional_credential_system.sql
-          ! grep -q "programme.title" supabase/migrations/202607261200_phase_4_professional_credential_system.sql
-
-      - name: Commit correction when needed
+      - name: Confirm Paystack security and secret isolation
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$(cat .phase4_patch_changed)" != '1' ]; then
-            echo 'Migration is already corrected.'
-            exit 0
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          paths = [
+              'supabase/functions/_shared/agilecertCertificatePaystack.ts',
+              'supabase/functions/initialize-certificate-payment/index.ts',
+              'supabase/functions/verify-certificate-payment/index.ts',
+              'supabase/functions/paystack-certificate-webhook/index.ts',
+          ]
+          code = '\n'.join(Path(path).read_text() for path in paths)
+          required = [
+              'AGILECERT_PAYSTACK_SECRET_KEY',
+              'crypto.subtle.importKey',
+              "hash: 'SHA-512'",
+              'constantTimeEqual',
+              'requireAuthenticatedUser',
+              'fulfil_paid_agilecert_certificate_order',
+              'transactionReference !== order.reference',
+              'transactionCurrency !== order.currency.toUpperCase()',
+              'requestedAmount !== Number(order.payable_amount_minor)',
+              'transactionEmail',
+              'verifyAgileCertCertificateWebhookSignature',
+              'verifyAgileCertCertificateTransaction(reference)',
+              'certificate_payment=callback',
+          ]
+          missing = [item for item in required if item not in code]
+          assert not missing, f'Missing certificate-payment security controls: {missing}'
+          assert "Deno.env.get('PAYSTACK_SECRET_KEY')" not in code
+          assert not re.search(r'(sk_live_|sk_test_|sb_secret_)[A-Za-z0-9_-]{12,}', code)
+          frontend = '\n'.join(path.read_text(errors='ignore') for path in Path('src').rglob('*') if path.is_file())
+          assert 'AGILECERT_PAYSTACK_SECRET_KEY' not in frontend
+          assert 'SUPABASE_SERVICE_ROLE' not in frontend
+          PY
+
+      - name: Confirm Phase 4 candidate and administrator capabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          files = [
+              'src/services/certificateCommerceService.ts',
+              'src/components/CandidateCertificateCommerce.tsx',
+              'src/components/CertificatePaymentReturnHandler.tsx',
+              'src/components/AdminCertificateCommerceLauncher.tsx',
+              'src/main.tsx',
+          ]
+          code = '\n'.join(Path(path).read_text() for path in files)
+          required = [
+              'get_my_agilecert_certificate_commerce',
+              'initialize-certificate-payment',
+              'verify-certificate-payment',
+              'get_agilecert_certificate_commerce_admin_console',
+              'waive_agilecert_certificate_order',
+              'upsert_agilecert_certificate_product_price',
+              'Certificate Payment & Credential Centre',
+              'Examination and certificate fees are separate',
+              'Credential Store',
+              'downloadBadge',
+              'downloadTranscript',
+              'Certificate Commerce Administration',
+              "['exam_admin', 'super_admin']",
+              'CandidateCertificateCommerce',
+              'CertificatePaymentReturnHandler',
+              'AdminCertificateCommerceLauncher',
+          ]
+          missing = [item for item in required if item not in code]
+          assert not missing, f'Missing Phase 4 frontend capabilities: {missing}'
+          PY
+
+      - name: Confirm examination and material runtimes remain outside certificate commerce
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          forbidden='^src/services/(commerceService|examService|preparationMaterialService|materialAdminService)\.ts$|^src/components/(CandidateCommerceOverlay|PaymentReturnHandler|AdminCommerceConsole|ExamScreen|StudentDashboard|AdminPortal|CandidatePreparationMaterialsPanel|AdminMaterialManagementPanel)\.tsx$|^supabase/functions/(initialize-exam-payment|verify-exam-payment|paystack-webhook)/|^supabase/functions/_shared/paystack\.ts$'
+          if printf '%s\n' "$changed" | grep -Eq "$forbidden"; then
+            printf '%s\n' "$changed"
+            exit 1
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add supabase/migrations/202607261200_phase_4_professional_credential_system.sql
-          git commit -m 'Correct Phase 4 credential migration queries'
-          git push origin HEAD:phase-4-professional-credential-system
