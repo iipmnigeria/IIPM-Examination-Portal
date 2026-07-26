@@ -1,0 +1,95 @@
+name: Validate AgileCert Original Phase 5 Behaviour
+
+on:
+  push:
+    branches: [phase-5-advanced-identity-proctoring]
+    paths:
+      - 'scripts/phase5-completion-behaviour.sql'
+      - 'src/**'
+      - 'supabase/migrations/20260726140*_phase_5_*.sql'
+      - '.github/workflows/validate-agilecert-original-phase-5-behaviour.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'scripts/phase5-completion-behaviour.sql'
+      - 'src/**'
+      - 'supabase/migrations/20260726140*_phase_5_*.sql'
+      - '.github/workflows/validate-agilecert-original-phase-5-behaviour.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-original-phase-5-behaviour-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifecycle:
+    name: Validate identity, proctoring, misconduct and appeal lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          commit;
+          SQL
+
+      - name: Start isolated Supabase and apply complete migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee phase5-behaviour-supabase-start.log
+          supabase db reset --local 2>&1 | tee phase5-behaviour-db-reset.log
+
+      - name: Exercise complete Original Phase 5 lifecycle
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f scripts/phase5-completion-behaviour.sql \
+            2>&1 | tee phase5-completion-behaviour.log
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate TypeScript and production bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'Identity & Exam Integrity Workspace' dist/assets
+          grep -R -q 'Identity, Proctoring & Misconduct Administration' dist/assets
+          grep -R -q 'Questions remain protected' dist/assets
+          grep -R -q 'Camera and AI processing are being restricted' dist/assets
+          grep -R -q 'agilecert-proctor-event' dist/assets
+
+      - name: Preserve lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-original-phase-5-lifecycle-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase5-behaviour-supabase-start.log
+            phase5-behaviour-db-reset.log
+            phase5-completion-behaviour.log
+            dist/index.html
