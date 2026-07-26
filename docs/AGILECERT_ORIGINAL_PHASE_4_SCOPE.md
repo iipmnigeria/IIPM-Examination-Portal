@@ -112,14 +112,15 @@ Administrators receive controls for:
 
 ## Database units
 
-Four forward-only, sequential migration units are used so each capability can be reviewed and validated independently:
+Five forward-only, sequential migration units are used so each capability can be reviewed and validated independently:
 
 1. `supabase/migrations/202607261200_phase_4_credential_core.sql`
 2. `supabase/migrations/202607261201_phase_4_wallet_cpd.sql`
 3. `supabase/migrations/202607261202_phase_4_sharing_renewal.sql`
 4. `supabase/migrations/202607261203_phase_4_credential_admin.sql`
+5. `supabase/migrations/202607261204_phase_4_public_privacy.sql`
 
-All four migration versions are later than the deployed Phase 3 completion migration `202607251800`. They form one controlled Phase 4 release unit and must be applied together in sequence.
+All five migration versions are later than the deployed Phase 3 completion migration `202607251800`. They form one controlled Phase 4 release unit and must be applied together in sequence.
 
 ## Safety boundaries
 
