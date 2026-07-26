@@ -35,7 +35,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/narrow-phase-validation-paths.py
+          if grep -q "src/components/CandidateCertificateWorkspace.tsx" .github/workflows/validate-agilecert-phase-3-completion.yml \
+             && grep -q "src/components/CandidateCertificateCommerce.tsx" .github/workflows/validate-agilecert-phase-4.yml \
+             && ! sed -n '/  pull_request:/,/^  workflow_dispatch:/p' .github/workflows/validate-agilecert-phase-4.yml | grep -q "'src/\*\*'"; then
+            echo 'Phase-specific pull-request filters are already applied.'
+          else
+            python3 scripts/narrow-phase-validation-paths.py
+          fi
 
       - name: Verify unrelated candidate dashboard changes are excluded
         shell: bash
@@ -53,14 +59,16 @@ jobs:
               assert "'src/components/StudentDashboard.tsx'" not in pull_request, (path, pull_request)
           PY
 
-      - name: Commit corrections and remove one-time runner
+      - name: Commit corrected validation workflows
         shell: bash
         run: |
           set -euo pipefail
-          rm scripts/narrow-phase-validation-paths.py
-          rm .github/workflows/apply-phase-validation-path-fix.yml
+          if git diff --quiet -- .github/workflows/validate-agilecert-phase-3-completion.yml .github/workflows/validate-agilecert-phase-4.yml; then
+            echo 'No workflow changes remain to commit.'
+            exit 0
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/workflows/validate-agilecert-phase-3-completion.yml .github/workflows/validate-agilecert-phase-4.yml scripts/narrow-phase-validation-paths.py .github/workflows/apply-phase-validation-path-fix.yml
+          git add .github/workflows/validate-agilecert-phase-3-completion.yml .github/workflows/validate-agilecert-phase-4.yml
           git commit -m 'Limit phase regression workflows to their own files'
           git push origin HEAD:fix-phase-validation-path-scopes
