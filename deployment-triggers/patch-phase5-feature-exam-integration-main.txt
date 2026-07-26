@@ -1,1 +1,1 @@
-Patch and validate only the Phase 5 feature branch. This main-branch marker is temporary.
+Patch and validate only the Phase 5 feature branch. Retry after the final privacy audit identified missing camera and AI-analysis policy guards. This main-branch marker is temporary.
