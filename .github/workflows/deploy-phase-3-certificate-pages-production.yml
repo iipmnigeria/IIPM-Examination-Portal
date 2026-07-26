@@ -1,0 +1,177 @@
+name: Deploy Phase 3 Certificate Pages Production
+
+on:
+  push:
+    branches: [supabase-integration]
+    paths:
+      - 'deployment-triggers/deploy-phase-3-certificate-pages-production.txt'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  APPROVED_APP_COMMIT: '03242b42dbef911dc780d368ffa0fd18c1e85ab7'
+  SUPABASE_PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+  LIVE_URL: 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+  SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_50J_vx8mlYNlSZkkoW8Keg_Cmcics2J'
+
+concurrency:
+  group: phase-3-certificate-pages-production
+  cancel-in-progress: false
+
+jobs:
+  build-deploy-verify:
+    name: Build, deploy and verify exact Phase 3 frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout exact approved merge commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.APPROVED_APP_COMMIT }}
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install, validate and build exact artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APPROVED_APP_COMMIT"
+          test ! -e package-lock.json
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          rm -f dist/server.cjs dist/server.cjs.map
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          grep -Rqs 'Certificate Lifecycle' dist/assets
+          grep -Rqs 'request changes' dist/assets
+          grep -Rqs 'QR' dist/assets
+
+          python3 <<'PY'
+          from pathlib import Path
+          import hashlib, re
+          html = Path('dist/index.html').read_text()
+          match = re.search(r'<script[^>]+src="([^"]+\.js)"', html)
+          if not match:
+              raise SystemExit('Compiled JavaScript asset was not found.')
+          relative = match.group(1).lstrip('./')
+          asset = Path('dist') / relative
+          if not asset.is_file():
+              raise SystemExit(f'Compiled asset is missing: {asset}')
+          digest = hashlib.sha256(asset.read_bytes()).hexdigest()
+          Path('/tmp/phase3-pages-local-asset-path.txt').write_text(relative)
+          Path('/tmp/phase3-pages-local-asset-sha256.txt').write_text(digest + '\n')
+          print(f'Asset: {relative}')
+          print(f'SHA-256: {digest}')
+          PY
+
+      - uses: actions/configure-pages@v5
+
+      - name: Upload exact Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy exact artifact to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Verify exact live bundle and production certificate RPC
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_asset="$(cat /tmp/phase3-pages-local-asset-path.txt)"
+          expected_sha="$(cat /tmp/phase3-pages-local-asset-sha256.txt)"
+          live_index="$RUNNER_TEMP/phase3-pages-live-index.html"
+          live_asset="$RUNNER_TEMP/phase3-pages-live-asset.js"
+          matched=''
+
+          for attempt in $(seq 1 24); do
+            curl -fsSL -H 'Cache-Control: no-cache' "${LIVE_URL}?phase3pages=${GITHUB_RUN_ID}-${attempt}" -o "$live_index" || true
+            live_path="$(python3 - "$live_index" <<'PY'
+          from pathlib import Path
+          import re, sys
+          path = Path(sys.argv[1])
+          html = path.read_text(errors='replace') if path.exists() else ''
+          match = re.search(r'<script[^>]+src="([^"]+\.js)"', html)
+          print(match.group(1).lstrip('./') if match else '')
+          PY
+            )"
+            if [ -n "$live_path" ]; then
+              curl -fsSL -H 'Cache-Control: no-cache' "${LIVE_URL}${live_path}?phase3pages=${GITHUB_RUN_ID}-${attempt}" -o "$live_asset" || true
+              if [ -s "$live_asset" ]; then
+                live_sha="$(sha256sum "$live_asset" | awk '{print $1}')"
+                if [ "$live_path" = "$expected_asset" ] && [ "$live_sha" = "$expected_sha" ]; then
+                  matched='yes'
+                  break
+                fi
+              fi
+            fi
+            sleep 10
+          done
+
+          test "$matched" = 'yes'
+          live_path="$(python3 - "$live_index" <<'PY'
+          from pathlib import Path
+          import re, sys
+          html = Path(sys.argv[1]).read_text(errors='replace')
+          match = re.search(r'<script[^>]+src="([^"]+\.js)"', html)
+          print(match.group(1).lstrip('./') if match else '')
+          PY
+          )"
+          live_sha="$(sha256sum "$live_asset" | awk '{print $1}')"
+
+          {
+            echo "Approved commit: $APPROVED_APP_COMMIT"
+            echo "Expected asset: $expected_asset"
+            echo "Live asset: $live_path"
+            echo "Expected SHA-256: $expected_sha"
+            echo "Live SHA-256: $live_sha"
+            echo "Deployment URL: ${{ steps.deployment.outputs.page_url }}"
+          } | tee "$RUNNER_TEMP/phase3-pages-production-verification.log"
+
+          grep -q 'Certificate Lifecycle' "$live_asset"
+          grep -q 'request changes' "$live_asset"
+
+          rpc_response="$RUNNER_TEMP/phase3-pages-production-rpc.json"
+          rpc_status="$(curl -sS -o "$rpc_response" -w '%{http_code}' \
+            -X POST \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_PUBLISHABLE_KEY" \
+            -H 'Content-Type: application/json' \
+            --data '{"p_code":"PHASE3-PAGES-PRODUCTION-NOT-FOUND"}' \
+            "https://${SUPABASE_PROJECT_REF}.supabase.co/rest/v1/rpc/verify_agilecert_certificate")"
+          echo "verify_agilecert_certificate HTTP $rpc_status" | tee "$RUNNER_TEMP/phase3-pages-production-rpc-probe.log"
+          test "$rpc_status" = '200'
+          python3 - "$rpc_response" <<'PY'
+          import json, sys
+          payload = json.load(open(sys.argv[1], encoding='utf-8'))
+          if payload.get('found') is not False or payload.get('valid') is not False:
+              raise SystemExit(f'Unexpected verification response: {payload}')
+          PY
+
+      - name: Upload production Pages evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-phase-3-production-pages-evidence
+          path: |
+            /tmp/phase3-pages-local-asset-path.txt
+            /tmp/phase3-pages-local-asset-sha256.txt
+            ${{ runner.temp }}/phase3-pages-live-index.html
+            ${{ runner.temp }}/phase3-pages-live-asset.js
+            ${{ runner.temp }}/phase3-pages-production-verification.log
+            ${{ runner.temp }}/phase3-pages-production-rpc.json
+            ${{ runner.temp }}/phase3-pages-production-rpc-probe.log
+          if-no-files-found: warn
+          retention-days: 30
