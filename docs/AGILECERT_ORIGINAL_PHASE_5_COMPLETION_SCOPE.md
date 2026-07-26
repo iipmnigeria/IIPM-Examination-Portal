@@ -72,3 +72,6 @@ No changes to examination prices, Paystack, coupons, certificate pricing, creden
 - TypeScript, production build and browser event-capture smoke test;
 - protected payment, certificate, credential and AI regressions;
 - separate explicit approval before production merge and deployment.
+
+## Validation status
+The first isolated database reset is running against the complete six-migration release unit. Production remains unchanged.
