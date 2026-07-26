@@ -1,2 +1,1 @@
-Patch and validate only the Phase 5 feature branch. This trigger PR must not be merged.
-Trigger: 2
+Patch and validate only the Phase 5 feature branch. Trigger closed after successful direct validation; this branch remains unmerged.
