@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# One-time source correction derived from the captured TypeScript diagnostic.
 component = Path('src/components/AiCvProfileBuilder.tsx')
 text = component.read_text(encoding='utf-8')
 old_import = "import { useEffect, useMemo, useState } from 'react';"
