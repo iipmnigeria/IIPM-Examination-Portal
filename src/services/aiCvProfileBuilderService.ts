@@ -198,7 +198,7 @@ export async function getMyCandidateCvDocument(): Promise<CandidateCvDocument | 
     throw new Error(`Unable to load your CV workspace: ${error.message}`);
   }
 
-  return data ? normaliseDocument(data as CandidateCvDocument) : null;
+  return data ? normaliseDocument(data as unknown as CandidateCvDocument) : null;
 }
 
 export async function saveMyCandidateCvDocument(
@@ -239,5 +239,5 @@ export async function saveMyCandidateCvDocument(
     throw new Error('The saved CV document was not returned by the server.');
   }
 
-  return normaliseDocument(data as CandidateCvDocument);
+  return normaliseDocument(data as unknown as CandidateCvDocument);
 }

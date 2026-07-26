@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
   Award,
@@ -689,7 +689,7 @@ function SectionHeader({
   description,
   onAdd,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   description: string;
   onAdd: () => void;
@@ -782,7 +782,7 @@ function CvPreview({ candidateName, form }: { candidateName: string; form: CvEdi
   );
 }
 
-function PreviewSection({ title, children }: { title: string; children: React.ReactNode }) {
+function PreviewSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
       <h3 className="mb-2 border-b border-slate-200 pb-1 text-[10px] font-black uppercase tracking-wider text-emerald-700">{title}</h3>
