@@ -1,5 +1,6 @@
 name: Validate AgileCert Original Phase 4 Frontend
 
+# Registered validation gate for the completed Phase 4 credential interface.
 on:
   push:
     branches: [phase-4-professional-credential-system]
