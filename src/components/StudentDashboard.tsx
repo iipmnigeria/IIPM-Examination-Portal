@@ -60,7 +60,7 @@ export default function StudentDashboard({
   const streamRef = useRef<MediaStream | null>(null);
 
   // Tab control
-  const [activeTab, setActiveTab] = useState<'catalog' | 'gradebook'>('catalog');
+  const [activeTab, setActiveTab] = useState<'specialist' | 'cipmn' | 'gradebook'>('specialist');
   const [selectedScorecard, setSelectedScorecard] = useState<Attempt | null>(null);
   const [selectedCertificate, setSelectedCertificate] = useState<Attempt | null>(null);
   const [logoSrc, setLogoSrc] = useState<string>('https://iipmi.org/wp-content/uploads/2022/08/IIPM-Logo-PNG-1024x1021.png');
@@ -384,6 +384,20 @@ export default function StudentDashboard({
   };
   const gpa = calculateGPA();
 
+  const isCipmnMockExam = (test: Test) => {
+    const programmeCode = test.course.trim().toUpperCase();
+    const examinationTitle = test.title.trim().toUpperCase();
+    return programmeCode === 'CIPMN-MOCK' || examinationTitle.startsWith('CIPMN-MOD-');
+  };
+
+  const specialistCertificationTests = tests.filter((test) => !isCipmnMockExam(test));
+  const cipmnMockTests = tests.filter(isCipmnMockExam);
+  const isCipmnCatalogue = activeTab === 'cipmn';
+  const catalogueTests = isCipmnCatalogue ? cipmnMockTests : specialistCertificationTests;
+  const catalogueAttempts = attempts.filter((attempt) =>
+    catalogueTests.some((test) => test.id === attempt.testId),
+  );
+
   return (
     <div id="student-dashboard" className="space-y-8 max-w-7xl mx-auto px-4 py-6">
       {/* Welcome & Profile Panel */}
@@ -427,22 +441,33 @@ export default function StudentDashboard({
         </div>
       </div>
 
-      {/* Navigation Tabs between Catalog & Academic Gradebook */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-px">
+      {/* Primary candidate navigation */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-200 pb-px">
         <button
-          onClick={() => setActiveTab('catalog')}
-          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
-            activeTab === 'catalog'
+          onClick={() => setActiveTab('specialist')}
+          className={`pb-3 px-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === 'specialist'
               ? 'border-emerald-600 text-emerald-600 font-extrabold'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          <BookOpen className="w-4.5 h-4.5" /> Examination Catalog
+          <BookOpen className="w-4.5 h-4.5" /> IIPM Specialist Certification Catalogue
+        </button>
+
+        <button
+          onClick={() => setActiveTab('cipmn')}
+          className={`pb-3 px-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === 'cipmn'
+              ? 'border-emerald-600 text-emerald-600 font-extrabold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <ShieldCheck className="w-4.5 h-4.5" /> CIPMN Professional Licensing Mock Examinations
         </button>
 
         <button
           onClick={() => setActiveTab('gradebook')}
-          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+          className={`pb-3 px-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
             activeTab === 'gradebook'
               ? 'border-emerald-600 text-emerald-600 font-extrabold'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -452,8 +477,8 @@ export default function StudentDashboard({
         </button>
       </div>
 
-      {/* 1. Exam Catalog & Diagnostic Panel */}
-      {activeTab === 'catalog' && (
+      {/* Specialist and CIPMN examination catalogues */}
+      {activeTab !== 'gradebook' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
           {/* Hardware & Diagnostics Check */}
@@ -600,19 +625,34 @@ export default function StudentDashboard({
 
           {/* Exams Catalog List */}
           <div className="lg:col-span-2 space-y-6 font-sans">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-xl font-bold text-slate-950 font-sans">Available Examinations</h2>
-                <p className="text-slate-500 text-xs">Choose an assessment to start your AI-proctored session</p>
+                <h2 className="text-xl font-bold text-slate-950 font-sans">
+                  {isCipmnCatalogue
+                    ? 'CIPMN Professional Licensing Mock Examinations'
+                    : 'Available Specialist Certification Examinations'}
+                </h2>
+                <p className="text-slate-500 text-xs">
+                  {isCipmnCatalogue
+                    ? 'Practise each CIPMN licensing module in a secure, timed examination environment.'
+                    : 'Choose an IIPM specialist certification assessment to begin your AI-proctored session.'}
+                </p>
               </div>
-              <div className="text-xs text-slate-400 bg-slate-50 px-3 py-1 rounded-full border border-slate-100 font-medium font-sans">
-                Active Catalogs: {tests.length}
+              <div className="self-start text-xs text-slate-400 bg-slate-50 px-3 py-1 rounded-full border border-slate-100 font-medium font-sans sm:self-auto">
+                Active Examinations: {catalogueTests.length}
               </div>
             </div>
 
             <div className="space-y-4">
-              {tests.map((test) => {
-                const pastAttempts = attempts.filter(a => a.testId === test.id);
+              {catalogueTests.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
+                  <BookOpen className="mx-auto mb-2 h-8 w-8 text-slate-300" />
+                  <p className="text-sm font-semibold text-slate-600">No examinations are currently available in this catalogue.</p>
+                  <p className="mx-auto mt-1 max-w-md text-xs text-slate-400">Newly published or assigned examinations will appear here automatically.</p>
+                </div>
+              )}
+              {catalogueTests.map((test) => {
+                const pastAttempts = catalogueAttempts.filter(a => a.testId === test.id);
                 const isCompleted = pastAttempts.some(a => a.status === 'submitted' || a.status === 'flagged');
 
                 return (
@@ -696,7 +736,7 @@ export default function StudentDashboard({
             <div className="space-y-4 pt-4">
               <h3 className="text-lg font-bold text-slate-900">Your Proctor Audit History</h3>
               
-              {attempts.length === 0 ? (
+              {catalogueAttempts.length === 0 ? (
                 <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-8 text-center text-slate-400 text-sm space-y-2">
                   <UserCheck className="w-8 h-8 text-slate-300 mx-auto" />
                   <p className="font-semibold text-slate-600">No examination attempts found</p>
@@ -704,7 +744,7 @@ export default function StudentDashboard({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {attempts.map((attempt) => {
+                  {catalogueAttempts.map((attempt) => {
                     const isFlagged = attempt.status === 'flagged' || attempt.suspiciousScore >= 50;
 
                     return (
