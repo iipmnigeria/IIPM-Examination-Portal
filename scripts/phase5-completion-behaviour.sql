@@ -391,6 +391,9 @@ begin
     raise exception 'The Phase 5 lifecycle changed a protected answer key.';
   end if;
 
+  perform set_config('request.jwt.claim.sub', v_candidate_id::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
   v_workspace := public.get_my_agilecert_identity_proctoring_workspace();
   if position('documentNumberDigest' in v_workspace::text) > 0
      or position('document_number_digest' in v_workspace::text) > 0 then
