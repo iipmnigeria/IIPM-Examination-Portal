@@ -1,0 +1,74 @@
+name: Validate AgileCert Original Phase 8 Frontend
+
+on:
+  push:
+    branches: [phase-8-finance-commerce-sponsorship]
+    paths:
+      - 'src/components/AdminFinanceSponsorshipLauncher.tsx'
+      - 'src/components/CandidateSponsoredAccessWorkspace.tsx'
+      - 'src/services/financeSponsorshipService.ts'
+      - 'src/services/financeDocumentService.ts'
+      - 'src/main.tsx'
+      - '.github/workflows/validate-agilecert-original-phase-8-frontend.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/components/AdminFinanceSponsorshipLauncher.tsx'
+      - 'src/components/CandidateSponsoredAccessWorkspace.tsx'
+      - 'src/services/financeSponsorshipService.ts'
+      - 'src/services/financeDocumentService.ts'
+      - 'src/main.tsx'
+      - '.github/workflows/validate-agilecert-original-phase-8-frontend.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-original-phase-8-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: Validate Phase 8 frontend scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Confirm only approved integration files changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          allowed='^(docs/AGILECERT_ORIGINAL_PHASE_8_COMPLETION_SCOPE\.md|scripts/phase8-completion-behaviour\.sql|src/components/(AdminFinanceSponsorshipLauncher|CandidateSponsoredAccessWorkspace)\.tsx|src/services/(financeSponsorshipService|financeDocumentService)\.ts|src/main\.tsx|supabase/migrations/20260727100[0-7]_phase_8_.*\.sql|\.github/workflows/validate-agilecert-original-phase-8-(database|frontend)\.yml)$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          if [ -n "$unexpected" ]; then
+            printf 'Unexpected Phase 8 files:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          ! printf '%s\n' "$changed" | grep -E '^supabase/functions/'
+          ! printf '%s\n' "$changed" | grep -E '^supabase/migrations/202607261300_phase_7_'
+
+  frontend:
+    name: Validate Phase 8 TypeScript and production bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build Phase 8 application
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'Sponsored Access & Refunds' dist/assets
+          grep -R -q 'Finance, Commerce & Institutional Sponsorship' dist/assets
+          grep -R -q 'Process reconciliation batch' dist/assets
+          grep -R -q 'Create institutional quotation' dist/assets
+          grep -R -q 'Institution-funded opportunities' dist/assets
