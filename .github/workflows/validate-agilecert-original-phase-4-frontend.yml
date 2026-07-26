@@ -51,19 +51,16 @@ jobs:
 
       - name: TypeScript validation
         id: lint
-        if: steps.install.outcome == 'success'
         continue-on-error: true
         run: npm run lint
 
       - name: Production build
         id: build
-        if: steps.install.outcome == 'success' && steps.lint.outcome == 'success'
         continue-on-error: true
         run: npm run build
 
       - name: Verify compiled Phase 4 capabilities
         id: markers
-        if: steps.build.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -122,13 +119,13 @@ jobs:
           # Original Phase 4 frontend validation status
 
           - Result: **$result**
-          - Source commit: `$COMMIT_SHA`
-          - Workflow run: `$RUN_ID`
-          - Dependency installation: `$INSTALL_OUTCOME`
-          - TypeScript validation: `$LINT_OUTCOME`
-          - Production build: `$BUILD_OUTCOME`
-          - Compiled capability markers: `$MARKERS_OUTCOME`
-          - Protected frontend scope: `$SCOPE_OUTCOME`
+          - Source commit: $COMMIT_SHA
+          - Workflow run: $RUN_ID
+          - Dependency installation: $INSTALL_OUTCOME
+          - TypeScript validation: $LINT_OUTCOME
+          - Production build: $BUILD_OUTCOME
+          - Compiled capability markers: $MARKERS_OUTCOME
+          - Protected frontend scope: $SCOPE_OUTCOME
           EOF
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
