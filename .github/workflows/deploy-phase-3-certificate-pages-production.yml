@@ -53,9 +53,9 @@ jobs:
           rm -f dist/server.cjs dist/server.cjs.map
           test -s dist/index.html
           grep -q 'AgileCert Global' dist/index.html
-          grep -Rqs 'Certificate Lifecycle' dist/assets
-          grep -Rqs 'request changes' dist/assets
-          grep -Rqs 'QR' dist/assets
+          grep -Rqs 'Certificate Lifecycle Completion' dist/assets
+          grep -Rqs 'Request changes' dist/assets
+          grep -Rqs 'Correction & Reissue' dist/assets
 
           python3 <<'PY'
           from pathlib import Path
@@ -140,8 +140,9 @@ jobs:
             echo "Deployment URL: ${{ steps.deployment.outputs.page_url }}"
           } | tee "$RUNNER_TEMP/phase3-pages-production-verification.log"
 
-          grep -q 'Certificate Lifecycle' "$live_asset"
-          grep -q 'request changes' "$live_asset"
+          grep -q 'Certificate Lifecycle Completion' "$live_asset"
+          grep -q 'Request changes' "$live_asset"
+          grep -q 'Correction & Reissue' "$live_asset"
 
           rpc_response="$RUNNER_TEMP/phase3-pages-production-rpc.json"
           rpc_status="$(curl -sS -o "$rpc_response" -w '%{http_code}' \
