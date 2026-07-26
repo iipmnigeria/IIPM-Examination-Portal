@@ -1,0 +1,230 @@
+name: Deploy Original Phase 4 Production
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-original-phase-4.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-original-phase-4-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Apply and verify professional credential system
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPECTED_COMMIT: '124242c8d471c64a5eca8a83c1c22737fa8b1a2f'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      TRACKING_BOUNDARY: '202607230101'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - name: Checkout exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Verify exact approved release unit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          cat > phase4-expected-migrations.txt <<'EOF'
+          202607261200_phase_4_credential_core.sql
+          202607261201_phase_4_wallet_cpd.sql
+          202607261202_phase_4_sharing_renewal.sql
+          202607261203_phase_4_credential_admin.sql
+          202607261204_phase_4_public_privacy.sql
+          EOF
+          while IFS= read -r migration; do
+            test -s "supabase/migrations/$migration"
+          done < phase4-expected-migrations.txt
+          test "$(wc -l < phase4-expected-migrations.txt | tr -d ' ')" -eq 5
+
+      - name: Isolate production-tracked migration window
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/legacy-local-migrations"
+          : > phase4-legacy-local-migrations.txt
+          moved=0
+          for migration in supabase/migrations/*.sql; do
+            version="$(basename "$migration" | cut -d_ -f1)"
+            if [[ "$version" < "$TRACKING_BOUNDARY" ]]; then
+              basename "$migration" >> phase4-legacy-local-migrations.txt
+              mv "$migration" "$RUNNER_TEMP/legacy-local-migrations/"
+              moved=$((moved + 1))
+            fi
+          done
+          sort -o phase4-legacy-local-migrations.txt phase4-legacy-local-migrations.txt
+          test "$moved" -gt 0
+          find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | sort | tee phase4-isolated-migration-window.txt
+          awk -F_ -v boundary="$TRACKING_BOUNDARY" '$1 < boundary { print "Unexpected pre-tracking migration remains: " $0 > "/dev/stderr"; exit 1 }' phase4-isolated-migration-window.txt
+
+      - name: Require exactly five pending production migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" -p "$SUPABASE_DB_PASSWORD"
+          supabase db push --linked --dry-run -p "$SUPABASE_DB_PASSWORD" 2>&1 | tee phase4-production-dry-run.log
+          grep -Eo '202[0-9]{9,}' phase4-production-dry-run.log | sort -u > phase4-pending-versions.txt || true
+          cut -d_ -f1 phase4-expected-migrations.txt | sort -u > phase4-expected-versions.txt
+          diff -u phase4-expected-versions.txt phase4-pending-versions.txt
+          test "$(wc -l < phase4-pending-versions.txt | tr -d ' ')" -eq 5
+
+      - name: Apply approved Phase 4 migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked -p "$SUPABASE_DB_PASSWORD" 2>&1 | tee phase4-production-deploy.log
+
+      - name: Verify live professional credential authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          query = r"""
+          with expected(version) as (
+            values
+              ('202607261200'),
+              ('202607261201'),
+              ('202607261202'),
+              ('202607261203'),
+              ('202607261204')
+          ), required_tables(name) as (
+            values
+              ('agilecert_credential_policies'),
+              ('agilecert_candidate_transcripts'),
+              ('agilecert_cpd_records'),
+              ('agilecert_credential_renewals'),
+              ('agilecert_credential_share_links'),
+              ('agilecert_credential_audit_events')
+          ), required_functions(name) as (
+            values
+              ('get_my_agilecert_credential_wallet'),
+              ('save_my_agilecert_cpd_record'),
+              ('submit_my_agilecert_cpd_record'),
+              ('create_my_agilecert_credential_share_link'),
+              ('revoke_my_agilecert_credential_share_link'),
+              ('set_my_agilecert_transcript_public'),
+              ('request_my_agilecert_credential_renewal'),
+              ('verify_agilecert_professional_record'),
+              ('get_agilecert_credential_admin_console'),
+              ('review_agilecert_cpd_record'),
+              ('decide_agilecert_credential_renewal'),
+              ('upsert_agilecert_credential_policy')
+          ), probe as (
+            select public.verify_agilecert_professional_record('PHASE4-PRODUCTION-PROBE-NOT-FOUND') value
+          )
+          select jsonb_build_object(
+            'migrationCount', (
+              select count(*) from supabase_migrations.schema_migrations m
+              join expected e on e.version = m.version
+            ),
+            'tableCount', (
+              select count(*) from required_tables t
+              where to_regclass('public.' || t.name) is not null
+            ),
+            'functionCount', (
+              select count(distinct f.name)
+              from required_functions f
+              join pg_proc p on p.proname = f.name
+              join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public'
+            ),
+            'missingPolicyCount', (
+              select count(*)
+              from public.programmes programme
+              cross join public.agilecert_certificate_products product
+              left join public.agilecert_credential_policies policy
+                on policy.programme_id = programme.id
+               and policy.product_code = product.code
+              where policy.id is null
+            ),
+            'anonCanVerify', has_function_privilege('anon', 'public.verify_agilecert_professional_record(text)', 'EXECUTE'),
+            'authenticatedCanBuildBadgeDirectly', has_function_privilege('authenticated', 'public.agilecert_build_badge_assertion(uuid)', 'EXECUTE'),
+            'authenticatedCanReadEffectiveStatusDirectly', has_function_privilege('authenticated', 'public.agilecert_credential_effective_status(uuid)', 'EXECUTE'),
+            'probe', (select value from probe)
+          ) verification;
+          """
+          with open('/tmp/phase4-production-query.json', 'w', encoding='utf-8') as handle:
+              json.dump({'query': query}, handle)
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/phase4-production-query.json \
+            -o phase4-production-verification.json
+
+          python3 - <<'PY'
+          import json
+          data = json.load(open('phase4-production-verification.json', encoding='utf-8'))
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('migrationCount') == 5, result
+          assert result.get('tableCount') == 6, result
+          assert result.get('functionCount') == 12, result
+          assert result.get('missingPolicyCount') == 0, result
+          assert result.get('anonCanVerify') is True, result
+          assert result.get('authenticatedCanBuildBadgeDirectly') is False, result
+          assert result.get('authenticatedCanReadEffectiveStatusDirectly') is False, result
+          probe = result.get('probe') or {}
+          assert probe.get('found') is False, probe
+          assert probe.get('valid') is False, probe
+          assert probe.get('recordType') == 'not_found', probe
+          forbidden = {'credentialId', 'candidateId', 'candidateEmail', 'orderId', 'paymentAmount', 'transactionReference', 'providerPayload'}
+          assert not forbidden.intersection(probe), probe
+          safe = {
+              'migrationCount': result['migrationCount'],
+              'tableCount': result['tableCount'],
+              'functionCount': result['functionCount'],
+              'missingPolicyCount': result['missingPolicyCount'],
+              'anonymousVerificationEnabled': result['anonCanVerify'],
+              'internalHelpersRestricted': not result['authenticatedCanBuildBadgeDirectly'] and not result['authenticatedCanReadEffectiveStatusDirectly'],
+              'anonymousProbeRecordType': probe['recordType'],
+          }
+          with open('phase4-production-safe.json', 'w', encoding='utf-8') as handle:
+              json.dump(safe, handle, indent=2)
+          print(json.dumps(safe, indent=2))
+          PY
+
+      - name: Confirm no migrations remain pending
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db push --linked --dry-run -p "$SUPABASE_DB_PASSWORD" 2>&1 | tee phase4-post-deploy-dry-run.log
+          grep -Eo '202[0-9]{9,}' phase4-post-deploy-dry-run.log | sort -u > phase4-post-deploy-pending.txt || true
+          test ! -s phase4-post-deploy-pending.txt
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-phase-4-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase4-expected-migrations.txt
+            phase4-legacy-local-migrations.txt
+            phase4-isolated-migration-window.txt
+            phase4-production-dry-run.log
+            phase4-production-deploy.log
+            phase4-production-safe.json
+            phase4-post-deploy-dry-run.log
+            phase4-post-deploy-pending.txt
