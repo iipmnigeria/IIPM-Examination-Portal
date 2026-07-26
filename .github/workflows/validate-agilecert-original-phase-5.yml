@@ -1,0 +1,183 @@
+name: Validate AgileCert Original Phase 5
+
+on:
+  push:
+    branches: [phase-5-advanced-identity-proctoring]
+    paths:
+      - 'docs/AGILECERT_ORIGINAL_PHASE_5_COMPLETION_SCOPE.md'
+      - 'src/**'
+      - 'package.json'
+      - 'supabase/migrations/20260726140*_phase_5_*.sql'
+      - '.github/workflows/validate-agilecert-original-phase-5.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'docs/AGILECERT_ORIGINAL_PHASE_5_COMPLETION_SCOPE.md'
+      - 'src/**'
+      - 'package.json'
+      - 'supabase/migrations/20260726140*_phase_5_*.sql'
+      - '.github/workflows/validate-agilecert-original-phase-5.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-original-phase-5-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Validate advanced identity and proctoring database
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Confirm exact Phase 5 migration and protected scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(cat <<'EOF'
+          supabase/migrations/202607261400_phase_5_identity_policy_consent.sql
+          supabase/migrations/202607261401_phase_5_sensitive_identity_exam_check.sql
+          supabase/migrations/202607261402_phase_5_live_proctoring_events.sql
+          supabase/migrations/202607261403_phase_5_incidents_misconduct_appeals.sql
+          supabase/migrations/202607261404_phase_5_candidate_admin_workspaces.sql
+          supabase/migrations/202607261405_phase_5_privacy_permissions.sql
+          EOF
+          )
+          actual="$(git diff --name-only origin/supabase-integration...HEAD | grep '^supabase/migrations/' || true)"
+          test "$actual" = "$expected"
+          ! git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/'
+
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          protected='^src/services/(commerceService|certificateCommerceService|credentialWalletService|aiCertificationAdviserService|aiCvProfileBuilderService)\.ts$|^src/components/(CandidateCommerceOverlay|PaymentReturnHandler|AdminCommerceConsole|CandidateCertificateCommerce|CandidateCredentialWallet|AdminCredentialLifecycleLauncher|AiCertificationAdviser|AiCvProfileBuilder)\.tsx$|^supabase/functions/'
+          if printf '%s\n' "$changed" | grep -Eq "$protected"; then
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+
+          python3 <<'PY'
+          from pathlib import Path
+          files = [Path(f'supabase/migrations/20260726140{i}_phase_5_{name}.sql') for i, name in enumerate([
+              'identity_policy_consent',
+              'sensitive_identity_exam_check',
+              'live_proctoring_events',
+              'incidents_misconduct_appeals',
+              'candidate_admin_workspaces',
+              'privacy_permissions',
+          ])]
+          sql = '\n'.join(path.read_text() for path in files)
+          required = [
+              'agilecert_identity_proctoring_policies',
+              'agilecert_identity_proctoring_consents',
+              'agilecert_sensitive_identity_documents',
+              'agilecert_exam_identity_checks',
+              'agilecert_proctoring_sessions',
+              'agilecert_proctoring_incidents',
+              'agilecert_misconduct_cases',
+              'agilecert_misconduct_appeals',
+              'record_my_agilecert_proctoring_event',
+              'get_my_agilecert_proctored_exam_payload',
+              'document_number_digest',
+              'rawDocumentNumberStored',
+              'external KYC, automated face matching and liveness scoring remain disabled',
+              "metadata must not contain examination questions, answers or answer keys",
+          ]
+          missing = [marker for marker in required if marker not in sql]
+          assert not missing, f'Missing Phase 5 controls: {missing}'
+          forbidden = [
+              'AGILECERT_PAYSTACK_SECRET_KEY',
+              'PAYSTACK_SECRET_KEY',
+              'question_answer_keys set',
+              'update public.question_answer_keys',
+              'update public.candidate_answers',
+          ]
+          found = [marker for marker in forbidden if marker in sql]
+          assert not found, f'Protected payment/question authority leaked into Phase 5: {found}'
+          PY
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          commit;
+          SQL
+
+      - name: Start isolated Supabase and apply all migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee phase5-supabase-start.log
+          supabase db reset --local 2>&1 | tee phase5-db-reset.log
+
+      - name: Verify Phase 5 schema, defaults and permissions
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 2>&1 <<'SQL' | tee phase5-schema-verification.log
+          do $$
+          declare
+            v_count integer;
+          begin
+            select count(*) into v_count
+            from information_schema.tables
+            where table_schema='public' and table_name in (
+              'agilecert_identity_proctoring_policies',
+              'agilecert_identity_proctoring_consents',
+              'agilecert_sensitive_identity_documents',
+              'agilecert_exam_identity_checks',
+              'agilecert_proctoring_sessions',
+              'agilecert_proctoring_incidents',
+              'agilecert_misconduct_cases',
+              'agilecert_misconduct_appeals'
+            );
+            if v_count <> 8 then raise exception 'Expected 8 Phase 5 tables, found %', v_count; end if;
+
+            if exists (
+              select 1 from public.agilecert_identity_proctoring_policies
+              where external_kyc_enabled or automated_face_match_enabled or liveness_check_enabled
+            ) then raise exception 'Automated identity processing was enabled by default.'; end if;
+
+            if not exists (
+              select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='public' and p.proname='get_my_agilecert_proctored_exam_payload'
+            ) then raise exception 'Proctored exam payload authority is missing.'; end if;
+
+            if has_table_privilege('authenticated','public.agilecert_sensitive_identity_documents','SELECT')
+               or has_table_privilege('authenticated','public.agilecert_sensitive_identity_documents','INSERT') then
+              raise exception 'Authenticated users retain direct sensitive-identity table access.';
+            end if;
+
+            if not has_function_privilege('authenticated','public.record_my_agilecert_proctoring_event(uuid,text,text,text,text,jsonb,timestamptz)','EXECUTE') then
+              raise exception 'Candidate live proctor-event RPC execute permission is missing.';
+            end if;
+
+            if has_function_privilege('authenticated','public.start_exam_secure_phase5_base(uuid,jsonb)','EXECUTE') then
+              raise exception 'Authenticated users can bypass the Phase 5 secure-exam wrapper.';
+            end if;
+          end;
+          $$;
+          SQL
+
+      - name: Upload Phase 5 database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-original-phase-5-database-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase5-supabase-start.log
+            phase5-db-reset.log
+            phase5-schema-verification.log
