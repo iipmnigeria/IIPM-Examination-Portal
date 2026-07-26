@@ -65,13 +65,41 @@ jobs:
           test -s dist/index.html
           grep -q 'AgileCert Global' dist/index.html
           ! grep -q '/src/main.tsx' dist/index.html
-          js_file="$(find dist/assets -maxdepth 1 -type f -name '*.js' | head -n 1)"
-          test -s "$js_file"
-          grep -q 'IIPM Specialist Certification Catalogue' "$js_file"
-          grep -q 'CIPMN Professional Licensing Mock Examinations' "$js_file"
-          grep -q 'Academic Gradebook & Credentials' "$js_file"
-          grep -q 'CIPMN-MOCK' "$js_file"
-          sha256sum "$js_file" | tee compiled-catalogue-bundle.sha256
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          markers = [
+              'IIPM Specialist Certification Catalogue',
+              'CIPMN Professional Licensing Mock Examinations',
+              'Academic Gradebook & Credentials',
+              'CIPMN-MOCK',
+          ]
+          javascript = sorted(Path('dist/assets').glob('*.js'))
+          assert javascript, 'No compiled JavaScript files were found.'
+          selected = set()
+          for marker in markers:
+              matching = [
+                  path for path in javascript
+                  if marker in path.read_text(encoding='utf-8', errors='ignore')
+              ]
+              assert matching, f'Compiled marker is missing: {marker}'
+              selected.update(matching)
+          Path('catalogue-marker-bundle-paths.txt').write_text(
+              '\n'.join(str(path) for path in sorted(selected)) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+          : > compiled-catalogue-bundles.sha256
+          while IFS= read -r js_file; do
+            test -s "$js_file"
+            printf '%s  %s\n' "$(sha256sum "$js_file" | cut -d' ' -f1)" "$(basename "$js_file")" \
+              >> compiled-catalogue-bundles.sha256
+          done < catalogue-marker-bundle-paths.txt
+          sort -k2 -o compiled-catalogue-bundles.sha256 compiled-catalogue-bundles.sha256
+          test -s compiled-catalogue-bundles.sha256
+          cat compiled-catalogue-bundles.sha256
           touch dist/.nojekyll
 
       - name: Configure GitHub Pages
@@ -96,46 +124,91 @@ jobs:
           set -euo pipefail
           test -n "$PAGE_URL"
           success=0
+
           for attempt in $(seq 1 20); do
-            if curl --fail --silent --show-error --location "$PAGE_URL" -o live-index.html; then
-              if ! grep -q '/src/main.tsx' live-index.html; then
-                js_path="$(grep -Eo 'src="[^"]+\.js"' live-index.html | head -n 1 | cut -d'"' -f2 || true)"
-                if [ -n "$js_path" ]; then
-                  js_url="$(python3 - "$PAGE_URL" "$js_path" <<'PY'
+            rm -rf live-catalogue-assets
+            mkdir -p live-catalogue-assets
+            all_assets_valid=1
+
+            if ! curl --fail --silent --show-error --location "$PAGE_URL" -o live-index.html; then
+              all_assets_valid=0
+            elif grep -q '/src/main.tsx' live-index.html; then
+              all_assets_valid=0
+            fi
+
+            if [ "$all_assets_valid" -eq 1 ]; then
+              while read -r expected_hash asset_name; do
+                asset_url="$(python3 - "$PAGE_URL" "$asset_name" <<'PY'
           import sys
           from urllib.parse import urljoin
-          print(urljoin(sys.argv[1], sys.argv[2]))
+          print(urljoin(sys.argv[1], 'assets/' + sys.argv[2]))
           PY
           )"
-                  if curl --fail --silent --show-error --location "$js_url" -o live-catalogue-bundle.js \
-                    && grep -q 'IIPM Specialist Certification Catalogue' live-catalogue-bundle.js \
-                    && grep -q 'CIPMN Professional Licensing Mock Examinations' live-catalogue-bundle.js \
-                    && grep -q 'Academic Gradebook & Credentials' live-catalogue-bundle.js \
-                    && grep -q 'CIPMN-MOCK' live-catalogue-bundle.js; then
-                    sha256sum live-catalogue-bundle.js | tee live-catalogue-bundle.sha256
-                    success=1
-                    break
-                  fi
+                destination="live-catalogue-assets/$asset_name"
+                if ! curl --fail --silent --show-error --location "$asset_url" -o "$destination"; then
+                  all_assets_valid=0
+                  break
                 fi
+                actual_hash="$(sha256sum "$destination" | cut -d' ' -f1)"
+                if [ "$actual_hash" != "$expected_hash" ]; then
+                  all_assets_valid=0
+                  break
+                fi
+              done < compiled-catalogue-bundles.sha256
+            fi
+
+            if [ "$all_assets_valid" -eq 1 ]; then
+              if python3 - <<'PY'
+          from pathlib import Path
+
+          markers = [
+              'IIPM Specialist Certification Catalogue',
+              'CIPMN Professional Licensing Mock Examinations',
+              'Academic Gradebook & Credentials',
+              'CIPMN-MOCK',
+          ]
+          contents = '\n'.join(
+              path.read_text(encoding='utf-8', errors='ignore')
+              for path in sorted(Path('live-catalogue-assets').glob('*.js'))
+          )
+          missing = [marker for marker in markers if marker not in contents]
+          assert not missing, f'Live catalogue markers are missing: {missing}'
+          PY
+              then
+                success=1
+                break
               fi
             fi
+
             sleep 6
           done
+
           test "$success" -eq 1
+          : > live-catalogue-bundles.sha256
+          for js_file in live-catalogue-assets/*.js; do
+            printf '%s  %s\n' "$(sha256sum "$js_file" | cut -d' ' -f1)" "$(basename "$js_file")" \
+              >> live-catalogue-bundles.sha256
+          done
+          sort -k2 -o live-catalogue-bundles.sha256 live-catalogue-bundles.sha256
+          diff -u compiled-catalogue-bundles.sha256 live-catalogue-bundles.sha256
 
           python3 - <<'PY'
+          import hashlib
           import json
           import os
           from pathlib import Path
 
-          compiled_hash = Path('compiled-catalogue-bundle.sha256').read_text().split()[0]
-          live_hash = Path('live-catalogue-bundle.sha256').read_text().split()[0]
-          assert compiled_hash == live_hash, (compiled_hash, live_hash)
+          compiled_manifest = Path('compiled-catalogue-bundles.sha256').read_bytes()
+          live_manifest = Path('live-catalogue-bundles.sha256').read_bytes()
+          assert compiled_manifest == live_manifest
+          compiled_hash = hashlib.sha256(compiled_manifest).hexdigest()
+          live_hash = hashlib.sha256(live_manifest).hexdigest()
           evidence = {
               'sourceCommit': os.environ['APPROVED_APP_COMMIT'],
               'pageUrl': os.environ['PAGE_URL'],
               'compiledBundleSha256': compiled_hash,
               'liveBundleSha256': live_hash,
+              'verifiedAssetCount': len(Path('compiled-catalogue-bundles.sha256').read_text().splitlines()),
               'navigation': [
                   'IIPM Specialist Certification Catalogue',
                   'CIPMN Professional Licensing Mock Examinations',
@@ -157,7 +230,8 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
           path: |
-            compiled-catalogue-bundle.sha256
+            catalogue-marker-bundle-paths.txt
+            compiled-catalogue-bundles.sha256
             live-index.html
-            live-catalogue-bundle.sha256
+            live-catalogue-bundles.sha256
             cipmn-catalogue-navigation-production.json
