@@ -110,13 +110,16 @@ Administrators receive controls for:
 - share-link and verification activity;
 - transcript and wallet audit history.
 
-## Database unit
+## Database units
 
-One forward-only migration:
+Four forward-only, sequential migration units are used so each capability can be reviewed and validated independently:
 
-`supabase/migrations/202607261200_phase_4_professional_credential_system.sql`
+1. `supabase/migrations/202607261200_phase_4_credential_core.sql`
+2. `supabase/migrations/202607261201_phase_4_wallet_cpd.sql`
+3. `supabase/migrations/202607261202_phase_4_sharing_renewal.sql`
+4. `supabase/migrations/202607261203_phase_4_credential_admin.sql`
 
-The migration version is later than the deployed Phase 3 completion migration `202607251800`.
+All four migration versions are later than the deployed Phase 3 completion migration `202607251800`. They form one controlled Phase 4 release unit and must be applied together in sequence.
 
 ## Safety boundaries
 
