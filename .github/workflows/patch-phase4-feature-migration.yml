@@ -1,17 +1,16 @@
 name: Patch Phase 4 Feature Migration
 
-# Registered trigger for the controlled Phase 4 feature branch correction.
 on:
-  push:
+  pull_request:
     branches: [supabase-integration]
-    paths:
-      - '.github/workflows/patch-phase4-feature-migration.yml'
+    types: [synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.event.pull_request.head.ref == 'phase-4-professional-credential-system' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
