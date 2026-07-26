@@ -2,8 +2,8 @@ name: Patch Phase 4 Migration From Main
 
 on:
   pull_request:
-    branches: [supabase-integration]
-    types: [synchronize, reopened]
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
