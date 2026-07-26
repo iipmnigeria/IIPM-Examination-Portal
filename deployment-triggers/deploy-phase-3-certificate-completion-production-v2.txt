@@ -1,0 +1,4 @@
+Approved production activation retry
+PR: #77
+Approved merge commit: 03242b42dbef911dc780d368ffa0fd18c1e85ab7
+Reason: align deployment workspace to the production migration ledger; no first-run database changes occurred.
