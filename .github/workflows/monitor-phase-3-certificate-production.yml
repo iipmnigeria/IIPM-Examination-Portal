@@ -18,8 +18,8 @@ jobs:
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
-      TARGET_HEAD_SHA: 'c978b89a87c0c8f1949409c090e5db4251456ebd'
-      TARGET_WORKFLOW_NAME: 'Deploy Phase 3 Certificate Completion Production'
+      TARGET_HEAD_SHA: '798815a000a344de41b603b15309fb72f4857476'
+      TARGET_WORKFLOW_NAME: 'Deploy Phase 3 Certificate Completion Production V2'
     steps:
       - name: Poll exact production deployment run
         shell: bash
@@ -37,6 +37,7 @@ jobs:
               -H 'X-GitHub-Api-Version: 2022-11-28' \
               "$api" -o "$runs_json"
 
+            set +e
             python3 - "$runs_json" "$TARGET_WORKFLOW_NAME" "$target_json" <<'PY'
           import json, sys
           source, target_name, output = sys.argv[1:]
@@ -49,6 +50,7 @@ jobs:
           print(matches[0].get('id'))
           PY
             status=$?
+            set -e
             if [ "$status" -eq 0 ]; then
               found='yes'
               run_id="$(python3 -c "import json; print(json.load(open('$target_json'))['id'])")"
@@ -105,7 +107,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase-3-production-monitor-evidence
+          name: phase-3-production-monitor-evidence-v2
           path: |
             ${{ runner.temp }}/phase3-production-target-run.json
             ${{ runner.temp }}/phase3-production-runs.json
