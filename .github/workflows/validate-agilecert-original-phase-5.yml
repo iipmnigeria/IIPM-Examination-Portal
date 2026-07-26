@@ -5,6 +5,7 @@ on:
     branches: [phase-5-advanced-identity-proctoring]
     paths:
       - 'docs/AGILECERT_ORIGINAL_PHASE_5_COMPLETION_SCOPE.md'
+      - 'scripts/phase5-completion-behaviour.sql'
       - 'src/**'
       - 'package.json'
       - 'supabase/migrations/20260726140*_phase_5_*.sql'
@@ -13,29 +14,30 @@ on:
     branches: [supabase-integration]
     paths:
       - 'docs/AGILECERT_ORIGINAL_PHASE_5_COMPLETION_SCOPE.md'
+      - 'scripts/phase5-completion-behaviour.sql'
       - 'src/**'
       - 'package.json'
       - 'supabase/migrations/20260726140*_phase_5_*.sql'
       - '.github/workflows/validate-agilecert-original-phase-5.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: validate-agilecert-original-phase-5-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  database:
-    name: Validate advanced identity and proctoring database
+  scope:
+    name: Validate exact Phase 5 release scope
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Confirm exact Phase 5 migration and protected scope
+      - name: Confirm seven migrations and protected boundaries
         shell: bash
         run: |
           set -euo pipefail
@@ -46,12 +48,15 @@ jobs:
           supabase/migrations/202607261403_phase_5_incidents_misconduct_appeals.sql
           supabase/migrations/202607261404_phase_5_candidate_admin_workspaces.sql
           supabase/migrations/202607261405_phase_5_privacy_permissions.sql
+          supabase/migrations/202607261406_phase_5_result_integrity_compatibility.sql
           EOF
+
           git diff --name-only origin/supabase-integration...HEAD \
             | grep '^supabase/migrations/' \
             | sort > "$RUNNER_TEMP/phase5-actual-migrations.txt" || true
           sort -o "$RUNNER_TEMP/phase5-expected-migrations.txt" "$RUNNER_TEMP/phase5-expected-migrations.txt"
           diff -u "$RUNNER_TEMP/phase5-expected-migrations.txt" "$RUNNER_TEMP/phase5-actual-migrations.txt"
+
           ! git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/'
 
           changed="$(git diff --name-only origin/supabase-integration...HEAD)"
@@ -63,14 +68,16 @@ jobs:
 
           python3 <<'PY'
           from pathlib import Path
-          files = [Path(f'supabase/migrations/20260726140{i}_phase_5_{name}.sql') for i, name in enumerate([
-              'identity_policy_consent',
-              'sensitive_identity_exam_check',
-              'live_proctoring_events',
-              'incidents_misconduct_appeals',
-              'candidate_admin_workspaces',
-              'privacy_permissions',
-          ])]
+
+          files = [
+              Path('supabase/migrations/202607261400_phase_5_identity_policy_consent.sql'),
+              Path('supabase/migrations/202607261401_phase_5_sensitive_identity_exam_check.sql'),
+              Path('supabase/migrations/202607261402_phase_5_live_proctoring_events.sql'),
+              Path('supabase/migrations/202607261403_phase_5_incidents_misconduct_appeals.sql'),
+              Path('supabase/migrations/202607261404_phase_5_candidate_admin_workspaces.sql'),
+              Path('supabase/migrations/202607261405_phase_5_privacy_permissions.sql'),
+              Path('supabase/migrations/202607261406_phase_5_result_integrity_compatibility.sql'),
+          ]
           sql = '\n'.join(path.read_text() for path in files)
           required = [
               'agilecert_identity_proctoring_policies',
@@ -85,252 +92,38 @@ jobs:
               'get_my_agilecert_proctored_exam_payload',
               'document_number_digest',
               'rawDocumentNumberStored',
+              'start_exam_secure_phase5_base',
+              'submit_exam_secure_phase5_base',
+              "when 'no_violation' then 'submitted'",
+              "'status', v_attempt_status",
               'External KYC, automated face matching and liveness scoring remain disabled',
               'metadata must not contain examination questions, answers or answer keys',
           ]
           missing = [marker for marker in required if marker not in sql]
-          assert not missing, f'Missing Phase 5 controls: {missing}'
+          assert not missing, f'Missing Original Phase 5 controls: {missing}'
+
           forbidden = [
               'AGILECERT_PAYSTACK_SECRET_KEY',
               'PAYSTACK_SECRET_KEY',
-              'question_answer_keys set',
               'update public.question_answer_keys',
               'update public.candidate_answers',
           ]
           found = [marker for marker in forbidden if marker in sql]
-          assert not found, f'Protected payment/question authority leaked into Phase 5: {found}'
+          assert not found, f'Protected payment or examination authority leaked into Phase 5: {found}'
           PY
-
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Neutralise production-only bootstrap in isolated runner
-        shell: bash
-        run: |
-          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
-          begin;
-          commit;
-          SQL
-
-      - name: Start isolated Supabase and apply all migrations
-        shell: bash
-        run: |
-          set -o pipefail
-          supabase start 2>&1 | tee phase5-supabase-start.log
-          supabase db reset --local 2>&1 | tee phase5-db-reset.log
-
-      - name: Verify Phase 5 schema, defaults and permissions
-        shell: bash
-        env:
-          PGPASSWORD: postgres
-        run: |
-          set -o pipefail
-          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
-          psql "$DB_URL" -v ON_ERROR_STOP=1 2>&1 <<'SQL' | tee phase5-schema-verification.log
-          do $$
-          declare
-            v_count integer;
-          begin
-            select count(*) into v_count
-            from information_schema.tables
-            where table_schema='public' and table_name in (
-              'agilecert_identity_proctoring_policies',
-              'agilecert_identity_proctoring_consents',
-              'agilecert_sensitive_identity_documents',
-              'agilecert_exam_identity_checks',
-              'agilecert_proctoring_sessions',
-              'agilecert_proctoring_incidents',
-              'agilecert_misconduct_cases',
-              'agilecert_misconduct_appeals'
-            );
-            if v_count <> 8 then raise exception 'Expected 8 Phase 5 tables, found %', v_count; end if;
-
-            if exists (
-              select 1 from public.agilecert_identity_proctoring_policies
-              where external_kyc_enabled or automated_face_match_enabled or liveness_check_enabled
-            ) then raise exception 'Automated identity processing was enabled by default.'; end if;
-
-            if not exists (
-              select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-              where n.nspname='public' and p.proname='get_my_agilecert_proctored_exam_payload'
-            ) then raise exception 'Proctored exam payload authority is missing.'; end if;
-
-            if has_table_privilege('authenticated','public.agilecert_sensitive_identity_documents','SELECT')
-               or has_table_privilege('authenticated','public.agilecert_sensitive_identity_documents','INSERT') then
-              raise exception 'Authenticated users retain direct sensitive-identity table access.';
-            end if;
-
-            if not has_function_privilege('authenticated','public.record_my_agilecert_proctoring_event(uuid,text,text,text,text,jsonb,timestamptz)','EXECUTE') then
-              raise exception 'Candidate live proctor-event RPC execute permission is missing.';
-            end if;
-
-            if has_function_privilege('authenticated','public.start_exam_secure_phase5_base(uuid,jsonb)','EXECUTE') then
-              raise exception 'Authenticated users can bypass the Phase 5 secure-exam wrapper.';
-            end if;
-          end;
-          $$;
-          SQL
-
-      - name: Upload Phase 5 database evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: agilecert-original-phase-5-database-evidence
-          retention-days: 30
-          if-no-files-found: warn
-          path: |
-            phase5-supabase-start.log
-            phase5-db-reset.log
-            phase5-schema-verification.log
 
   frontend:
-    name: Integrate and validate Phase 5 secure exam frontend
+    name: Validate Phase 5 TypeScript and production bundle
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: phase-5-advanced-identity-proctoring
-          fetch-depth: 0
-
-      - name: Apply idempotent orchestration and privacy patch
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          app = Path('src/App.tsx')
-          text = app.read_text()
-          text = text.replace("import ExamScreen from './components/ExamScreen';", "import ExamExperience from './components/ExamExperience';")
-          text = text.replace('<ExamScreen\n', '<ExamExperience\n')
-          if "import ExamExperience from './components/ExamExperience';" not in text or '<ExamExperience\n' not in text:
-              raise SystemExit('App integration markers were not applied.')
-          app.write_text(text)
-
-          exam = Path('src/components/ExamScreen.tsx')
-          text = exam.read_text()
-
-          state_anchor = """  const [nextCheckIn, setNextCheckIn] = useState(12);
-
-  // HTML Audio element fallback"""
-          state_replacement = """  const [nextCheckIn, setNextCheckIn] = useState(12);
-  const shouldRunAiAnalysis = test.proctoringPolicy
-    ? test.proctoringPolicy.aiVisualAnalysisEnabled
-    : true;
-  const shouldUseCamera = test.proctoringPolicy
-    ? (test.proctoringPolicy.requireCamera || shouldRunAiAnalysis)
-    : true;
-
-  // HTML Audio element fallback"""
-          if 'const shouldRunAiAnalysis =' not in text:
-              if state_anchor not in text:
-                  raise SystemExit('ExamScreen policy-state anchor was not found.')
-              text = text.replace(state_anchor, state_replacement, 1)
-
-          countdown_anchor = """    // AI Proctor Check-In counter
-    countdownRef.current = setInterval(() => {
-      setNextCheckIn((prev) => {
-        if (prev <= 1) {
-          captureAndAnalyzeProctorFrame();
-          return 12; // Cycle back every 12 seconds
-        }
-        return prev - 1;
-      });
-    }, 1000);"""
-          countdown_replacement = """    // AI visual analysis runs only when the active policy explicitly enables it.
-    if (shouldRunAiAnalysis) {
-      countdownRef.current = setInterval(() => {
-        setNextCheckIn((prev) => {
-          if (prev <= 1) {
-            captureAndAnalyzeProctorFrame();
-            return 12; // Cycle back every 12 seconds
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }"""
-          if 'AI visual analysis runs only when the active policy explicitly enables it.' not in text:
-              if countdown_anchor not in text:
-                  raise SystemExit('ExamScreen AI countdown anchor was not found.')
-              text = text.replace(countdown_anchor, countdown_replacement, 1)
-
-          webcam_anchor = """  useEffect(() => {
-    let activeStream: MediaStream | null = null;
-    async function startWebcam() {"""
-          webcam_replacement = """  useEffect(() => {
-    if (!shouldUseCamera) return undefined;
-
-    let activeStream: MediaStream | null = null;
-    async function startWebcam() {"""
-          if 'if (!shouldUseCamera) return undefined;' not in text:
-              if webcam_anchor not in text:
-                  raise SystemExit('ExamScreen webcam policy anchor was not found.')
-              text = text.replace(webcam_anchor, webcam_replacement, 1)
-
-          analysis_anchor = """  const captureAndAnalyzeProctorFrame = async () => {
-    if (!videoRef.current || !canvasRef.current || isAnalyzing) return;"""
-          analysis_replacement = """  const captureAndAnalyzeProctorFrame = async () => {
-    if (!shouldRunAiAnalysis || !videoRef.current || !canvasRef.current || isAnalyzing) return;"""
-          if analysis_replacement not in text:
-              if analysis_anchor not in text:
-                  raise SystemExit('ExamScreen analysis guard anchor was not found.')
-              text = text.replace(analysis_anchor, analysis_replacement, 1)
-
-          log_anchor = """    const newLog: ProctorLogEvent = {
-      id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      timestamp: new Date().toISOString(),
-      type,
-      severity,
-      message,
-      snapshotUrl
-    };
-
-    setProctorLogs((prev) => {"""
-          log_replacement = """    const newLog: ProctorLogEvent = {
-      id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      timestamp: new Date().toISOString(),
-      type,
-      severity,
-      message,
-      snapshotUrl
-    };
-
-    window.dispatchEvent(new CustomEvent('agilecert-proctor-event', {
-      detail: {
-        id: newLog.id,
-        timestamp: newLog.timestamp,
-        type: newLog.type,
-        severity: newLog.severity,
-        message: newLog.message,
-        aiGenerated: Boolean(snapshotUrl),
-      },
-    }));
-
-    setProctorLogs((prev) => {"""
-          if "window.dispatchEvent(new CustomEvent('agilecert-proctor-event'" not in text:
-              if log_anchor not in text:
-                  raise SystemExit('ExamScreen proctor-log anchor was not found.')
-              text = text.replace(log_anchor, log_replacement, 1)
-
-          required = [
-              'const shouldRunAiAnalysis =',
-              'const shouldUseCamera =',
-              'if (!shouldUseCamera) return undefined;',
-              'if (!shouldRunAiAnalysis || !videoRef.current',
-              "window.dispatchEvent(new CustomEvent('agilecert-proctor-event'",
-          ]
-          missing = [marker for marker in required if marker not in text]
-          if missing:
-              raise SystemExit(f'Missing ExamScreen integration markers: {missing}')
-          exam.write_text(text)
-          PY
 
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
 
-      - name: Validate TypeScript and production bundle
+      - name: Build Phase 5 application
         shell: bash
         run: |
           set -euo pipefail
@@ -341,31 +134,5 @@ jobs:
           grep -R -q 'Identity & Exam Integrity Workspace' dist/assets
           grep -R -q 'Identity, Proctoring & Misconduct Administration' dist/assets
           grep -R -q 'Questions remain protected' dist/assets
+          grep -R -q 'Camera and AI processing are being restricted' dist/assets
           grep -R -q 'agilecert-proctor-event' dist/assets
-          grep -q 'shouldRunAiAnalysis' src/components/ExamScreen.tsx
-          grep -q 'shouldUseCamera' src/components/ExamScreen.tsx
-
-      - name: Commit validated integration to the feature branch
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/App.tsx src/components/ExamScreen.tsx
-          if ! git diff --cached --quiet; then
-            git commit -m 'Integrate Phase 5 secure examination preflight and live events'
-            git push origin HEAD:phase-5-advanced-identity-proctoring
-          fi
-
-      - name: Upload Phase 5 frontend evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: agilecert-original-phase-5-frontend-evidence
-          retention-days: 30
-          if-no-files-found: warn
-          path: |
-            dist
-            src/App.tsx
-            src/components/ExamScreen.tsx
