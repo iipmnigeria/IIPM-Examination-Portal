@@ -1,0 +1,274 @@
+name: Deploy Original Phase 5 Production
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-original-phase-5.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-original-phase-5-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Apply and verify identity and proctoring system
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      EXPECTED_COMMIT: '8cfc6d26599cfeb84da0d744dee4711bce8c24bd'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      TRACKING_BOUNDARY: '202607230101'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - name: Checkout exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Verify exact approved release unit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          cat > phase5-expected-migrations.txt <<'EOF'
+          202607261400_phase_5_identity_policy_consent.sql
+          202607261401_phase_5_sensitive_identity_exam_check.sql
+          202607261402_phase_5_live_proctoring_events.sql
+          202607261403_phase_5_incidents_misconduct_appeals.sql
+          202607261404_phase_5_candidate_admin_workspaces.sql
+          202607261405_phase_5_privacy_permissions.sql
+          202607261406_phase_5_result_integrity_compatibility.sql
+          EOF
+          while IFS= read -r migration; do
+            test -s "supabase/migrations/$migration"
+          done < phase5-expected-migrations.txt
+          test "$(wc -l < phase5-expected-migrations.txt | tr -d ' ')" -eq 7
+
+      - name: Isolate production-tracked migration window
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/legacy-local-migrations"
+          : > phase5-legacy-local-migrations.txt
+          moved=0
+          for migration in supabase/migrations/*.sql; do
+            version="$(basename "$migration" | cut -d_ -f1)"
+            if [[ "$version" < "$TRACKING_BOUNDARY" ]]; then
+              basename "$migration" >> phase5-legacy-local-migrations.txt
+              mv "$migration" "$RUNNER_TEMP/legacy-local-migrations/"
+              moved=$((moved + 1))
+            fi
+          done
+          sort -o phase5-legacy-local-migrations.txt phase5-legacy-local-migrations.txt
+          test "$moved" -gt 0
+          find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | sort | tee phase5-isolated-migration-window.txt
+          awk -F_ -v boundary="$TRACKING_BOUNDARY" '$1 < boundary { print "Unexpected pre-tracking migration remains: " $0 > "/dev/stderr"; exit 1 }' phase5-isolated-migration-window.txt
+
+      - name: Require exactly seven pending production migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" -p "$SUPABASE_DB_PASSWORD"
+          supabase db push --linked --dry-run -p "$SUPABASE_DB_PASSWORD" 2>&1 | tee phase5-production-dry-run.log
+          grep -Eo '202[0-9]{9,}' phase5-production-dry-run.log | sort -u > phase5-pending-versions.txt || true
+          cut -d_ -f1 phase5-expected-migrations.txt | sort -u > phase5-expected-versions.txt
+          diff -u phase5-expected-versions.txt phase5-pending-versions.txt
+          test "$(wc -l < phase5-pending-versions.txt | tr -d ' ')" -eq 7
+
+      - name: Apply approved Phase 5 migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked -p "$SUPABASE_DB_PASSWORD" 2>&1 | tee phase5-production-deploy.log
+
+      - name: Verify live identity and proctoring authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          query = r"""
+          with expected(version) as (
+            values
+              ('202607261400'),('202607261401'),('202607261402'),('202607261403'),
+              ('202607261404'),('202607261405'),('202607261406')
+          ), required_tables(name) as (
+            values
+              ('agilecert_identity_proctoring_policies'),
+              ('agilecert_identity_proctoring_consents'),
+              ('agilecert_sensitive_identity_documents'),
+              ('agilecert_exam_identity_checks'),
+              ('agilecert_proctoring_sessions'),
+              ('agilecert_proctoring_incidents'),
+              ('agilecert_misconduct_cases'),
+              ('agilecert_misconduct_appeals')
+          ), required_functions(name) as (
+            values
+              ('record_my_agilecert_identity_proctoring_consent'),
+              ('submit_my_agilecert_sensitive_identity'),
+              ('prepare_my_agilecert_exam_identity_check'),
+              ('open_my_agilecert_proctoring_session'),
+              ('record_my_agilecert_proctoring_event'),
+              ('submit_my_agilecert_incident_explanation'),
+              ('submit_my_agilecert_misconduct_appeal'),
+              ('get_my_agilecert_identity_proctoring_workspace'),
+              ('get_agilecert_identity_proctoring_admin_console'),
+              ('upsert_agilecert_identity_proctoring_policy'),
+              ('review_agilecert_sensitive_identity'),
+              ('review_agilecert_exam_identity_check'),
+              ('decide_agilecert_misconduct_case'),
+              ('decide_agilecert_misconduct_appeal'),
+              ('get_my_agilecert_proctored_exam_payload'),
+              ('get_agilecert_identity_proctoring_retention_queue')
+          )
+          select jsonb_build_object(
+            'migrationCount', (
+              select count(*) from supabase_migrations.schema_migrations m
+              join expected e on e.version = m.version
+            ),
+            'tableCount', (
+              select count(*) from required_tables t
+              where to_regclass('public.' || t.name) is not null
+            ),
+            'functionCount', (
+              select count(distinct f.name)
+              from required_functions f
+              join pg_proc p on p.proname = f.name
+              join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public'
+            ),
+            'privateBucket', coalesce((
+              select not b.public from storage.buckets b where b.id = 'agilecert-sensitive-identity'
+            ), false),
+            'automatedIdentityEnabledCount', (
+              select count(*) from public.agilecert_identity_proctoring_policies
+              where external_kyc_enabled or automated_face_match_enabled or liveness_check_enabled
+            ),
+            'unconfiguredLiveCaptureCount', (
+              select count(*) from public.agilecert_identity_proctoring_policies
+              where policy_version = 1
+                and not require_existing_identity_approval
+                and not require_government_id
+                and not require_selfie
+                and not require_exam_day_identity_check
+                and not require_camera
+                and not require_microphone_permission
+                and not require_fullscreen
+                and not ai_visual_analysis_enabled
+                and live_event_capture_enabled
+            ),
+            'authenticatedDirectSensitiveRead', has_table_privilege(
+              'authenticated','public.agilecert_sensitive_identity_documents','SELECT'
+            ),
+            'authenticatedCanRecordEvent', exists (
+              select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='public' and p.proname='record_my_agilecert_proctoring_event'
+                and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+            ),
+            'anonCanRecordEvent', exists (
+              select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='public' and p.proname='record_my_agilecert_proctoring_event'
+                and has_function_privilege('anon', p.oid, 'EXECUTE')
+            ),
+            'authenticatedCanBypassStart', exists (
+              select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='public' and p.proname='start_exam_secure_phase5_base'
+                and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+            ),
+            'authenticatedCanBypassSubmit', exists (
+              select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='public' and p.proname='submit_exam_secure_phase5_base'
+                and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+            ),
+            'secureStartWrapperCount', (
+              select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='public' and p.proname='start_exam_secure'
+            ),
+            'secureSubmitWrapperCount', (
+              select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='public' and p.proname='submit_exam_secure'
+            )
+          ) verification;
+          """
+          with open('/tmp/phase5-production-query.json', 'w', encoding='utf-8') as handle:
+              json.dump({'query': query}, handle)
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/phase5-production-query.json \
+            -o phase5-production-verification.json
+
+          python3 - <<'PY'
+          import json
+          data = json.load(open('phase5-production-verification.json', encoding='utf-8'))
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('migrationCount') == 7, result
+          assert result.get('tableCount') == 8, result
+          assert result.get('functionCount') == 16, result
+          assert result.get('privateBucket') is True, result
+          assert result.get('automatedIdentityEnabledCount') == 0, result
+          assert result.get('unconfiguredLiveCaptureCount') == 0, result
+          assert result.get('authenticatedDirectSensitiveRead') is False, result
+          assert result.get('authenticatedCanRecordEvent') is True, result
+          assert result.get('anonCanRecordEvent') is False, result
+          assert result.get('authenticatedCanBypassStart') is False, result
+          assert result.get('authenticatedCanBypassSubmit') is False, result
+          assert result.get('secureStartWrapperCount', 0) >= 1, result
+          assert result.get('secureSubmitWrapperCount', 0) >= 1, result
+          safe = {
+              'migrationCount': result['migrationCount'],
+              'tableCount': result['tableCount'],
+              'functionCount': result['functionCount'],
+              'privateIdentityBucket': result['privateBucket'],
+              'automatedIdentityProcessingEnabled': result['automatedIdentityEnabledCount'] > 0,
+              'unconfiguredExaminationsProtected': result['unconfiguredLiveCaptureCount'] > 0,
+              'directSensitiveTableReadBlocked': not result['authenticatedDirectSensitiveRead'],
+              'candidateEventRpcEnabled': result['authenticatedCanRecordEvent'],
+              'anonymousEventRpcBlocked': not result['anonCanRecordEvent'],
+              'secureBaseAuthoritiesRestricted': not result['authenticatedCanBypassStart'] and not result['authenticatedCanBypassSubmit'],
+          }
+          with open('phase5-production-safe.json', 'w', encoding='utf-8') as handle:
+              json.dump(safe, handle, indent=2)
+          print(json.dumps(safe, indent=2))
+          PY
+
+      - name: Confirm no migrations remain pending
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db push --linked --dry-run -p "$SUPABASE_DB_PASSWORD" 2>&1 | tee phase5-post-deploy-dry-run.log
+          grep -Eo '202[0-9]{9,}' phase5-post-deploy-dry-run.log | sort -u > phase5-post-deploy-pending.txt || true
+          test ! -s phase5-post-deploy-pending.txt
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-phase-5-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase5-expected-migrations.txt
+            phase5-legacy-local-migrations.txt
+            phase5-isolated-migration-window.txt
+            phase5-production-dry-run.log
+            phase5-production-deploy.log
+            phase5-production-safe.json
+            phase5-post-deploy-dry-run.log
+            phase5-post-deploy-pending.txt
