@@ -1,3 +1,5 @@
 Approved production activation for Original Roadmap Phase 5 PR #107.
 Expected source commit: 8cfc6d26599cfeb84da0d744dee4711bce8c24bd
 Approved migration versions: 202607261400 through 202607261406.
+Exclude unrelated pending migration: 202607261300_phase_7_ai_cv_profile_builder_foundation.sql
+Trigger: 2
