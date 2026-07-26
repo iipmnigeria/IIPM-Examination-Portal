@@ -1,0 +1,4 @@
+Approved Phase 3 frontend production activation
+PR: #77
+Approved merge commit: 03242b42dbef911dc780d368ffa0fd18c1e85ab7
+Database migration 202607251800 is already applied and verified.
