@@ -23,50 +23,84 @@ const detectionType = (detections: unknown): ProctorEventType => {
 
 export default function ExamExperience(props: ExamExperienceProps) {
   const [activeTest, setActiveTest] = useState(props.test);
+  const [runtimeReady, setRuntimeReady] = useState(!props.test.proctoringPolicy);
+  const [runtimeError, setRuntimeError] = useState('');
 
   useEffect(() => {
     const policy = activeTest.proctoringPolicy;
-    if (!policy || activeTest.proctorPreflightRequired) return;
+    if (!policy || activeTest.proctorPreflightRequired) {
+      setRuntimeReady(!policy);
+      return undefined;
+    }
 
+    setRuntimeReady(false);
+    setRuntimeError('');
     sessionStorage.setItem('agilecert_active_proctoring_policy', JSON.stringify(policy));
+
     const originalFetch = window.fetch.bind(window);
+    const mediaDevices = navigator.mediaDevices;
+    const originalGetUserMedia = mediaDevices?.getUserMedia?.bind(mediaDevices);
+    let mediaGuardInstalled = false;
 
-    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (!url.includes('/api/proctor/analyze')) return originalFetch(input, init);
-
-      if (!policy.aiVisualAnalysisEnabled) {
-        return new Response(JSON.stringify({
-          isSuspicious: false,
-          confidence: 0,
-          reason: 'AI visual analysis is disabled by the active examination policy.',
-          detections: [],
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
+    try {
+      if (mediaDevices && originalGetUserMedia && !policy.requireCamera && !policy.aiVisualAnalysisEnabled) {
+        mediaDevices.getUserMedia = (async (constraints?: MediaStreamConstraints) => {
+          const requestsVideo = Boolean(constraints && typeof constraints === 'object' && constraints.video);
+          if (requestsVideo) return new MediaStream();
+          return originalGetUserMedia(constraints);
+        }) as typeof mediaDevices.getUserMedia;
+        mediaGuardInstalled = true;
       }
 
-      const response = await originalFetch(input, init);
-      if (response.ok && policy.liveEventCaptureEnabled) {
-        void response.clone().json().then((payload: Record<string, unknown>) => {
-          if (!payload?.isSuspicious) return;
-          const detail = {
-            id: `ai-${Date.now()}-${crypto.randomUUID()}`,
-            timestamp: new Date().toISOString(),
-            type: detectionType(payload.detections),
-            severity: Number(payload.confidence || 0) >= 0.8 ? 'high' : 'medium',
-            message: String(payload.reason || 'AI visual-analysis risk indicator recorded.'),
-            aiGenerated: true,
-          };
-          window.dispatchEvent(new CustomEvent('agilecert-proctor-event', { detail }));
-        }).catch(() => undefined);
+      window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes('/api/proctor/analyze')) return originalFetch(input, init);
+
+        if (!policy.aiVisualAnalysisEnabled) {
+          return new Response(JSON.stringify({
+            isSuspicious: false,
+            confidence: 0,
+            reason: 'AI visual analysis is disabled by the active examination policy.',
+            detections: [],
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        const response = await originalFetch(input, init);
+        if (response.ok && policy.liveEventCaptureEnabled) {
+          void response.clone().json().then((payload: Record<string, unknown>) => {
+            if (!payload?.isSuspicious) return;
+            const detail = {
+              id: `ai-${Date.now()}-${crypto.randomUUID()}`,
+              timestamp: new Date().toISOString(),
+              type: detectionType(payload.detections),
+              severity: Number(payload.confidence || 0) >= 0.8 ? 'high' : 'medium',
+              message: String(payload.reason || 'AI visual-analysis risk indicator recorded.'),
+              aiGenerated: true,
+            };
+            window.dispatchEvent(new CustomEvent('agilecert-proctor-event', { detail }));
+          }).catch(() => undefined);
+        }
+        return response;
+      };
+
+      setRuntimeReady(true);
+    } catch (error) {
+      window.fetch = originalFetch;
+      if (mediaGuardInstalled && mediaDevices && originalGetUserMedia) {
+        mediaDevices.getUserMedia = originalGetUserMedia;
       }
-      return response;
-    };
+      sessionStorage.removeItem('agilecert_active_proctoring_policy');
+      setRuntimeError(error instanceof Error ? error.message : 'The examination privacy runtime could not be prepared.');
+    }
 
     return () => {
       window.fetch = originalFetch;
+      if (mediaGuardInstalled && mediaDevices && originalGetUserMedia) {
+        mediaDevices.getUserMedia = originalGetUserMedia;
+      }
       sessionStorage.removeItem('agilecert_active_proctoring_policy');
     };
   }, [activeTest.proctorPreflightRequired, activeTest.proctoringPolicy]);
@@ -78,6 +112,29 @@ export default function ExamExperience(props: ExamExperienceProps) {
         onReady={setActiveTest}
         onCancel={props.onExitExam}
       />
+    );
+  }
+
+  if (activeTest.proctoringPolicy && !runtimeReady) {
+    return (
+      <div className="min-h-screen bg-slate-950 p-6 text-white flex items-center justify-center">
+        <div className="w-full max-w-xl rounded-3xl border border-slate-800 bg-slate-900 p-8 text-center shadow-2xl">
+          <h1 className="text-xl font-black">Preparing secure examination runtime</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-300">
+            Camera and AI processing are being restricted to the permissions allowed by the active examination policy.
+          </p>
+          {runtimeError && (
+            <div className="mt-5 rounded-2xl border border-rose-800 bg-rose-950/40 p-4 text-sm font-bold text-rose-200">
+              {runtimeError}
+            </div>
+          )}
+          {runtimeError && (
+            <button type="button" onClick={props.onExitExam} className="mt-5 rounded-xl border border-slate-700 px-5 py-3 text-sm font-black text-slate-200 hover:bg-slate-800">
+              Return to dashboard
+            </button>
+          )}
+        </div>
+      </div>
     );
   }
 
