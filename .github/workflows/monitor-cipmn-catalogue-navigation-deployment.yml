@@ -1,0 +1,111 @@
+name: Monitor CIPMN Catalogue Navigation Deployment
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/monitor-cipmn-catalogue-navigation.txt'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: monitor-cipmn-catalogue-navigation-deployment
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify protected Pages deployment and evidence
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_HEAD_SHA: 'a7578cf6452f289fa64ebd0d8cd62c5e33d7fcdd'
+      TARGET_WORKFLOW: 'deploy-cipmn-catalogue-navigation-pages.yml'
+
+    steps:
+      - name: Wait for exact push deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=''
+          conclusion=''
+          for attempt in $(seq 1 40); do
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/${TARGET_WORKFLOW}/runs?event=push&branch=main&per_page=30" \
+              > workflow-runs.json
+
+            run_id="$(jq -r --arg sha "$TARGET_HEAD_SHA" '.workflow_runs[] | select(.head_sha == $sha) | .id' workflow-runs.json | head -n 1)"
+            if [ -n "$run_id" ] && [ "$run_id" != 'null' ]; then
+              status="$(jq -r --argjson id "$run_id" '.workflow_runs[] | select(.id == $id) | .status' workflow-runs.json)"
+              conclusion="$(jq -r --argjson id "$run_id" '.workflow_runs[] | select(.id == $id) | .conclusion // ""' workflow-runs.json)"
+              printf 'run_id=%s status=%s conclusion=%s\n' "$run_id" "$status" "$conclusion"
+              if [ "$status" = 'completed' ]; then
+                break
+              fi
+            else
+              printf 'Waiting for deployment run for %s\n' "$TARGET_HEAD_SHA"
+            fi
+            sleep 10
+          done
+
+          test -n "$run_id"
+          test "$conclusion" = 'success'
+          printf '%s' "$run_id" > deployment-run-id.txt
+
+      - name: Verify deployment jobs and artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id="$(cat deployment-run-id.txt)"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > deployment-jobs.json
+          jq -e '.jobs | length > 0' deployment-jobs.json >/dev/null
+          jq -e 'all(.jobs[]; .conclusion == "success")' deployment-jobs.json >/dev/null
+
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" > deployment-artifacts.json
+          artifact_id="$(jq -r '.artifacts[] | select(.name == "cipmn-catalogue-navigation-production-evidence" and (.expired | not)) | .id' deployment-artifacts.json | head -n 1)"
+          test -n "$artifact_id"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > deployment-evidence.zip
+          mkdir deployment-evidence
+          unzip -q deployment-evidence.zip -d deployment-evidence
+          test -s deployment-evidence/cipmn-catalogue-navigation-production.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          evidence = json.loads(Path('deployment-evidence/cipmn-catalogue-navigation-production.json').read_text(encoding='utf-8'))
+          assert evidence['sourceCommit'] == '83cbb43d83cdac2178a9a8d8886afca37d59c169', evidence
+          assert evidence['compiledBundleSha256'] == evidence['liveBundleSha256'], evidence
+          assert evidence['cipmnRoutingMarker'] == 'CIPMN-MOCK', evidence
+          assert evidence['navigation'] == [
+              'IIPM Specialist Certification Catalogue',
+              'CIPMN Professional Licensing Mock Examinations',
+              'Academic Gradebook & Credentials',
+          ], evidence
+          safe = {
+              'deploymentRunId': int(Path('deployment-run-id.txt').read_text()),
+              **evidence,
+          }
+          Path('cipmn-catalogue-deployment-monitor.json').write_text(
+              json.dumps(safe, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(safe, indent=2))
+          PY
+
+      - name: Upload monitor evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-catalogue-deployment-monitor
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            deployment-run-id.txt
+            deployment-jobs.json
+            deployment-artifacts.json
+            cipmn-catalogue-deployment-monitor.json
