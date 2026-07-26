@@ -33,7 +33,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Confirm seven migrations and protected boundaries
+      - name: Confirm eight migrations and protected boundaries
         shell: bash
         run: |
           set -euo pipefail
@@ -45,12 +45,13 @@ jobs:
           supabase/migrations/202607271004_phase_8_refunds_credits.sql
           supabase/migrations/202607271005_phase_8_reconciliation_reporting.sql
           supabase/migrations/202607271006_phase_8_privacy_permissions.sql
+          supabase/migrations/202607271007_phase_8_idempotency_refund_access.sql
           EOF
           git diff --name-only origin/supabase-integration...HEAD \
             | grep '^supabase/migrations/' | sort > "$RUNNER_TEMP/phase8-actual-migrations.txt" || true
           sort -o "$RUNNER_TEMP/phase8-expected-migrations.txt" "$RUNNER_TEMP/phase8-expected-migrations.txt"
           diff -u "$RUNNER_TEMP/phase8-expected-migrations.txt" "$RUNNER_TEMP/phase8-actual-migrations.txt"
-          test "$(wc -l < "$RUNNER_TEMP/phase8-actual-migrations.txt" | tr -d ' ')" -eq 7
+          test "$(wc -l < "$RUNNER_TEMP/phase8-actual-migrations.txt" | tr -d ' ')" -eq 8
 
           changed="$(git diff --name-only origin/supabase-integration...HEAD)"
           ! printf '%s\n' "$changed" | grep -E '^supabase/functions/'
@@ -64,7 +65,7 @@ jobs:
           python3 <<'PY'
           from pathlib import Path
           files = sorted(Path('supabase/migrations').glob('20260727100*_phase_8_*.sql'))
-          assert len(files) == 7, files
+          assert len(files) == 8, files
           sql = '\n'.join(path.read_text() for path in files)
           required = [
               'agilecert_institutional_customers',
@@ -81,6 +82,9 @@ jobs:
               'get_agilecert_finance_admin_console',
               'institutional_sponsorship',
               'must be paid or explicitly authorised',
+              'agilecert_sync_sponsorship_pool_counts',
+              'agilecert_refresh_invoices_after_payment_status_change',
+              'agilecert_revoke_unused_exam_access_after_full_refund',
           ]
           missing = [marker for marker in required if marker not in sql]
           assert not missing, f'Missing Original Phase 8 controls: {missing}'
