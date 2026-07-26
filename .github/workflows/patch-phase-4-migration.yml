@@ -1,8 +1,9 @@
 name: Patch Phase 4 Credential Migration
 
 on:
-  push:
-    branches: [phase-4-professional-credential-system]
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
     paths:
       - '.github/workflows/patch-phase-4-migration.yml'
 
@@ -11,6 +12,7 @@ permissions:
 
 jobs:
   patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
