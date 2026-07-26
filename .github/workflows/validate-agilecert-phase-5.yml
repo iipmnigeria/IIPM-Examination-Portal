@@ -1,70 +1,164 @@
 name: Validate AgileCert Phase 5
 
 on:
+  push:
+    branches: [phase-5-identity-assurance-professional-certificate]
   pull_request:
     branches: [supabase-integration]
-    types: [reopened, synchronize]
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: validate-agilecert-phase-5-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  patch-phase-4:
-    if: github.head_ref == 'phase-4-professional-credential-system'
+  validate:
+    name: Phase 5 identity assurance and professional credential controls
+    if: github.event_name != 'pull_request' || github.head_ref == 'phase-5-identity-assurance-professional-certificate'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: phase-4-professional-credential-system
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Correct Phase 4 credential migration
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install, type-check and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Identity Assurance'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Identity Review'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Credential Store'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check certificate payment initializer
+        run: deno check --node-modules-dir=auto supabase/functions/initialize-certificate-payment/index.ts
+
+      - name: Validate exact scope and security controls
         shell: bash
         run: |
           set -euo pipefail
           python3 <<'PY'
           from pathlib import Path
+          import subprocess
 
-          path = Path('supabase/migrations/202607261200_phase_4_professional_credential_system.sql')
-          text = path.read_text()
-          changed = False
+          changed = set(subprocess.check_output([
+              'git', 'diff', '--name-only', 'origin/supabase-integration...HEAD'
+          ], text=True).splitlines())
 
-          old = """from public.agilecert_issued_certificates certificate
-join public.examinations examination on examination.id = certificate.examination_id
-left join public.agilecert_credential_policies policy
-  on policy.programme_id = examination.programme_id
- and policy.product_code = credential.product_code
- and policy.active = true
-where certificate.id = credential.certificate_id;"""
-          new = """from public.agilecert_issued_certificates certificate
-join public.examinations examination on examination.id = certificate.examination_id
-join public.agilecert_credential_policies policy
-  on policy.programme_id = examination.programme_id
- and policy.active = true
-where certificate.id = credential.certificate_id
-  and policy.product_code = credential.product_code;"""
+          migrations = sorted(path for path in changed if path.startswith('supabase/migrations/'))
+          assert migrations == [
+              'supabase/migrations/202607250101_phase_5_identity_assurance_professional_certificate.sql',
+              'supabase/migrations/202607250102_phase_5_identity_assurance_hardening.sql',
+          ], f'Unexpected Phase 5 migrations: {migrations}'
 
-          if old in text:
-              text = text.replace(old, new, 1)
-              changed = True
+          functions = sorted(path for path in changed if path.startswith('supabase/functions/'))
+          assert functions == [
+              'supabase/functions/initialize-certificate-payment/index.ts'
+          ], f'Unexpected Phase 5 function changes: {functions}'
 
-          if "'programmeTitle', programme.title" in text:
-              text = text.replace("'programmeTitle', programme.title", "'programmeTitle', programme.name", 1)
-              changed = True
+          forbidden = {
+              'src/services/commerceService.ts',
+              'src/services/examService.ts',
+              'src/services/preparationMaterialService.ts',
+              'src/services/materialAdminService.ts',
+              'src/components/CandidateCommerceOverlay.tsx',
+              'src/components/PaymentReturnHandler.tsx',
+              'src/components/AdminCommerceConsole.tsx',
+              'src/components/ExamScreen.tsx',
+              'src/components/StudentDashboard.tsx',
+              'src/components/AdminPortal.tsx',
+              'src/components/CandidatePreparationMaterialsPanel.tsx',
+              'src/components/AdminMaterialManagementPanel.tsx',
+              'supabase/functions/initialize-exam-payment/index.ts',
+              'supabase/functions/verify-exam-payment/index.ts',
+              'supabase/functions/paystack-webhook/index.ts',
+              'supabase/functions/verify-certificate-payment/index.ts',
+              'supabase/functions/paystack-certificate-webhook/index.ts',
+              'supabase/functions/_shared/paystack.ts',
+              'supabase/functions/_shared/agilecertCertificatePaystack.ts',
+          }
+          overlap = sorted(changed & forbidden)
+          assert not overlap, f'Protected application boundaries changed: {overlap}'
 
-          if not changed:
-              raise SystemExit('Expected Phase 4 migration corrections were not found.')
+          sql = '\n'.join([
+              Path(migrations[0]).read_text(),
+              Path(migrations[1]).read_text(),
+          ])
+          required_sql = [
+              'agilecert_identity_verifications',
+              'agilecert_identity_verification_audits',
+              'agilecert-identity-evidence',
+              'submit_my_agilecert_identity_assurance',
+              'review_agilecert_identity_assurance',
+              'create_agilecert_professional_certificate_order',
+              'agilecert_issue_identity_verified_certificate_for_order',
+              'agilecert_guard_and_invalidate_identity_on_profile_change',
+              'manual_iipm_review',
+              'identityVerificationId',
+              'active Professional Certificate payment',
+              'set search_path to public, extensions',
+              'public = false',
+              'storage.foldername(name)',
+          ]
+          missing = [marker for marker in required_sql if marker not in sql]
+          assert not missing, f'Missing Phase 5 database controls: {missing}'
 
-          path.write_text(text)
+          code = '\n'.join(Path(path).read_text() for path in [
+              'src/services/identityAssuranceService.ts',
+              'src/services/certificateCommerceService.ts',
+              'src/components/CandidateIdentityAssurance.tsx',
+              'src/components/AdminIdentityAssuranceLauncher.tsx',
+              'src/main.tsx',
+              'supabase/functions/initialize-certificate-payment/index.ts',
+          ])
+          required_code = [
+              'Identity Assurance',
+              'Identity Review',
+              'Privacy restriction',
+              'Reviewer privacy obligation',
+              'agilecert-identity-evidence',
+              'professionalCheckoutUnlocked',
+              'create_agilecert_professional_certificate_order',
+              'identityAssuranceRequired',
+          ]
+          missing = [marker for marker in required_code if marker not in code]
+          assert not missing, f'Missing Phase 5 application controls: {missing}'
+          assert 'passport' in code.lower()
+          assert 'selfies' in code.lower()
+          assert 'biometric' in code.lower()
+
+          helper = Path('supabase/functions/_shared/agilecertCertificatePaystack.ts').read_text()
+          assert 'AGILECERT_PAYSTACK_SECRET_KEY' in helper
+          assert "Deno.env.get('PAYSTACK_SECRET_KEY')" not in helper
+
+          scope = Path('docs/AGILECERT_PHASE_5_SCOPE.md').read_text()
+          required_scope = [
+              'Identity Assurance and Professional Certificate Enablement',
+              'manual and privacy-bounded',
+              'private Supabase Storage bucket',
+              'same approved identity-assurance record captured on the order',
+              'government-ID collection',
+              'selfie capture',
+              'facial comparison',
+              'third-party KYC',
+              'No Phase 5 merge or deployment may occur without separate explicit approval',
+          ]
+          missing = [marker for marker in required_scope if marker not in scope]
+          assert not missing, f'Missing Phase 5 scope controls: {missing}'
           PY
-
-          grep -q "policy.product_code = credential.product_code;" supabase/migrations/202607261200_phase_4_professional_credential_system.sql
-          grep -q "'programmeTitle', programme.name" supabase/migrations/202607261200_phase_4_professional_credential_system.sql
-          ! grep -q "programme.title" supabase/migrations/202607261200_phase_4_professional_credential_system.sql
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add supabase/migrations/202607261200_phase_4_professional_credential_system.sql
-          git commit -m 'Correct Phase 4 credential migration queries'
-          git push origin HEAD:phase-4-professional-credential-system
