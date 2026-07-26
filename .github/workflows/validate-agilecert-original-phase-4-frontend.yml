@@ -45,23 +45,15 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
-        id: install
-        continue-on-error: true
         run: npm install --no-audit --no-fund
 
       - name: TypeScript validation
-        id: lint
-        continue-on-error: true
         run: npm run lint
 
       - name: Production build
-        id: build
-        continue-on-error: true
         run: npm run build
 
       - name: Verify compiled Phase 4 capabilities
-        id: markers
-        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -76,8 +68,6 @@ jobs:
           find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Temporary share link'
 
       - name: Confirm protected frontend boundaries
-        id: scope
-        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -97,57 +87,30 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Record frontend validation status
-        if: always() && github.event_name == 'push'
+      - name: Record successful frontend validation
+        if: success() && github.event_name == 'push'
         shell: bash
         env:
-          INSTALL_OUTCOME: ${{ steps.install.outcome }}
-          LINT_OUTCOME: ${{ steps.lint.outcome }}
-          BUILD_OUTCOME: ${{ steps.build.outcome }}
-          MARKERS_OUTCOME: ${{ steps.markers.outcome }}
-          SCOPE_OUTCOME: ${{ steps.scope.outcome }}
           RUN_ID: ${{ github.run_id }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if [ "$INSTALL_OUTCOME" = success ] && [ "$LINT_OUTCOME" = success ] && [ "$BUILD_OUTCOME" = success ] && [ "$MARKERS_OUTCOME" = success ] && [ "$SCOPE_OUTCOME" = success ]; then
-            result='PASSED'
-          else
-            result='FAILED'
-          fi
           cat > docs/AGILECERT_PHASE_4_FRONTEND_VALIDATION_STATUS.md <<EOF
           # Original Phase 4 frontend validation status
 
-          - Result: **$result**
+          - Result: **PASSED**
           - Source commit: $COMMIT_SHA
           - Workflow run: $RUN_ID
-          - Dependency installation: $INSTALL_OUTCOME
-          - TypeScript validation: $LINT_OUTCOME
-          - Production build: $BUILD_OUTCOME
-          - Compiled capability markers: $MARKERS_OUTCOME
-          - Protected frontend scope: $SCOPE_OUTCOME
+          - Dependency installation: success
+          - TypeScript validation: success
+          - Production build: success
+          - Compiled capability markers: success
+          - Protected frontend scope: success
           EOF
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add docs/AGILECERT_PHASE_4_FRONTEND_VALIDATION_STATUS.md
           if ! git diff --cached --quiet; then
-            git commit -m "Record original Phase 4 frontend validation $result"
+            git commit -m 'Record original Phase 4 frontend validation PASSED'
             git push origin HEAD:phase-4-professional-credential-system
           fi
-
-      - name: Enforce frontend validation result
-        if: always()
-        shell: bash
-        env:
-          INSTALL_OUTCOME: ${{ steps.install.outcome }}
-          LINT_OUTCOME: ${{ steps.lint.outcome }}
-          BUILD_OUTCOME: ${{ steps.build.outcome }}
-          MARKERS_OUTCOME: ${{ steps.markers.outcome }}
-          SCOPE_OUTCOME: ${{ steps.scope.outcome }}
-        run: |
-          set -euo pipefail
-          test "$INSTALL_OUTCOME" = success
-          test "$LINT_OUTCOME" = success
-          test "$BUILD_OUTCOME" = success
-          test "$MARKERS_OUTCOME" = success
-          test "$SCOPE_OUTCOME" = success
