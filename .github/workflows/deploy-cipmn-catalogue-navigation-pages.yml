@@ -1,0 +1,165 @@
+name: Deploy CIPMN Catalogue Navigation Pages
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-cipmn-catalogue-navigation.txt'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy-cipmn-catalogue-navigation-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, publish and verify catalogue navigation
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      APPROVED_APP_COMMIT: '83cbb43d83cdac2178a9a8d8886afca37d59c169'
+
+    steps:
+      - name: Checkout exact approved application source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.APPROVED_APP_COMMIT }}
+          fetch-depth: 0
+
+      - name: Verify exact approved source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APPROVED_APP_COMMIT"
+          test -s src/components/StudentDashboard.tsx
+          grep -q 'IIPM Specialist Certification Catalogue' src/components/StudentDashboard.tsx
+          grep -q 'CIPMN Professional Licensing Mock Examinations' src/components/StudentDashboard.tsx
+          grep -q 'Academic Gradebook & Credentials' src/components/StudentDashboard.tsx
+          grep -q "programmeCode === 'CIPMN-MOCK'" src/components/StudentDashboard.tsx
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Verify compiled catalogue navigation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          ! grep -q '/src/main.tsx' dist/index.html
+          js_file="$(find dist/assets -maxdepth 1 -type f -name '*.js' | head -n 1)"
+          test -s "$js_file"
+          grep -q 'IIPM Specialist Certification Catalogue' "$js_file"
+          grep -q 'CIPMN Professional Licensing Mock Examinations' "$js_file"
+          grep -q 'Academic Gradebook & Credentials' "$js_file"
+          grep -q 'CIPMN-MOCK' "$js_file"
+          sha256sum "$js_file" | tee compiled-catalogue-bundle.sha256
+          touch dist/.nojekyll
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload compiled Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy compiled Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Verify live compiled bundle
+        shell: bash
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          test -n "$PAGE_URL"
+          success=0
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent --show-error --location "$PAGE_URL" -o live-index.html; then
+              if ! grep -q '/src/main.tsx' live-index.html; then
+                js_path="$(grep -Eo 'src="[^"]+\.js"' live-index.html | head -n 1 | cut -d'"' -f2 || true)"
+                if [ -n "$js_path" ]; then
+                  js_url="$(python3 - "$PAGE_URL" "$js_path" <<'PY'
+          import sys
+          from urllib.parse import urljoin
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+          )"
+                  if curl --fail --silent --show-error --location "$js_url" -o live-catalogue-bundle.js \
+                    && grep -q 'IIPM Specialist Certification Catalogue' live-catalogue-bundle.js \
+                    && grep -q 'CIPMN Professional Licensing Mock Examinations' live-catalogue-bundle.js \
+                    && grep -q 'Academic Gradebook & Credentials' live-catalogue-bundle.js \
+                    && grep -q 'CIPMN-MOCK' live-catalogue-bundle.js; then
+                    sha256sum live-catalogue-bundle.js | tee live-catalogue-bundle.sha256
+                    success=1
+                    break
+                  fi
+                fi
+              fi
+            fi
+            sleep 6
+          done
+          test "$success" -eq 1
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          compiled_hash = Path('compiled-catalogue-bundle.sha256').read_text().split()[0]
+          live_hash = Path('live-catalogue-bundle.sha256').read_text().split()[0]
+          assert compiled_hash == live_hash, (compiled_hash, live_hash)
+          evidence = {
+              'sourceCommit': os.environ['APPROVED_APP_COMMIT'],
+              'pageUrl': os.environ['PAGE_URL'],
+              'compiledBundleSha256': compiled_hash,
+              'liveBundleSha256': live_hash,
+              'navigation': [
+                  'IIPM Specialist Certification Catalogue',
+                  'CIPMN Professional Licensing Mock Examinations',
+                  'Academic Gradebook & Credentials',
+              ],
+              'cipmnRoutingMarker': 'CIPMN-MOCK',
+          }
+          Path('cipmn-catalogue-navigation-production.json').write_text(
+              json.dumps(evidence, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-catalogue-navigation-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            compiled-catalogue-bundle.sha256
+            live-index.html
+            live-catalogue-bundle.sha256
+            cipmn-catalogue-navigation-production.json
