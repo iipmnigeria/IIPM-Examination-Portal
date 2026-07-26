@@ -1,0 +1,546 @@
+name: Validate AgileCert Original Phase 4
+
+on:
+  push:
+    branches: [phase-4-professional-credential-system]
+    paths:
+      - 'docs/AGILECERT_ORIGINAL_PHASE_4_SCOPE.md'
+      - 'src/**'
+      - 'package.json'
+      - 'supabase/migrations/20260726120*_phase_4_*.sql'
+      - '.github/workflows/validate-agilecert-original-phase-4.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'docs/AGILECERT_ORIGINAL_PHASE_4_SCOPE.md'
+      - 'src/**'
+      - 'package.json'
+      - 'supabase/migrations/20260726120*_phase_4_*.sql'
+      - '.github/workflows/validate-agilecert-original-phase-4.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: validate-agilecert-original-phase-4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate professional credential system
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Confirm exact Phase 4 migration and protected scope
+        id: scope
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(cat <<'EOF'
+          supabase/migrations/202607261200_phase_4_credential_core.sql
+          supabase/migrations/202607261201_phase_4_wallet_cpd.sql
+          supabase/migrations/202607261202_phase_4_sharing_renewal.sql
+          supabase/migrations/202607261203_phase_4_credential_admin.sql
+          supabase/migrations/202607261204_phase_4_public_privacy.sql
+          EOF
+          )
+          actual="$(git diff --name-only origin/supabase-integration...HEAD | grep '^supabase/migrations/' || true)"
+          test "$actual" = "$expected"
+          ! git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/'
+
+          protected='^src/services/(commerceService|examService|preparationMaterialService|materialAdminService|certificateCommerceService|identityAssuranceService|aiCertificationAdviserService)\.ts$|^src/components/(CandidateCommerceOverlay|PaymentReturnHandler|AdminCommerceConsole|ExamScreen|StudentDashboard|AdminPortal|CandidatePreparationMaterialsPanel|AdminMaterialManagementPanel|CandidateIdentityAssurance|AdminIdentityAssuranceLauncher|AiCertificationAdviser)\.tsx$|^supabase/functions/'
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          if printf '%s\n' "$changed" | grep -Eq "$protected"; then
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          files = [
+              Path('supabase/migrations/202607261200_phase_4_credential_core.sql'),
+              Path('supabase/migrations/202607261201_phase_4_wallet_cpd.sql'),
+              Path('supabase/migrations/202607261202_phase_4_sharing_renewal.sql'),
+              Path('supabase/migrations/202607261203_phase_4_credential_admin.sql'),
+              Path('supabase/migrations/202607261204_phase_4_public_privacy.sql'),
+          ]
+          sql = '\n'.join(path.read_text() for path in files)
+          required = [
+              'agilecert_credential_policies',
+              'agilecert_candidate_transcripts',
+              'agilecert_cpd_records',
+              'agilecert_credential_renewals',
+              'agilecert_credential_share_links',
+              'agilecert_credential_audit_events',
+              'agilecert_build_badge_assertion',
+              'get_my_agilecert_credential_wallet',
+              'save_my_agilecert_cpd_record',
+              'submit_my_agilecert_cpd_record',
+              'review_agilecert_cpd_record',
+              'request_my_agilecert_credential_renewal',
+              'decide_agilecert_credential_renewal',
+              'create_my_agilecert_credential_share_link',
+              'revoke_my_agilecert_credential_share_link',
+              'verify_agilecert_professional_record',
+              'get_agilecert_credential_admin_console',
+              'upsert_agilecert_credential_policy',
+              'OpenBadgeCredential',
+              'public_enabled boolean not null default false',
+              'validity_months integer',
+          ]
+          missing = [marker for marker in required if marker not in sql]
+          assert not missing, f'Missing Phase 4 controls: {missing}'
+          forbidden = [
+              'AGILECERT_PAYSTACK_SECRET_KEY',
+              'PAYSTACK_SECRET_KEY',
+              'fulfil_paid_agilecert_certificate_order(',
+              'create_agilecert_certificate_order(',
+              'create_agilecert_professional_certificate_order(',
+          ]
+          found = [marker for marker in forbidden if marker in sql]
+          assert not found, f'Payment/checkout authority leaked into Phase 4 completion: {found}'
+          PY
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          commit;
+          SQL
+
+      - name: Start isolated Supabase and apply all migrations
+        id: reset
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee phase4-supabase-start.log
+          supabase db reset --local 2>&1 | tee phase4-db-reset.log
+
+      - name: Exercise wallet, badge, transcript, CPD, renewal and sharing lifecycle
+        id: behaviour
+        if: steps.scope.outcome == 'success' && steps.reset.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 2>&1 <<'SQL' | tee phase4-behaviour.log
+          do $$
+          declare
+            v_admin_id uuid := '00000000-0000-0000-0000-00000000a004';
+            v_candidate_id uuid := '00000000-0000-0000-0000-00000000c004';
+            v_programme_id uuid := gen_random_uuid();
+            v_exam_id uuid := gen_random_uuid();
+            v_assignment_id uuid := gen_random_uuid();
+            v_session_id uuid := gen_random_uuid();
+            v_attempt_id uuid := gen_random_uuid();
+            v_order_id uuid := gen_random_uuid();
+            v_eligibility_id uuid;
+            v_credential_id uuid;
+            v_cpd_id uuid;
+            v_renewal_id uuid;
+            v_share_id uuid;
+            v_share_code text;
+            v_transcript_code text;
+            v_old_expiry timestamptz;
+            v_new_expiry timestamptz;
+            v_result jsonb;
+            v_wallet jsonb;
+            v_count bigint;
+          begin
+            insert into auth.users (
+              id, instance_id, aud, role, email, encrypted_password,
+              email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+              created_at, updated_at
+            ) values
+              (
+                v_admin_id, '00000000-0000-0000-0000-000000000000',
+                'authenticated', 'authenticated', 'phase4-admin@example.test',
+                crypt('temporary-password', gen_salt('bf')), now(), '{}'::jsonb,
+                jsonb_build_object('full_name', 'Phase 4 Administrator'), now(), now()
+              ),
+              (
+                v_candidate_id, '00000000-0000-0000-0000-000000000000',
+                'authenticated', 'authenticated', 'phase4-candidate@example.test',
+                crypt('temporary-password', gen_salt('bf')), now(), '{}'::jsonb,
+                jsonb_build_object('full_name', 'Credential Candidate'), now(), now()
+              );
+
+            update public.profiles
+            set role = 'super_admin', full_name = 'Phase 4 Administrator', is_active = true
+            where id = v_admin_id;
+            update public.profiles
+            set role = 'candidate', full_name = 'Credential Candidate', is_active = true
+            where id = v_candidate_id;
+
+            insert into public.agilecert_candidate_profiles (
+              user_id, legal_name, country_code, preferred_currency
+            ) values (
+              v_candidate_id, 'Credential Candidate', 'NG', 'NGN'
+            );
+
+            insert into public.programmes (id, code, name, description, is_active)
+            values (
+              v_programme_id, 'P4TEST', 'Phase 4 Credential Test',
+              'Isolated professional credential lifecycle test programme.', true
+            );
+
+            insert into public.examinations (
+              id, programme_id, title, duration_minutes, pass_mark,
+              status, max_attempts, randomize_questions, randomize_options
+            ) values (
+              v_exam_id, v_programme_id, 'Phase 4 Credential Examination',
+              60, 70, 'published', 2, false, false
+            );
+
+            insert into public.agilecert_certificate_policies (
+              examination_id, certificate_title, issuer_name,
+              pass_mark_override, max_suspicious_score, active,
+              approval_mode, require_candidate_request
+            ) values (
+              v_exam_id, 'Certificate of Achievement',
+              'Integrated Institute of Professional Management (IIPM)',
+              null, 49.99, true, 'automatic', false
+            );
+
+            insert into public.exam_assignments (
+              id, examination_id, candidate_id, assigned_by, available_from,
+              max_attempts_override, status
+            ) values (
+              v_assignment_id, v_exam_id, v_candidate_id, v_admin_id,
+              now(), 2, 'assigned'
+            );
+
+            insert into public.exam_sessions (
+              id, assignment_id, examination_id, candidate_id, status,
+              started_at, expires_at, submitted_at, suspicious_score
+            ) values (
+              v_session_id, v_assignment_id, v_exam_id, v_candidate_id,
+              'submitted', now() - interval '30 minutes',
+              now() + interval '30 minutes', now(), 0
+            );
+
+            insert into public.attempts (
+              id, session_id, examination_id, candidate_id, raw_score,
+              maximum_score, percentage, status, suspicious_score,
+              started_at, submitted_at
+            ) values (
+              v_attempt_id, v_session_id, v_exam_id, v_candidate_id,
+              88, 100, 88, 'submitted', 0,
+              now() - interval '30 minutes', now()
+            );
+
+            select id into v_eligibility_id
+            from public.agilecert_certificate_eligibility_records
+            where attempt_id = v_attempt_id;
+
+            if v_eligibility_id is null then
+              raise exception 'Authoritative certificate eligibility was not created.';
+            end if;
+
+            insert into public.agilecert_certificate_orders (
+              id, reference, candidate_id, eligibility_id, product_code,
+              currency, pricing_window, list_amount_minor, discount_amount_minor,
+              payable_amount_minor, status, payment_provider, waived_at,
+              waived_by, waiver_reason
+            ) values (
+              v_order_id, 'P4-WAIVER-' || replace(gen_random_uuid()::text, '-', ''),
+              v_candidate_id, v_eligibility_id, 'achievement', 'NGN', 'waived',
+              2500000, 2500000, 0, 'waived', 'administrator_waiver', now(),
+              v_admin_id, 'Isolated Phase 4 professional credential validation.'
+            );
+
+            perform set_config('request.jwt.claim.sub', v_admin_id::text, true);
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+            v_result := public.agilecert_issue_certificate_for_order(
+              v_order_id, v_admin_id, 'isolated_phase4_test'
+            );
+            v_credential_id := (v_result->>'credentialId')::uuid;
+
+            if v_credential_id is null then
+              raise exception 'Paid/waived credential issuance failed: %', v_result;
+            end if;
+
+            if not exists (
+              select 1 from public.agilecert_paid_credentials
+              where id = v_credential_id
+                and valid_from is not null
+                and expires_at is null
+                and badge_assertion->'type' ? 'OpenBadgeCredential'
+            ) then
+              raise exception 'Default non-expiring credential or badge assertion is invalid.';
+            end if;
+
+            select count(*) into v_count
+            from public.agilecert_candidate_transcripts
+            where candidate_id = v_candidate_id
+              and public_enabled = false;
+            if v_count <> 1 then
+              raise exception 'Private candidate transcript was not created.';
+            end if;
+
+            v_result := public.upsert_agilecert_credential_policy(
+              v_programme_id, 'achievement', 1, 90, 5, 30, true
+            );
+            if (v_result->>'validityMonths')::integer <> 1 then
+              raise exception 'Credential expiry policy was not saved: %', v_result;
+            end if;
+
+            select expires_at into v_old_expiry
+            from public.agilecert_paid_credentials
+            where id = v_credential_id;
+            if v_old_expiry is null then
+              raise exception 'Configured validity policy did not activate expiry.';
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_candidate_id::text, true);
+            v_result := public.save_my_agilecert_cpd_record(
+              'Professional credential maintenance workshop',
+              'Integrated Institute of Professional Management',
+              'workshop', current_date, 10, v_credential_id,
+              'EVIDENCE-P4-001', null
+            );
+            v_cpd_id := (v_result->>'id')::uuid;
+            if v_cpd_id is null or v_result->>'status' <> 'draft' then
+              raise exception 'Candidate CPD draft was not created: %', v_result;
+            end if;
+
+            v_result := public.submit_my_agilecert_cpd_record(v_cpd_id);
+            if v_result->>'status' <> 'submitted' then
+              raise exception 'Candidate CPD record was not submitted: %', v_result;
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_admin_id::text, true);
+            v_result := public.review_agilecert_cpd_record(v_cpd_id, 'approved', null);
+            if v_result->>'status' <> 'approved' then
+              raise exception 'CPD approval was not recorded: %', v_result;
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_candidate_id::text, true);
+            v_result := public.request_my_agilecert_credential_renewal(v_credential_id);
+            v_renewal_id := (v_result->>'id')::uuid;
+            if v_renewal_id is null or v_result->>'status' <> 'pending' then
+              raise exception 'Credential renewal request failed: %', v_result;
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_admin_id::text, true);
+            v_result := public.decide_agilecert_credential_renewal(
+              v_renewal_id, 'approved', null
+            );
+            if v_result->>'status' <> 'completed' then
+              raise exception 'Credential renewal approval failed: %', v_result;
+            end if;
+
+            select expires_at into v_new_expiry
+            from public.agilecert_paid_credentials
+            where id = v_credential_id
+              and renewal_count = 1
+              and last_renewed_at is not null;
+            if v_new_expiry is null or v_new_expiry <= v_old_expiry then
+              raise exception 'Approved renewal did not extend credential validity.';
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_candidate_id::text, true);
+            v_result := public.create_my_agilecert_credential_share_link(
+              'credential', v_credential_id, 'Employer verification', 30
+            );
+            v_share_id := (v_result->>'id')::uuid;
+            v_share_code := v_result->>'shareCode';
+            if v_share_id is null or length(coalesce(v_share_code, '')) < 10 then
+              raise exception 'Credential share link was not created: %', v_result;
+            end if;
+
+            v_result := public.verify_agilecert_professional_record(v_share_code);
+            if not coalesce((v_result->>'valid')::boolean, false)
+               or v_result->>'recordType' <> 'credential_share' then
+              raise exception 'Credential share verification failed: %', v_result;
+            end if;
+            if v_result::text like '%' || v_candidate_id::text || '%'
+               or v_result::text like '%phase4-candidate@example.test%'
+               or v_result::text like '%' || v_order_id::text || '%'
+               or v_result::text like '%' || v_credential_id::text || '%'
+               or v_result ? 'candidateEmail'
+               or v_result ? 'candidateId'
+               or v_result ? 'orderId'
+               or v_result ? 'credentialId' then
+              raise exception 'Public credential share exposed a private identifier: %', v_result;
+            end if;
+
+            select access_count into v_count
+            from public.agilecert_credential_share_links
+            where id = v_share_id;
+            if v_count <> 1 then
+              raise exception 'Share-link verification access was not audited.';
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_candidate_id::text, true);
+            perform public.revoke_my_agilecert_credential_share_link(v_share_id);
+            v_result := public.verify_agilecert_professional_record(v_share_code);
+            if coalesce((v_result->>'valid')::boolean, true)
+               or v_result->>'status' <> 'revoked' then
+              raise exception 'Revoked share link remained valid: %', v_result;
+            end if;
+
+            select transcript_code into v_transcript_code
+            from public.agilecert_candidate_transcripts
+            where candidate_id = v_candidate_id;
+
+            v_result := public.verify_agilecert_professional_record(v_transcript_code);
+            if coalesce((v_result->>'valid')::boolean, true)
+               or v_result->>'status' <> 'private' then
+              raise exception 'Transcript was public before candidate consent: %', v_result;
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_candidate_id::text, true);
+            perform public.set_my_agilecert_transcript_public(true);
+            v_result := public.verify_agilecert_professional_record(v_transcript_code);
+            if not coalesce((v_result->>'valid')::boolean, false)
+               or v_result->>'recordType' <> 'transcript' then
+              raise exception 'Candidate-enabled transcript verification failed: %', v_result;
+            end if;
+            if v_result::text like '%' || v_candidate_id::text || '%'
+               or v_result::text like '%phase4-candidate@example.test%'
+               or v_result::text like '%' || v_order_id::text || '%'
+               or v_result::text like '%' || v_credential_id::text || '%' then
+              raise exception 'Public transcript exposed a private identifier: %', v_result;
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_candidate_id::text, true);
+            v_wallet := public.get_my_agilecert_credential_wallet();
+            if jsonb_array_length(v_wallet->'credentials') <> 1
+               or jsonb_array_length(v_wallet->'examinationHistory') <> 1
+               or jsonb_array_length(v_wallet->'cpdRecords') <> 1
+               or jsonb_array_length(v_wallet->'renewals') <> 1
+               or jsonb_array_length(v_wallet->'shareLinks') <> 1
+               or coalesce(v_wallet->'transcript'->>'transcriptCode', '') = '' then
+              raise exception 'Candidate credential wallet is incomplete: %', v_wallet;
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_admin_id::text, true);
+            v_result := public.get_agilecert_credential_admin_console(100);
+            if jsonb_array_length(v_result->'policies') < 1
+               or jsonb_array_length(v_result->'cpdQueue') < 1
+               or jsonb_array_length(v_result->'renewals') < 1
+               or jsonb_array_length(v_result->'credentials') < 1
+               or jsonb_array_length(v_result->'auditEvents') < 8 then
+              raise exception 'Credential administrator console is incomplete: %', v_result;
+            end if;
+
+            raise notice 'Original Phase 4 credential lifecycle acceptance passed.';
+          end;
+          $$;
+          SQL
+
+      - name: Confirm existing commerce and certificate authority remain intact
+        id: regression
+        if: steps.scope.outcome == 'success' && steps.reset.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 2>&1 <<'SQL' | tee phase4-regression.log
+          do $$
+          begin
+            if to_regprocedure('public.agilecert_issue_certificate_for_order(uuid,uuid,text)') is null then
+              raise exception 'Certificate-commerce issuance authority is missing.';
+            end if;
+            if to_regprocedure('public.create_agilecert_certificate_order(uuid,text,text)') is null then
+              raise exception 'Certificate checkout authority is missing.';
+            end if;
+            if to_regprocedure('public.verify_agilecert_certificate(text)') is null then
+              raise exception 'Phase 3 certificate verification authority is missing.';
+            end if;
+            if to_regprocedure('public.get_my_agilecert_identity_assurance()') is null then
+              raise exception 'Identity-assurance authority is missing.';
+            end if;
+            if to_regprocedure('public.get_my_agilecert_credential_wallet()') is null then
+              raise exception 'Phase 4 credential wallet authority is missing.';
+            end if;
+            if to_regprocedure('public.verify_agilecert_professional_record(text)') is null then
+              raise exception 'Professional-record verification authority is missing.';
+            end if;
+          end;
+          $$;
+          SQL
+
+      - name: Upload isolated validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-original-phase-4-database-evidence
+          path: |
+            phase4-supabase-start.log
+            phase4-db-reset.log
+            phase4-behaviour.log
+            phase4-regression.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Record branch validation status
+        if: always() && github.event_name == 'push'
+        shell: bash
+        env:
+          SCOPE_OUTCOME: ${{ steps.scope.outcome }}
+          RESET_OUTCOME: ${{ steps.reset.outcome }}
+          BEHAVIOUR_OUTCOME: ${{ steps.behaviour.outcome }}
+          REGRESSION_OUTCOME: ${{ steps.regression.outcome }}
+          RUN_ID: ${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$SCOPE_OUTCOME" = success ] && [ "$RESET_OUTCOME" = success ] && [ "$BEHAVIOUR_OUTCOME" = success ] && [ "$REGRESSION_OUTCOME" = success ]; then
+            result='PASSED'
+          else
+            result='FAILED'
+          fi
+          cat > docs/AGILECERT_PHASE_4_VALIDATION_STATUS.md <<EOF
+          # Original Phase 4 validation status
+
+          - Result: **$result**
+          - Source commit: `$COMMIT_SHA`
+          - Workflow run: `$RUN_ID`
+          - Scope isolation: `$SCOPE_OUTCOME`
+          - Full migration reset: `$RESET_OUTCOME`
+          - Credential lifecycle behaviour: `$BEHAVIOUR_OUTCOME`
+          - Protected-system regression: `$REGRESSION_OUTCOME`
+          EOF
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/AGILECERT_PHASE_4_VALIDATION_STATUS.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Record original Phase 4 validation $result"
+            git push origin HEAD:phase-4-professional-credential-system
+          fi
+
+      - name: Enforce validation result
+        if: always()
+        shell: bash
+        env:
+          SCOPE_OUTCOME: ${{ steps.scope.outcome }}
+          RESET_OUTCOME: ${{ steps.reset.outcome }}
+          BEHAVIOUR_OUTCOME: ${{ steps.behaviour.outcome }}
+          REGRESSION_OUTCOME: ${{ steps.regression.outcome }}
+        run: |
+          set -euo pipefail
+          test "$SCOPE_OUTCOME" = success
+          test "$RESET_OUTCOME" = success
+          test "$BEHAVIOUR_OUTCOME" = success
+          test "$REGRESSION_OUTCOME" = success

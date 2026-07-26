@@ -6,12 +6,14 @@ import AdminCertificateCommerceLauncher from './components/AdminCertificateComme
 import AdminCertificateManagementLauncher from './components/AdminCertificateManagementLauncher';
 import AdminCertificateCompletionLauncher from './components/AdminCertificateCompletionLauncher';
 import AdminCommerceConsole from './components/AdminCommerceConsole';
+import AdminCredentialLifecycleLauncher from './components/AdminCredentialLifecycleLauncher';
 import AdminIdentityAssuranceLauncher from './components/AdminIdentityAssuranceLauncher';
 import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
 import AiCertificationAdviser from './components/AiCertificationAdviser';
 import CandidateCertificateCommerce from './components/CandidateCertificateCommerce';
 import CandidateCertificateWorkspace from './components/CandidateCertificateWorkspace';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
+import CandidateCredentialWallet from './components/CandidateCredentialWallet';
 import CandidateIdentityAssurance from './components/CandidateIdentityAssurance';
 import CertificatePaymentReturnHandler from './components/CertificatePaymentReturnHandler';
 import LegacyCertificateSecurityGate from './components/LegacyCertificateSecurityGate';
@@ -162,9 +164,11 @@ createRoot(rootElement).render(
       <PublicCertificateVerification />
       <CandidateIdentityAssurance />
       <CandidateCertificateCommerce />
+      <CandidateCredentialWallet />
       <CertificatePaymentReturnHandler />
       <AdminIdentityAssuranceLauncher />
       <AdminCertificateCommerceLauncher />
+      <AdminCredentialLifecycleLauncher />
       <AiCertificationAdviser />
     </SupabaseSessionBoundary>
   </StrictMode>,

@@ -1,0 +1,169 @@
+name: Validate AgileCert Original Phase 4 Frontend
+
+# Registered validation gate for the completed Phase 4 credential interface.
+on:
+  push:
+    branches: [phase-4-professional-credential-system]
+    paths:
+      - 'src/services/credentialWalletService.ts'
+      - 'src/components/CandidateCredentialWallet.tsx'
+      - 'src/components/AdminCredentialLifecycleLauncher.tsx'
+      - 'src/components/PublicCertificateVerification.tsx'
+      - 'src/main.tsx'
+      - 'package.json'
+      - '.github/workflows/validate-agilecert-original-phase-4-frontend.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/services/credentialWalletService.ts'
+      - 'src/components/CandidateCredentialWallet.tsx'
+      - 'src/components/AdminCredentialLifecycleLauncher.tsx'
+      - 'src/components/PublicCertificateVerification.tsx'
+      - 'src/main.tsx'
+      - 'package.json'
+      - '.github/workflows/validate-agilecert-original-phase-4-frontend.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: validate-agilecert-original-phase-4-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate credential wallet frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        id: install
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          npm install --no-audit --no-fund 2>&1 | tee phase4-frontend-install.log
+          touch .phase4-install-ok
+
+      - name: TypeScript validation
+        id: lint
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee phase4-frontend-lint.log
+          touch .phase4-lint-ok
+
+      - name: Production build
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee phase4-frontend-build.log
+          touch .phase4-build-ok
+
+      - name: Verify compiled Phase 4 capabilities
+        id: markers
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Professional Credential Wallet'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Credential Lifecycle Administration'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'IIPM Professional Record Verification'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Add to LinkedIn'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Save CPD draft'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Request renewal'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Temporary share link'
+          touch .phase4-markers-ok
+
+      - name: Confirm protected frontend boundaries
+        id: scope
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          forbidden='^src/services/(commerceService|examService|preparationMaterialService|materialAdminService|certificateCommerceService|identityAssuranceService|aiCertificationAdviserService)\.ts$|^src/components/(CandidateCommerceOverlay|PaymentReturnHandler|AdminCommerceConsole|ExamScreen|StudentDashboard|AdminPortal|CandidatePreparationMaterialsPanel|AdminMaterialManagementPanel|CandidateIdentityAssurance|AdminIdentityAssuranceLauncher|AiCertificationAdviser)\.tsx$|^supabase/functions/'
+          if printf '%s\n' "$changed" | grep -Eq "$forbidden"; then
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+          touch .phase4-scope-ok
+
+      - name: Upload frontend validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-original-phase-4-frontend-evidence
+          path: |
+            phase4-frontend-install.log
+            phase4-frontend-lint.log
+            phase4-frontend-build.log
+            dist
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Record frontend validation status
+        if: always() && github.event_name == 'push'
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          result='FAILED'
+          install='failed'
+          lint='failed'
+          build='failed'
+          markers='failed'
+          scope='failed'
+          test -f .phase4-install-ok && install='success'
+          test -f .phase4-lint-ok && lint='success'
+          test -f .phase4-build-ok && build='success'
+          test -f .phase4-markers-ok && markers='success'
+          test -f .phase4-scope-ok && scope='success'
+          if [ "$install" = success ] && [ "$lint" = success ] && [ "$build" = success ] && [ "$markers" = success ] && [ "$scope" = success ]; then
+            result='PASSED'
+          fi
+          cat > docs/AGILECERT_PHASE_4_FRONTEND_VALIDATION_STATUS.md <<EOF
+          # Original Phase 4 frontend validation status
+
+          - Result: **$result**
+          - Source commit: $COMMIT_SHA
+          - Workflow run: $RUN_ID
+          - Dependency installation: $install
+          - TypeScript validation: $lint
+          - Production build: $build
+          - Compiled capability markers: $markers
+          - Protected frontend scope: $scope
+          EOF
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/AGILECERT_PHASE_4_FRONTEND_VALIDATION_STATUS.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Record original Phase 4 frontend validation $result"
+            git push origin HEAD:phase-4-professional-credential-system
+          fi
+
+      - name: Enforce frontend validation markers
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .phase4-install-ok
+          test -f .phase4-lint-ok
+          test -f .phase4-build-ok
+          test -f .phase4-markers-ok
+          test -f .phase4-scope-ok
