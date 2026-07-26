@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
-      TARGET_HEAD_SHA: 'a7578cf6452f289fa64ebd0d8cd62c5e33d7fcdd'
+      TARGET_HEAD_SHA: '1c07b04ff2694a81fca2117c714fab5764ba2965'
       TARGET_WORKFLOW: 'deploy-cipmn-catalogue-navigation-pages.yml'
 
     steps:
