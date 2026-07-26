@@ -9,7 +9,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import StudentDashboard from './components/StudentDashboard';
-import ExamScreen from './components/ExamScreen';
+import ExamExperience from './components/ExamExperience';
 import AdminPortal from './components/AdminPortal';
 import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
 import AiCvProfileBuilder from './components/AiCvProfileBuilder';
@@ -361,7 +361,7 @@ export default function App() {
 
           {view === 'exam' && selectedTest && (
             <motion.div key="exam" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <ExamScreen
+              <ExamExperience
                 test={selectedTest}
                 studentName={studentName}
                 simType={simType}
