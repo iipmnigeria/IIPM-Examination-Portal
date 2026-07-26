@@ -1,0 +1,155 @@
+name: Validate AgileCert Original Phase 4 Frontend
+
+on:
+  push:
+    branches: [phase-4-professional-credential-system]
+    paths:
+      - 'src/services/credentialWalletService.ts'
+      - 'src/components/CandidateCredentialWallet.tsx'
+      - 'src/components/AdminCredentialLifecycleLauncher.tsx'
+      - 'src/components/PublicCertificateVerification.tsx'
+      - 'src/main.tsx'
+      - 'package.json'
+      - '.github/workflows/validate-agilecert-original-phase-4-frontend.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/services/credentialWalletService.ts'
+      - 'src/components/CandidateCredentialWallet.tsx'
+      - 'src/components/AdminCredentialLifecycleLauncher.tsx'
+      - 'src/components/PublicCertificateVerification.tsx'
+      - 'src/main.tsx'
+      - 'package.json'
+      - '.github/workflows/validate-agilecert-original-phase-4-frontend.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: validate-agilecert-original-phase-4-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate credential wallet frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        id: install
+        continue-on-error: true
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript validation
+        id: lint
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Production build
+        id: build
+        if: steps.install.outcome == 'success' && steps.lint.outcome == 'success'
+        continue-on-error: true
+        run: npm run build
+
+      - name: Verify compiled Phase 4 capabilities
+        id: markers
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Professional Credential Wallet'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Credential Lifecycle Administration'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'IIPM Professional Record Verification'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Add to LinkedIn'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Save CPD draft'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Request renewal'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Temporary share link'
+
+      - name: Confirm protected frontend boundaries
+        id: scope
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          forbidden='^src/services/(commerceService|examService|preparationMaterialService|materialAdminService|certificateCommerceService|identityAssuranceService|aiCertificationAdviserService)\.ts$|^src/components/(CandidateCommerceOverlay|PaymentReturnHandler|AdminCommerceConsole|ExamScreen|StudentDashboard|AdminPortal|CandidatePreparationMaterialsPanel|AdminMaterialManagementPanel|CandidateIdentityAssurance|AdminIdentityAssuranceLauncher|AiCertificationAdviser)\.tsx$|^supabase/functions/'
+          if printf '%s\n' "$changed" | grep -Eq "$forbidden"; then
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+
+      - name: Upload frontend validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-original-phase-4-frontend-evidence
+          path: dist
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Record frontend validation status
+        if: always() && github.event_name == 'push'
+        shell: bash
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          MARKERS_OUTCOME: ${{ steps.markers.outcome }}
+          SCOPE_OUTCOME: ${{ steps.scope.outcome }}
+          RUN_ID: ${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$INSTALL_OUTCOME" = success ] && [ "$LINT_OUTCOME" = success ] && [ "$BUILD_OUTCOME" = success ] && [ "$MARKERS_OUTCOME" = success ] && [ "$SCOPE_OUTCOME" = success ]; then
+            result='PASSED'
+          else
+            result='FAILED'
+          fi
+          cat > docs/AGILECERT_PHASE_4_FRONTEND_VALIDATION_STATUS.md <<EOF
+          # Original Phase 4 frontend validation status
+
+          - Result: **$result**
+          - Source commit: `$COMMIT_SHA`
+          - Workflow run: `$RUN_ID`
+          - Dependency installation: `$INSTALL_OUTCOME`
+          - TypeScript validation: `$LINT_OUTCOME`
+          - Production build: `$BUILD_OUTCOME`
+          - Compiled capability markers: `$MARKERS_OUTCOME`
+          - Protected frontend scope: `$SCOPE_OUTCOME`
+          EOF
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/AGILECERT_PHASE_4_FRONTEND_VALIDATION_STATUS.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Record original Phase 4 frontend validation $result"
+            git push origin HEAD:phase-4-professional-credential-system
+          fi
+
+      - name: Enforce frontend validation result
+        if: always()
+        shell: bash
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          MARKERS_OUTCOME: ${{ steps.markers.outcome }}
+          SCOPE_OUTCOME: ${{ steps.scope.outcome }}
+        run: |
+          set -euo pipefail
+          test "$INSTALL_OUTCOME" = success
+          test "$LINT_OUTCOME" = success
+          test "$BUILD_OUTCOME" = success
+          test "$MARKERS_OUTCOME" = success
+          test "$SCOPE_OUTCOME" = success
