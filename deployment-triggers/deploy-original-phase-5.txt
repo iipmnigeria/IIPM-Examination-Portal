@@ -1,0 +1,3 @@
+Approved production activation for Original Roadmap Phase 5 PR #107.
+Expected source commit: 8cfc6d26599cfeb84da0d744dee4711bce8c24bd
+Approved migration versions: 202607261400 through 202607261406.
