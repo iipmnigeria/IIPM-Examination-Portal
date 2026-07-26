@@ -1,0 +1,1 @@
+Verify the exact protected GitHub Pages deployment triggered by main commit a7578cf6452f289fa64ebd0d8cd62c5e33d7fcdd and validate its sanitized catalogue-navigation production evidence.
