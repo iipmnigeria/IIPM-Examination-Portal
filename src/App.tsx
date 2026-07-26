@@ -1,10 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { BookOpenCheck, GraduationCap, LayoutDashboard, ShieldCheck, UserRound } from 'lucide-react';
+import {
+  BookOpenCheck,
+  FileText,
+  GraduationCap,
+  LayoutDashboard,
+  ShieldCheck,
+  UserRound,
+} from 'lucide-react';
 import StudentDashboard from './components/StudentDashboard';
 import ExamScreen from './components/ExamScreen';
 import AdminPortal from './components/AdminPortal';
 import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
+import AiCvProfileBuilder from './components/AiCvProfileBuilder';
 import CandidateAvatar from './components/CandidateAvatar';
 import CandidatePreparationMaterialsPanel from './components/CandidatePreparationMaterialsPanel';
 import CandidateProfilePanel from './components/CandidateProfilePanel';
@@ -18,7 +26,7 @@ import {
 } from './services/examService';
 import type { Attempt, ProctorLogEvent, Test } from './types';
 
-type PortalView = 'dashboard' | 'materials' | 'profile' | 'exam' | 'admin';
+type PortalView = 'dashboard' | 'materials' | 'profile' | 'cv' | 'exam' | 'admin';
 
 export default function App() {
   const [userRole, setUserRole] = useState<'student' | 'admin' | null>(() => {
@@ -252,6 +260,15 @@ export default function App() {
                     <UserRound className="w-3.5 h-3.5 text-emerald-400" />
                     <span className="hidden lg:inline">Profile</span>
                   </button>
+                  <button
+                    onClick={() => setView('cv')}
+                    className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${
+                      view === 'cv' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="hidden xl:inline">CV Builder</span>
+                  </button>
                 </nav>
               )}
 
@@ -333,6 +350,12 @@ export default function App() {
                 onCandidateNameChange={setStudentName}
                 onBack={() => setView('dashboard')}
               />
+            </motion.div>
+          )}
+
+          {view === 'cv' && userRole === 'student' && (
+            <motion.div key="cv" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <AiCvProfileBuilder candidateName={studentName} onBack={() => setView('dashboard')} />
             </motion.div>
           )}
 
