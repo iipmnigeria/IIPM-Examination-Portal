@@ -1,0 +1,155 @@
+name: Monitor Original Phase 5 Pages Production
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/monitor-original-phase-5-pages.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monitor-original-phase-5-pages-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify exact compiled Phase 5 frontend is live
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      EXPECTED_COMMIT: '8cfc6d26599cfeb84da0d744dee4711bce8c24bd'
+      LIVE_URL: 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+    steps:
+      - name: Checkout exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build and fingerprint approved frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          ! grep -q '/src/main.tsx' dist/index.html
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
+          test -s "$js_file"
+          grep -q 'Identity & Exam Integrity Workspace' "$js_file"
+          grep -q 'Identity, Proctoring & Misconduct Administration' "$js_file"
+          grep -q 'Questions remain protected' "$js_file"
+          grep -q 'Camera and AI processing are being restricted' "$js_file"
+          grep -q 'agilecert-proctor-event' "$js_file"
+          sha256sum "$js_file" | awk '{print $1}' > expected-phase5-live.sha256
+          printf '%s\n' "$asset" > expected-phase5-asset.txt
+
+      - name: Wait for exact live Phase 5 bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(cat expected-phase5-live.sha256)"
+          success=0
+          for attempt in $(seq 1 90); do
+            status="$(curl -L -sS -o live-index.html -w '%{http_code}' "$LIVE_URL?phase5=${GITHUB_RUN_ID}-${attempt}" || true)"
+            echo "Attempt $attempt: HTTP $status"
+            if [ "$status" = '200' ] && ! grep -q '/src/main.tsx' live-index.html; then
+              asset="$(grep -Eo 'src="[^"]+\.js"' live-index.html | head -n 1 | cut -d'"' -f2)"
+              if [ -n "$asset" ]; then
+                asset_url="$(python3 - "$LIVE_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+                )"
+                if curl -L --fail --silent --show-error "$asset_url?phase5=${GITHUB_RUN_ID}-${attempt}" -o live-phase5-app.js; then
+                  actual="$(sha256sum live-phase5-app.js | awk '{print $1}')"
+                  echo "Expected: $expected"
+                  echo "Live:     $actual"
+                  if [ "$actual" = "$expected" ]; then
+                    grep -q 'Identity & Exam Integrity Workspace' live-phase5-app.js
+                    grep -q 'Identity, Proctoring & Misconduct Administration' live-phase5-app.js
+                    grep -q 'Questions remain protected' live-phase5-app.js
+                    grep -q 'Camera and AI processing are being restricted' live-phase5-app.js
+                    grep -q 'agilecert-proctor-event' live-phase5-app.js
+                    printf '%s\n' "$asset" > live-phase5-asset.txt
+                    printf '%s\n' "$actual" > live-phase5.sha256
+                    success=1
+                    break
+                  fi
+                fi
+              fi
+            fi
+            sleep 10
+          done
+          test "$success" -eq 1
+
+      - name: Confirm live application mounts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/phase5-live-smoke"
+          cd "$RUNNER_TEMP/phase5-live-smoke"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright@latest
+          npx playwright install --with-deps chromium
+          node <<'NODE'
+          const fs = require('fs');
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+            const pageErrors = [];
+            const failedRequests = [];
+            page.on('pageerror', error => pageErrors.push(String(error)));
+            page.on('requestfailed', request => failedRequests.push({ url: request.url(), failure: request.failure() }));
+            const response = await page.goto(`${process.env.LIVE_URL}?phase5-mount=${process.env.GITHUB_RUN_ID}`, {
+              waitUntil: 'domcontentloaded', timeout: 60000,
+            });
+            const adviserButton = page.locator('button[aria-label="Open AgileCert AI Certification Adviser"]');
+            await adviserButton.waitFor({ state: 'visible', timeout: 30000 });
+            const report = {
+              status: response ? response.status() : 0,
+              title: await page.title(),
+              adviserButtonVisible: await adviserButton.isVisible(),
+              bootShellExists: await page.locator('#iipm-boot-shell').count() > 0,
+              pageErrors,
+              failedRequests,
+            };
+            fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/phase5-live-mount-report.json`, JSON.stringify(report, null, 2));
+            await page.screenshot({ path: `${process.env.GITHUB_WORKSPACE}/phase5-live-mount.png`, fullPage: true });
+            await browser.close();
+            if (report.status !== 200) throw new Error(`HTTP ${report.status}`);
+            if (!/AgileCert Global/i.test(report.title)) throw new Error(`Unexpected title: ${report.title}`);
+            if (!report.adviserButtonVisible || report.bootShellExists) throw new Error('Compiled application did not mount.');
+            if (pageErrors.length || failedRequests.length) throw new Error(JSON.stringify({ pageErrors, failedRequests }));
+          })().catch(error => { console.error(error); process.exit(1); });
+          NODE
+
+      - name: Upload Pages production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-phase-5-pages-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            expected-phase5-live.sha256
+            expected-phase5-asset.txt
+            live-index.html
+            live-phase5-app.js
+            live-phase5-asset.txt
+            live-phase5.sha256
+            phase5-live-mount-report.json
+            phase5-live-mount.png
