@@ -122,6 +122,10 @@ Five forward-only, sequential migration units are used so each capability can be
 
 All five migration versions are later than the deployed Phase 3 completion migration `202607251800`. They form one controlled Phase 4 release unit and must be applied together in sequence.
 
+## Validation authority
+
+`.github/workflows/validate-agilecert-original-phase-4.yml` applies the complete migration history in an isolated Supabase project and exercises issuance, wallet, badge, transcript, CPD, expiry, renewal, sharing, revocation, privacy and protected-system regression controls.
+
 ## Safety boundaries
 
 Phase 4 completion must not modify:
