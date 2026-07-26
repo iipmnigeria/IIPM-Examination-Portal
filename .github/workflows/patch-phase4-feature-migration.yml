@@ -1,5 +1,6 @@
 name: Patch Phase 4 Feature Migration
 
+# Registered trigger for the controlled Phase 4 feature branch correction.
 on:
   push:
     branches: [supabase-integration]
