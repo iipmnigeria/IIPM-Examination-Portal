@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
-      TARGET_HEAD_SHA: 'd7647c797b7e023de6d0374d5183ff9dab24740a'
+      TARGET_HEAD_SHA: '500196b2d85d80f020de4051f5fac822bafdd974'
       TARGET_WORKFLOW_NAME: 'Deploy Phase 3 Certificate Pages Production'
     steps:
       - name: Poll exact production deployment run
@@ -102,7 +102,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase-3-pages-production-monitor-evidence
+          name: phase-3-pages-production-monitor-evidence-final
           path: |
             ${{ runner.temp }}/phase3-pages-target-run.json
             ${{ runner.temp }}/phase3-pages-runs.json
