@@ -1,0 +1,274 @@
+name: Validate AgileCert Phase 7
+
+on:
+  push:
+    branches: [phase-7-ai-cv-profile-builder-foundation]
+    paths:
+      - 'src/App.tsx'
+      - 'src/components/AiCvProfileBuilder.tsx'
+      - 'src/services/aiCvProfileBuilderService.ts'
+      - 'src/services/cvPdfService.ts'
+      - 'supabase/migrations/202607261300_phase_7_ai_cv_profile_builder_foundation.sql'
+      - 'docs/AGILECERT_PHASE_7_AI_CV_PROFILE_BUILDER_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-7.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/App.tsx'
+      - 'src/components/AiCvProfileBuilder.tsx'
+      - 'src/services/aiCvProfileBuilderService.ts'
+      - 'src/services/cvPdfService.ts'
+      - 'supabase/migrations/202607261300_phase_7_ai_cv_profile_builder_foundation.sql'
+      - 'docs/AGILECERT_PHASE_7_AI_CV_PROFILE_BUILDER_SCOPE.md'
+      - '.github/workflows/validate-agilecert-phase-7.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-phase-7-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Validate CV workspace and production bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify compiled CV builder capability
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          ! grep -q '/src/main.tsx' dist/index.html
+          find dist/assets -type f -name '*.js' -print0 | xargs -0 grep -q 'AI CV & Professional Profile Builder'
+          find dist/assets -type f -name '*.js' -print0 | xargs -0 grep -q 'CV Builder'
+          find dist/assets -type f -name '*.js' -print0 | xargs -0 grep -q 'upsert_my_agilecert_candidate_cv_document'
+          find dist/assets -type f -name '*.js' -print0 | xargs -0 grep -q 'Prepared through AgileCert Global'
+
+      - name: Confirm exact Phase 7 source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import subprocess
+
+          allowed = {
+              '.github/workflows/validate-agilecert-phase-7.yml',
+              'docs/AGILECERT_PHASE_7_AI_CV_PROFILE_BUILDER_SCOPE.md',
+              'src/App.tsx',
+              'src/components/AiCvProfileBuilder.tsx',
+              'src/services/aiCvProfileBuilderService.ts',
+              'src/services/cvPdfService.ts',
+              'supabase/migrations/202607261300_phase_7_ai_cv_profile_builder_foundation.sql',
+          }
+          changed = set(
+              subprocess.check_output(
+                  ['git', 'diff', '--name-only', 'origin/supabase-integration...HEAD'],
+                  text=True,
+              ).splitlines()
+          )
+          unexpected = sorted(changed - allowed)
+          missing = sorted(allowed - changed)
+          assert not unexpected, f'Unexpected Phase 7 files: {unexpected}'
+          assert not missing, f'Missing Phase 7 files: {missing}'
+          PY
+
+  database:
+    name: Validate private candidate CV database
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Confirm migration isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s supabase/migrations/202607261300_phase_7_ai_cv_profile_builder_foundation.sql
+          changed_migrations="$(git diff --name-only origin/supabase-integration...HEAD | grep '^supabase/migrations/' || true)"
+          test "$changed_migrations" = 'supabase/migrations/202607261300_phase_7_ai_cv_profile_builder_foundation.sql'
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          commit;
+          SQL
+
+      - name: Start isolated Supabase and apply all migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee phase7-supabase-start.log
+          supabase db reset --local 2>&1 | tee phase7-db-reset.log
+
+      - name: Verify CV ownership, privacy and validation
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL' | tee phase7-cv-behaviour.log
+          insert into auth.users (
+            id, instance_id, aud, role, email, encrypted_password,
+            email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+            created_at, updated_at
+          ) values
+            (
+              '00000000-0000-0000-0000-00000000c701',
+              '00000000-0000-0000-0000-000000000000',
+              'authenticated', 'authenticated', 'phase7-one@example.test',
+              crypt('temporary-password', gen_salt('bf')), now(), '{}'::jsonb,
+              jsonb_build_object('full_name', 'Phase Seven One'), now(), now()
+            ),
+            (
+              '00000000-0000-0000-0000-00000000c702',
+              '00000000-0000-0000-0000-000000000000',
+              'authenticated', 'authenticated', 'phase7-two@example.test',
+              crypt('temporary-password', gen_salt('bf')), now(), '{}'::jsonb,
+              jsonb_build_object('full_name', 'Phase Seven Two'), now(), now()
+            );
+
+          update public.profiles
+          set role = 'candidate', is_active = true
+          where id in (
+            '00000000-0000-0000-0000-00000000c701',
+            '00000000-0000-0000-0000-00000000c702'
+          );
+
+          set role authenticated;
+          select set_config('request.jwt.claim.role', 'authenticated', false);
+          select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000c701', false);
+
+          select id, document_title, target_role, status, template_key
+          from public.upsert_my_agilecert_candidate_cv_document(
+            p_document_title => 'Phase 7 Professional CV',
+            p_target_role => 'Senior Project Manager',
+            p_professional_summary => 'Programme delivery professional with measurable transformation outcomes.',
+            p_contact_email => 'phase7-one@example.test',
+            p_skills => array['Programme delivery', 'Risk management'],
+            p_languages => array['English'],
+            p_experience => '[{"id":"exp-1","role":"Project Manager","organisation":"Example Organisation","location":"Abuja","startDate":"2022","endDate":"","current":true,"highlights":["Delivered a transformation programme."]}]'::jsonb,
+            p_education => '[{"id":"edu-1","qualification":"MBA","institution":"Example University","location":"Abuja","startDate":"2018","endDate":"2020","details":"Management"}]'::jsonb,
+            p_certifications => '[]'::jsonb,
+            p_projects => '[]'::jsonb,
+            p_awards => '[]'::jsonb,
+            p_affiliations => '[]'::jsonb,
+            p_template_key => 'professional',
+            p_status => 'ready',
+            p_ai_processing_consent => false
+          );
+
+          do $$
+          declare
+            v_count integer;
+            v_blocked boolean := false;
+          begin
+            select count(*) into v_count
+            from public.agilecert_candidate_cv_documents
+            where candidate_id = '00000000-0000-0000-0000-00000000c701'
+              and document_title = 'Phase 7 Professional CV'
+              and target_role = 'Senior Project Manager'
+              and status = 'ready'
+              and template_key = 'professional'
+              and jsonb_array_length(experience) = 1;
+            if v_count <> 1 then
+              raise exception 'Candidate CV document was not created correctly.';
+            end if;
+
+            begin
+              perform public.upsert_my_agilecert_candidate_cv_document(
+                p_document_title => 'Invalid Template',
+                p_template_key => 'unsafe'
+              );
+            exception when others then
+              v_blocked := true;
+            end;
+            if not v_blocked then
+              raise exception 'Invalid template was not rejected.';
+            end if;
+          end;
+          $$;
+
+          select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000c702', false);
+
+          do $$
+          declare
+            v_count integer;
+          begin
+            select count(*) into v_count
+            from public.agilecert_candidate_cv_documents;
+            if v_count <> 0 then
+              raise exception 'Candidate two could read candidate one CV document.';
+            end if;
+          end;
+          $$;
+
+          reset role;
+
+          do $$
+          begin
+            if has_table_privilege('authenticated', 'public.agilecert_candidate_cv_documents', 'INSERT')
+               or has_table_privilege('authenticated', 'public.agilecert_candidate_cv_documents', 'UPDATE')
+               or has_table_privilege('authenticated', 'public.agilecert_candidate_cv_documents', 'DELETE') then
+              raise exception 'Direct authenticated CV writes remain available.';
+            end if;
+
+            if not has_table_privilege('authenticated', 'public.agilecert_candidate_cv_documents', 'SELECT') then
+              raise exception 'Authenticated candidate CV select privilege is missing.';
+            end if;
+
+            if to_regprocedure('public.upsert_my_agilecert_candidate_cv_document(text,text,text,text,text,text,text,text,text[],text[],jsonb,jsonb,jsonb,jsonb,jsonb,jsonb,text,text,text,boolean)') is null then
+              raise exception 'Candidate CV upsert RPC is missing.';
+            end if;
+          end;
+          $$;
+
+          select
+            to_regclass('public.agilecert_candidate_cv_documents') is not null as cv_table_present,
+            to_regprocedure('public.upsert_my_agilecert_candidate_cv_document(text,text,text,text,text,text,text,text,text[],text[],jsonb,jsonb,jsonb,jsonb,jsonb,jsonb,text,text,text,boolean)') is not null as cv_rpc_present,
+            relrowsecurity as rls_enabled
+          from pg_class
+          where oid = 'public.agilecert_candidate_cv_documents'::regclass;
+          SQL
+
+          grep -q 'cv_table_present' phase7-cv-behaviour.log
+          grep -Eq 't[[:space:]]*\|[[:space:]]*t[[:space:]]*\|[[:space:]]*t' phase7-cv-behaviour.log
+
+      - name: Upload Phase 7 validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-phase-7-validation-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase7-supabase-start.log
+            phase7-db-reset.log
+            phase7-cv-behaviour.log
