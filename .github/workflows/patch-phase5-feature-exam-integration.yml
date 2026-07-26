@@ -1,6 +1,10 @@
 name: Patch Phase 5 Feature Exam Integration
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'deployment-triggers/patch-phase5-feature-exam-integration-main.txt'
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -24,7 +28,7 @@ jobs:
           ref: phase-5-advanced-identity-proctoring
           fetch-depth: 0
 
-      - name: Apply idempotent integration patch
+      - name: Apply idempotent integration and privacy patch
         shell: bash
         run: |
           python3 <<'PY'
@@ -40,7 +44,74 @@ jobs:
 
           exam = Path('src/components/ExamScreen.tsx')
           text = exam.read_text()
-          anchor = """    const newLog: ProctorLogEvent = {
+
+          state_anchor = """  const [nextCheckIn, setNextCheckIn] = useState(12);
+
+  // HTML Audio element fallback"""
+          state_replacement = """  const [nextCheckIn, setNextCheckIn] = useState(12);
+  const shouldRunAiAnalysis = test.proctoringPolicy
+    ? test.proctoringPolicy.aiVisualAnalysisEnabled
+    : true;
+  const shouldUseCamera = test.proctoringPolicy
+    ? (test.proctoringPolicy.requireCamera || shouldRunAiAnalysis)
+    : true;
+
+  // HTML Audio element fallback"""
+          if 'const shouldRunAiAnalysis =' not in text:
+              if state_anchor not in text:
+                  raise SystemExit('ExamScreen policy-state anchor was not found.')
+              text = text.replace(state_anchor, state_replacement, 1)
+
+          countdown_anchor = """    // AI Proctor Check-In counter
+    countdownRef.current = setInterval(() => {
+      setNextCheckIn((prev) => {
+        if (prev <= 1) {
+          captureAndAnalyzeProctorFrame();
+          return 12; // Cycle back every 12 seconds
+        }
+        return prev - 1;
+      });
+    }, 1000);"""
+          countdown_replacement = """    // AI visual analysis runs only when the active policy explicitly enables it.
+    if (shouldRunAiAnalysis) {
+      countdownRef.current = setInterval(() => {
+        setNextCheckIn((prev) => {
+          if (prev <= 1) {
+            captureAndAnalyzeProctorFrame();
+            return 12; // Cycle back every 12 seconds
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }"""
+          if 'AI visual analysis runs only when the active policy explicitly enables it.' not in text:
+              if countdown_anchor not in text:
+                  raise SystemExit('ExamScreen AI countdown anchor was not found.')
+              text = text.replace(countdown_anchor, countdown_replacement, 1)
+
+          webcam_anchor = """  useEffect(() => {
+    let activeStream: MediaStream | null = null;
+    async function startWebcam() {"""
+          webcam_replacement = """  useEffect(() => {
+    if (!shouldUseCamera) return undefined;
+
+    let activeStream: MediaStream | null = null;
+    async function startWebcam() {"""
+          if 'if (!shouldUseCamera) return undefined;' not in text:
+              if webcam_anchor not in text:
+                  raise SystemExit('ExamScreen webcam policy anchor was not found.')
+              text = text.replace(webcam_anchor, webcam_replacement, 1)
+
+          analysis_anchor = """  const captureAndAnalyzeProctorFrame = async () => {
+    if (!videoRef.current || !canvasRef.current || isAnalyzing) return;"""
+          analysis_replacement = """  const captureAndAnalyzeProctorFrame = async () => {
+    if (!shouldRunAiAnalysis || !videoRef.current || !canvasRef.current || isAnalyzing) return;"""
+          if analysis_replacement not in text:
+              if analysis_anchor not in text:
+                  raise SystemExit('ExamScreen analysis guard anchor was not found.')
+              text = text.replace(analysis_anchor, analysis_replacement, 1)
+
+          log_anchor = """    const newLog: ProctorLogEvent = {
       id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       timestamp: new Date().toISOString(),
       type,
@@ -50,7 +121,7 @@ jobs:
     };
 
     setProctorLogs((prev) => {"""
-          replacement = """    const newLog: ProctorLogEvent = {
+          log_replacement = """    const newLog: ProctorLogEvent = {
       id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       timestamp: new Date().toISOString(),
       type,
@@ -72,9 +143,20 @@ jobs:
 
     setProctorLogs((prev) => {"""
           if "window.dispatchEvent(new CustomEvent('agilecert-proctor-event'" not in text:
-              if anchor not in text:
+              if log_anchor not in text:
                   raise SystemExit('ExamScreen proctor-log anchor was not found.')
-              text = text.replace(anchor, replacement, 1)
+              text = text.replace(log_anchor, log_replacement, 1)
+
+          required = [
+              'const shouldRunAiAnalysis =',
+              'const shouldUseCamera =',
+              'if (!shouldUseCamera) return undefined;',
+              'if (!shouldRunAiAnalysis || !videoRef.current',
+              "window.dispatchEvent(new CustomEvent('agilecert-proctor-event'",
+          ]
+          missing = [marker for marker in required if marker not in text]
+          if missing:
+              raise SystemExit(f'Missing ExamScreen integration markers: {missing}')
           exam.write_text(text)
           PY
 
@@ -93,6 +175,8 @@ jobs:
           grep -R -q 'Identity, Proctoring & Misconduct Administration' dist/assets
           grep -R -q 'Questions remain protected' dist/assets
           grep -R -q 'agilecert-proctor-event' dist/assets
+          grep -R -q 'shouldRunAiAnalysis' src/components/ExamScreen.tsx
+          grep -R -q 'shouldUseCamera' src/components/ExamScreen.tsx
 
       - name: Commit only validated Phase 5 source changes
         shell: bash
