@@ -5,6 +5,17 @@ export interface Question {
   correctOptionIndex?: number;
 }
 
+export interface SecureProctoringPolicy {
+  policyVersion: number;
+  consentVersion: string;
+  requireCamera: boolean;
+  requireMicrophone: boolean;
+  requireFullscreen: boolean;
+  liveEventCaptureEnabled: boolean;
+  aiVisualAnalysisEnabled: boolean;
+  retainWebcamImages: boolean;
+}
+
 export interface Test {
   id: string;
   title: string;
@@ -16,6 +27,12 @@ export interface Test {
   sessionId?: string;
   assignmentId?: string;
   expiresAt?: string;
+  proctorPreflightRequired?: boolean;
+  identityCheckRequired?: boolean;
+  proctoringPolicy?: SecureProctoringPolicy;
+  proctoringSessionId?: string;
+  proctoringRiskScore?: number;
+  proctoringRiskLevel?: string;
 }
 
 export type ProctorEventType =

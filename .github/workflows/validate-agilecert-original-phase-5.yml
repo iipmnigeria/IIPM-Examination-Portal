@@ -1,0 +1,138 @@
+name: Validate AgileCert Original Phase 5
+
+on:
+  push:
+    branches: [phase-5-advanced-identity-proctoring]
+    paths:
+      - 'docs/AGILECERT_ORIGINAL_PHASE_5_COMPLETION_SCOPE.md'
+      - 'scripts/phase5-completion-behaviour.sql'
+      - 'src/**'
+      - 'package.json'
+      - 'supabase/migrations/20260726140*_phase_5_*.sql'
+      - '.github/workflows/validate-agilecert-original-phase-5.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'docs/AGILECERT_ORIGINAL_PHASE_5_COMPLETION_SCOPE.md'
+      - 'scripts/phase5-completion-behaviour.sql'
+      - 'src/**'
+      - 'package.json'
+      - 'supabase/migrations/20260726140*_phase_5_*.sql'
+      - '.github/workflows/validate-agilecert-original-phase-5.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-original-phase-5-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: Validate exact Phase 5 release scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Confirm seven migrations and protected boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/phase5-expected-migrations.txt" <<'EOF'
+          supabase/migrations/202607261400_phase_5_identity_policy_consent.sql
+          supabase/migrations/202607261401_phase_5_sensitive_identity_exam_check.sql
+          supabase/migrations/202607261402_phase_5_live_proctoring_events.sql
+          supabase/migrations/202607261403_phase_5_incidents_misconduct_appeals.sql
+          supabase/migrations/202607261404_phase_5_candidate_admin_workspaces.sql
+          supabase/migrations/202607261405_phase_5_privacy_permissions.sql
+          supabase/migrations/202607261406_phase_5_result_integrity_compatibility.sql
+          EOF
+
+          git diff --name-only origin/supabase-integration...HEAD \
+            | grep '^supabase/migrations/' \
+            | sort > "$RUNNER_TEMP/phase5-actual-migrations.txt" || true
+          sort -o "$RUNNER_TEMP/phase5-expected-migrations.txt" "$RUNNER_TEMP/phase5-expected-migrations.txt"
+          diff -u "$RUNNER_TEMP/phase5-expected-migrations.txt" "$RUNNER_TEMP/phase5-actual-migrations.txt"
+
+          ! git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/'
+
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          protected='^src/services/(commerceService|certificateCommerceService|credentialWalletService|aiCertificationAdviserService|aiCvProfileBuilderService)\.ts$|^src/components/(CandidateCommerceOverlay|PaymentReturnHandler|AdminCommerceConsole|CandidateCertificateCommerce|CandidateCredentialWallet|AdminCredentialLifecycleLauncher|AiCertificationAdviser|AiCvProfileBuilder)\.tsx$|^supabase/functions/'
+          if printf '%s\n' "$changed" | grep -Eq "$protected"; then
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          files = [
+              Path('supabase/migrations/202607261400_phase_5_identity_policy_consent.sql'),
+              Path('supabase/migrations/202607261401_phase_5_sensitive_identity_exam_check.sql'),
+              Path('supabase/migrations/202607261402_phase_5_live_proctoring_events.sql'),
+              Path('supabase/migrations/202607261403_phase_5_incidents_misconduct_appeals.sql'),
+              Path('supabase/migrations/202607261404_phase_5_candidate_admin_workspaces.sql'),
+              Path('supabase/migrations/202607261405_phase_5_privacy_permissions.sql'),
+              Path('supabase/migrations/202607261406_phase_5_result_integrity_compatibility.sql'),
+          ]
+          sql = '\n'.join(path.read_text() for path in files)
+          required = [
+              'agilecert_identity_proctoring_policies',
+              'agilecert_identity_proctoring_consents',
+              'agilecert_sensitive_identity_documents',
+              'agilecert_exam_identity_checks',
+              'agilecert_proctoring_sessions',
+              'agilecert_proctoring_incidents',
+              'agilecert_misconduct_cases',
+              'agilecert_misconduct_appeals',
+              'record_my_agilecert_proctoring_event',
+              'get_my_agilecert_proctored_exam_payload',
+              'document_number_digest',
+              'rawDocumentNumberStored',
+              'start_exam_secure_phase5_base',
+              'submit_exam_secure_phase5_base',
+              "when 'no_violation' then 'submitted'",
+              "'status', v_attempt_status",
+              'External KYC, automated face matching and liveness scoring remain disabled',
+              'metadata must not contain examination questions, answers or answer keys',
+          ]
+          missing = [marker for marker in required if marker not in sql]
+          assert not missing, f'Missing Original Phase 5 controls: {missing}'
+
+          forbidden = [
+              'AGILECERT_PAYSTACK_SECRET_KEY',
+              'PAYSTACK_SECRET_KEY',
+              'update public.question_answer_keys',
+              'update public.candidate_answers',
+          ]
+          found = [marker for marker in forbidden if marker in sql]
+          assert not found, f'Protected payment or examination authority leaked into Phase 5: {found}'
+          PY
+
+  frontend:
+    name: Validate Phase 5 TypeScript and production bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build Phase 5 application
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'Identity & Exam Integrity Workspace' dist/assets
+          grep -R -q 'Identity, Proctoring & Misconduct Administration' dist/assets
+          grep -R -q 'Questions remain protected' dist/assets
+          grep -R -q 'Camera and AI processing are being restricted' dist/assets
+          grep -R -q 'agilecert-proctor-event' dist/assets
