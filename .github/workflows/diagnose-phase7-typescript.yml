@@ -9,6 +9,14 @@ on:
       - 'src/components/AiCvProfileBuilder.tsx'
       - 'src/services/aiCvProfileBuilderService.ts'
       - 'src/services/cvPdfService.ts'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - '.github/workflows/diagnose-phase7-typescript.yml'
+      - 'src/App.tsx'
+      - 'src/components/AiCvProfileBuilder.tsx'
+      - 'src/services/aiCvProfileBuilderService.ts'
+      - 'src/services/cvPdfService.ts'
 
 permissions:
   contents: read
