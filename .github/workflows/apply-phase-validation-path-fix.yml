@@ -6,6 +6,12 @@ on:
     paths:
       - 'scripts/narrow-phase-validation-paths.py'
       - '.github/workflows/apply-phase-validation-path-fix.yml'
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'scripts/narrow-phase-validation-paths.py'
+      - '.github/workflows/apply-phase-validation-path-fix.yml'
 
 permissions:
   contents: write
