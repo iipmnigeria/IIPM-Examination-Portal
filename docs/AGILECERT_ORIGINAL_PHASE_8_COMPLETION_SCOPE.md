@@ -21,6 +21,7 @@ Complete Finance, Commerce and Institutional Sponsorship around the deployed ind
 5. `202607271004_phase_8_refunds_credits.sql`
 6. `202607271005_phase_8_reconciliation_reporting.sql`
 7. `202607271006_phase_8_privacy_permissions.sql`
+8. `202607271007_phase_8_idempotency_refund_access.sql`
 
 ## Delivered scope
 - finance settings, tax profiles, approval thresholds and institutional discount controls;
@@ -28,9 +29,12 @@ Complete Finance, Commerce and Institutional Sponsorship around the deployed ind
 - quotations, purchase-order references, invoices, line-item snapshots and payment schedules;
 - paid or explicitly authorised sponsored seat pools;
 - candidate nominations, acceptance, examination assignment and auditable access grants;
+- idempotent seat allocation and authoritative sponsorship-pool counts;
 - manual bank-transfer and institutional payment review;
 - payment allocation, receipts and invoice balance refresh;
+- payment reversal and full-refund recalculation of invoice and seat access;
 - individual and institutional refund requests, decisions and payment tracking;
+- safe revocation of unused checkout-created examination access after a full refund;
 - credit notes and invoice credits;
 - reconciliation batches and matched, unmatched, duplicate, short and over-payment controls;
 - finance dashboard, ageing, revenue, sponsorship utilisation and audit reporting;
@@ -51,11 +55,13 @@ Sponsored examination access is granted only when the related invoice is fully p
 - pending migration `202607261300_phase_7_ai_cv_profile_builder_foundation.sql` remains outside this release.
 
 ## Validation requirements
-- exact seven-migration allow-list;
+- exact eight-migration allow-list;
 - complete isolated Supabase reset;
 - customer → quote → invoice → payment → receipt lifecycle;
 - seat purchase, nomination, acceptance and assignment lifecycle;
+- duplicate nomination and seat-count idempotency;
 - unpaid-invoice and seat-limit blocking;
+- payment reversal and refund access recalculation;
 - refund, credit-note and reconciliation lifecycle;
 - candidate privacy and direct-table-access denial;
 - existing examination and certificate commerce regression;
