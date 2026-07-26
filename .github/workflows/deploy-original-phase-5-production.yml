@@ -23,6 +23,7 @@ jobs:
       EXPECTED_COMMIT: '8cfc6d26599cfeb84da0d744dee4711bce8c24bd'
       PROJECT_REF: 'cfecicvugfrrhcvhduzc'
       TRACKING_BOUNDARY: '202607230101'
+      EXCLUDED_MIGRATION: '202607261300_phase_7_ai_cv_profile_builder_foundation.sql'
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
     steps:
@@ -56,12 +57,14 @@ jobs:
             test -s "supabase/migrations/$migration"
           done < phase5-expected-migrations.txt
           test "$(wc -l < phase5-expected-migrations.txt | tr -d ' ')" -eq 7
+          test -s "supabase/migrations/$EXCLUDED_MIGRATION"
+          printf '%s\n' "$EXCLUDED_MIGRATION" > phase5-excluded-unrelated-migrations.txt
 
-      - name: Isolate production-tracked migration window
+      - name: Isolate approved production migration window
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/legacy-local-migrations"
+          mkdir -p "$RUNNER_TEMP/legacy-local-migrations" "$RUNNER_TEMP/unrelated-pending-migrations"
           : > phase5-legacy-local-migrations.txt
           moved=0
           for migration in supabase/migrations/*.sql; do
@@ -74,8 +77,11 @@ jobs:
           done
           sort -o phase5-legacy-local-migrations.txt phase5-legacy-local-migrations.txt
           test "$moved" -gt 0
+          mv "supabase/migrations/$EXCLUDED_MIGRATION" "$RUNNER_TEMP/unrelated-pending-migrations/"
+          test ! -e "supabase/migrations/$EXCLUDED_MIGRATION"
           find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | sort | tee phase5-isolated-migration-window.txt
           awk -F_ -v boundary="$TRACKING_BOUNDARY" '$1 < boundary { print "Unexpected pre-tracking migration remains: " $0 > "/dev/stderr"; exit 1 }' phase5-isolated-migration-window.txt
+          ! grep -Fxq "$EXCLUDED_MIGRATION" phase5-isolated-migration-window.txt
 
       - name: Require exactly seven pending production migrations
         shell: bash
@@ -138,6 +144,10 @@ jobs:
             'migrationCount', (
               select count(*) from supabase_migrations.schema_migrations m
               join expected e on e.version = m.version
+            ),
+            'excludedMigrationApplied', exists (
+              select 1 from supabase_migrations.schema_migrations
+              where version = '202607261300'
             ),
             'tableCount', (
               select count(*) from required_tables t
@@ -219,6 +229,7 @@ jobs:
           assert isinstance(data, list) and len(data) == 1, data
           result = data[0].get('verification') or {}
           assert result.get('migrationCount') == 7, result
+          assert result.get('excludedMigrationApplied') is False, result
           assert result.get('tableCount') == 8, result
           assert result.get('functionCount') == 16, result
           assert result.get('privateBucket') is True, result
@@ -233,6 +244,7 @@ jobs:
           assert result.get('secureSubmitWrapperCount', 0) >= 1, result
           safe = {
               'migrationCount': result['migrationCount'],
+              'unrelatedPhase7MigrationApplied': result['excludedMigrationApplied'],
               'tableCount': result['tableCount'],
               'functionCount': result['functionCount'],
               'privateIdentityBucket': result['privateBucket'],
@@ -248,7 +260,7 @@ jobs:
           print(json.dumps(safe, indent=2))
           PY
 
-      - name: Confirm no migrations remain pending
+      - name: Confirm approved window has no migrations remaining
         shell: bash
         run: |
           set -euo pipefail
@@ -265,6 +277,7 @@ jobs:
           if-no-files-found: warn
           path: |
             phase5-expected-migrations.txt
+            phase5-excluded-unrelated-migrations.txt
             phase5-legacy-local-migrations.txt
             phase5-isolated-migration-window.txt
             phase5-production-dry-run.log
