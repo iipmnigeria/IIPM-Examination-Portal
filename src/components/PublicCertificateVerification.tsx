@@ -211,7 +211,11 @@ export default function PublicCertificateVerification() {
               {hasCredentials && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-2"><Award className="h-5 w-5 text-blue-600" /><h2 className="font-black">Verified credentials</h2></div>
-                  {result.credentials?.map((credential) => <CredentialCard key={credential.credentialCode} credential={credential} />)}
+                  {result.credentials?.map((credential) => (
+                    <div key={credential.credentialCode}>
+                      <CredentialCard credential={credential} />
+                    </div>
+                  ))}
                 </div>
               )}
 
