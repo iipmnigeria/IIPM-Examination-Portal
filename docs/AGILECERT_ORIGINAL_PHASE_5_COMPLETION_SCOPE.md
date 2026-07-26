@@ -74,4 +74,4 @@ No changes to examination prices, Paystack, coupons, certificate pricing, creden
 - separate explicit approval before production merge and deployment.
 
 ## Validation status
-The first isolated database reset is running against the complete six-migration release unit. Production remains unchanged.
+The full historical migration reset and first schema/privacy/permission gate have passed. The registered frontend gate is now applying the secure-exam orchestration and policy-controlled camera/AI patch, followed by TypeScript and production-build validation. Production remains unchanged.
