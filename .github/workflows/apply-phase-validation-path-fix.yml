@@ -1,4 +1,4 @@
-name: Apply Phase Validation Path Fix
+name: Prepare Phase Validation Path Fix
 
 on:
   push:
@@ -14,15 +14,15 @@ on:
       - '.github/workflows/apply-phase-validation-path-fix.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: apply-phase-validation-path-fix
-  cancel-in-progress: false
+  group: prepare-phase-validation-path-fix
+  cancel-in-progress: true
 
 jobs:
-  patch:
-    name: Narrow phase-specific PR validation paths
+  prepare:
+    name: Prepare corrected phase validation workflows
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -35,13 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -q "src/components/CandidateCertificateWorkspace.tsx" .github/workflows/validate-agilecert-phase-3-completion.yml \
-             && grep -q "src/components/CandidateCertificateCommerce.tsx" .github/workflows/validate-agilecert-phase-4.yml \
-             && ! sed -n '/  pull_request:/,/^  workflow_dispatch:/p' .github/workflows/validate-agilecert-phase-4.yml | grep -q "'src/\*\*'"; then
-            echo 'Phase-specific pull-request filters are already applied.'
-          else
-            python3 scripts/narrow-phase-validation-paths.py
-          fi
+          python3 scripts/narrow-phase-validation-paths.py
 
       - name: Verify unrelated candidate dashboard changes are excluded
         shell: bash
@@ -59,16 +53,12 @@ jobs:
               assert "'src/components/StudentDashboard.tsx'" not in pull_request, (path, pull_request)
           PY
 
-      - name: Commit corrected validation workflows
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- .github/workflows/validate-agilecert-phase-3-completion.yml .github/workflows/validate-agilecert-phase-4.yml; then
-            echo 'No workflow changes remain to commit.'
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/workflows/validate-agilecert-phase-3-completion.yml .github/workflows/validate-agilecert-phase-4.yml
-          git commit -m 'Limit phase regression workflows to their own files'
-          git push origin HEAD:fix-phase-validation-path-scopes
+      - name: Upload corrected workflows
+        uses: actions/upload-artifact@v4
+        with:
+          name: corrected-phase-validation-workflows
+          retention-days: 3
+          if-no-files-found: error
+          path: |
+            .github/workflows/validate-agilecert-phase-3-completion.yml
+            .github/workflows/validate-agilecert-phase-4.yml
