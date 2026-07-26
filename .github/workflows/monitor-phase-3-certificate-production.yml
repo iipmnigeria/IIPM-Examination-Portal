@@ -1,0 +1,115 @@
+name: Monitor Phase 3 Certificate Production
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/monitor-phase-3-certificate-production.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  monitor:
+    name: Wait for approved Phase 3 production deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_HEAD_SHA: 'c978b89a87c0c8f1949409c090e5db4251456ebd'
+      TARGET_WORKFLOW_NAME: 'Deploy Phase 3 Certificate Completion Production'
+    steps:
+      - name: Poll exact production deployment run
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_HEAD_SHA}&event=push&per_page=100"
+          target_json="$RUNNER_TEMP/phase3-production-target-run.json"
+          runs_json="$RUNNER_TEMP/phase3-production-runs.json"
+
+          found=''
+          for attempt in $(seq 1 120); do
+            curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "$api" -o "$runs_json"
+
+            python3 - "$runs_json" "$TARGET_WORKFLOW_NAME" "$target_json" <<'PY'
+          import json, sys
+          source, target_name, output = sys.argv[1:]
+          payload = json.load(open(source, encoding='utf-8'))
+          matches = [run for run in payload.get('workflow_runs', []) if run.get('name') == target_name]
+          if not matches:
+              raise SystemExit(2)
+          matches.sort(key=lambda item: item.get('created_at', ''), reverse=True)
+          json.dump(matches[0], open(output, 'w', encoding='utf-8'), indent=2)
+          print(matches[0].get('id'))
+          PY
+            status=$?
+            if [ "$status" -eq 0 ]; then
+              found='yes'
+              run_id="$(python3 -c "import json; print(json.load(open('$target_json'))['id'])")"
+              run_status="$(python3 -c "import json; print(json.load(open('$target_json')).get('status',''))")"
+              run_conclusion="$(python3 -c "import json; print(json.load(open('$target_json')).get('conclusion') or '')")"
+              echo "Production run $run_id status=$run_status conclusion=$run_conclusion"
+              if [ "$run_status" = 'completed' ]; then
+                break
+              fi
+            elif [ "$status" -ne 2 ]; then
+              exit "$status"
+            fi
+            sleep 10
+          done
+
+          test "$found" = 'yes'
+          run_id="$(python3 -c "import json; print(json.load(open('$target_json'))['id'])")"
+          run_status="$(python3 -c "import json; print(json.load(open('$target_json')).get('status',''))")"
+          run_conclusion="$(python3 -c "import json; print(json.load(open('$target_json')).get('conclusion') or '')")"
+          test "$run_status" = 'completed'
+
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" \
+            -o "$RUNNER_TEMP/phase3-production-jobs.json"
+
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
+            -o "$RUNNER_TEMP/phase3-production-artifacts.json"
+
+          python3 - "$target_json" "$RUNNER_TEMP/phase3-production-jobs.json" "$RUNNER_TEMP/phase3-production-artifacts.json" <<'PY'
+          import json, sys
+          run = json.load(open(sys.argv[1], encoding='utf-8'))
+          jobs = json.load(open(sys.argv[2], encoding='utf-8')).get('jobs', [])
+          artifacts = json.load(open(sys.argv[3], encoding='utf-8')).get('artifacts', [])
+          print(f"Run ID: {run.get('id')}")
+          print(f"Run URL: {run.get('html_url')}")
+          print(f"Status: {run.get('status')}")
+          print(f"Conclusion: {run.get('conclusion')}")
+          for job in jobs:
+              print(f"Job: {job.get('name')} — {job.get('status')}/{job.get('conclusion')}")
+          for artifact in artifacts:
+              print(f"Artifact: {artifact.get('name')} — digest={artifact.get('digest')} — expires={artifact.get('expires_at')}")
+          PY
+
+          test "$run_conclusion" = 'success'
+
+      - name: Upload monitor evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-3-production-monitor-evidence
+          path: |
+            ${{ runner.temp }}/phase3-production-target-run.json
+            ${{ runner.temp }}/phase3-production-runs.json
+            ${{ runner.temp }}/phase3-production-jobs.json
+            ${{ runner.temp }}/phase3-production-artifacts.json
+          if-no-files-found: warn
+          retention-days: 7
