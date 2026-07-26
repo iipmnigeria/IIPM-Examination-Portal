@@ -1,10 +1,10 @@
 # Original Phase 4 frontend validation status
 
 - Result: **FAILED**
-- Source commit: de8e151e43fc07d87f02a9acd97aa87f192f4e5f
-- Workflow run: 30209159889
+- Source commit: 1a14f853154e931171a3ad45b0dbb5fc3db8b192
+- Workflow run: 30209322432
 - Dependency installation: success
-- TypeScript validation: failure
+- TypeScript validation: failed
 - Production build: success
 - Compiled capability markers: success
 - Protected frontend scope: success
