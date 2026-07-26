@@ -7,6 +7,7 @@ import AdminCertificateManagementLauncher from './components/AdminCertificateMan
 import AdminCertificateCompletionLauncher from './components/AdminCertificateCompletionLauncher';
 import AdminCommerceConsole from './components/AdminCommerceConsole';
 import AdminCredentialLifecycleLauncher from './components/AdminCredentialLifecycleLauncher';
+import AdminFinanceSponsorshipLauncher from './components/AdminFinanceSponsorshipLauncher';
 import AdminIdentityAssuranceLauncher from './components/AdminIdentityAssuranceLauncher';
 import AdminIdentityProctoringLauncher from './components/AdminIdentityProctoringLauncher';
 import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
@@ -17,6 +18,7 @@ import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
 import CandidateCredentialWallet from './components/CandidateCredentialWallet';
 import CandidateIdentityAssurance from './components/CandidateIdentityAssurance';
 import CandidateIdentityProctoringWorkspace from './components/CandidateIdentityProctoringWorkspace';
+import CandidateSponsoredAccessWorkspace from './components/CandidateSponsoredAccessWorkspace';
 import CertificatePaymentReturnHandler from './components/CertificatePaymentReturnHandler';
 import LegacyCertificateSecurityGate from './components/LegacyCertificateSecurityGate';
 import PaymentReturnHandler from './components/PaymentReturnHandler';
@@ -168,11 +170,13 @@ createRoot(rootElement).render(
       <CandidateIdentityProctoringWorkspace />
       <CandidateCertificateCommerce />
       <CandidateCredentialWallet />
+      <CandidateSponsoredAccessWorkspace />
       <CertificatePaymentReturnHandler />
       <AdminIdentityAssuranceLauncher />
       <AdminIdentityProctoringLauncher />
       <AdminCertificateCommerceLauncher />
       <AdminCredentialLifecycleLauncher />
+      <AdminFinanceSponsorshipLauncher />
       <AiCertificationAdviser />
     </SupabaseSessionBoundary>
   </StrictMode>,
