@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected=$(cat <<'EOF'
+          cat > "$RUNNER_TEMP/phase5-expected-migrations.txt" <<'EOF'
           supabase/migrations/202607261400_phase_5_identity_policy_consent.sql
           supabase/migrations/202607261401_phase_5_sensitive_identity_exam_check.sql
           supabase/migrations/202607261402_phase_5_live_proctoring_events.sql
@@ -47,9 +47,11 @@ jobs:
           supabase/migrations/202607261404_phase_5_candidate_admin_workspaces.sql
           supabase/migrations/202607261405_phase_5_privacy_permissions.sql
           EOF
-          )
-          actual="$(git diff --name-only origin/supabase-integration...HEAD | grep '^supabase/migrations/' || true)"
-          test "$actual" = "$expected"
+          git diff --name-only origin/supabase-integration...HEAD \
+            | grep '^supabase/migrations/' \
+            | sort > "$RUNNER_TEMP/phase5-actual-migrations.txt" || true
+          sort -o "$RUNNER_TEMP/phase5-expected-migrations.txt" "$RUNNER_TEMP/phase5-expected-migrations.txt"
+          diff -u "$RUNNER_TEMP/phase5-expected-migrations.txt" "$RUNNER_TEMP/phase5-actual-migrations.txt"
           ! git diff --name-only origin/supabase-integration...HEAD | grep -E '^supabase/functions/'
 
           changed="$(git diff --name-only origin/supabase-integration...HEAD)"
@@ -83,8 +85,8 @@ jobs:
               'get_my_agilecert_proctored_exam_payload',
               'document_number_digest',
               'rawDocumentNumberStored',
-              'external KYC, automated face matching and liveness scoring remain disabled',
-              "metadata must not contain examination questions, answers or answer keys",
+              'External KYC, automated face matching and liveness scoring remain disabled',
+              'metadata must not contain examination questions, answers or answer keys',
           ]
           missing = [marker for marker in required if marker not in sql]
           assert not missing, f'Missing Phase 5 controls: {missing}'
