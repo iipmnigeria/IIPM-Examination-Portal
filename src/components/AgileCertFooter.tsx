@@ -31,16 +31,16 @@ export default function AgileCertFooter({ variant = 'dark', compact = false }: A
   if (compact) {
     return (
       <div className="mx-auto w-full max-w-7xl px-4 py-5 md:px-6">
-        <nav aria-label="AgileCert policies" className="flex flex-wrap justify-center gap-x-5 gap-y-2 text-[11px] font-bold">
+        <p className={`text-center text-[10px] font-black uppercase tracking-[0.16em] ${headingClass}`}>
+          Policies and candidate standards
+        </p>
+        <nav aria-label="AgileCert policies" className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 text-[11px] font-bold">
           {agileCertPolicyLinks.slice(0, 8).map(([id, title]) => (
             <a key={id} href={`#policy-${id}`} className={linkClass}>
               {title}
             </a>
           ))}
         </nav>
-        <p className="mt-3 text-center text-[11px]">
-          © 2026 AgileCert Global. Powered by the Integrated Institute of Professional Management.
-        </p>
       </div>
     );
   }
