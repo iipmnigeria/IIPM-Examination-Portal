@@ -1,0 +1,2 @@
+Qualify communications pgcrypto digest calls with the Supabase extensions schema.
+Triggered 27 July 2026.
