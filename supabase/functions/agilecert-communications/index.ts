@@ -510,7 +510,7 @@ Deno.serve(async (request: Request) => {
   if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405);
 
   try {
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const body = (await request.clone().json().catch(() => ({}))) as Record<string, unknown>;
     const action = cleanText(body.action || url.searchParams.get('action'), 80);
 
     if (action === 'webhook') return await handleWebhook(request);
