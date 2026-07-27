@@ -1,0 +1,83 @@
+name: Patch Communications SQL Portability
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/patch-communications-sql.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: patch-communications-sql-portability
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    name: Qualify communications pgcrypto digest calls
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout communications branch
+        uses: actions/checkout@v4
+        with:
+          ref: communications-automation
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Patch and push exact SQL portability correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          python3 <<'PY'
+          import re
+          from pathlib import Path
+
+          paths = [
+              Path('supabase/migrations/202607271200_communications_automation.sql'),
+              Path('scripts/communications-automation-behaviour.sql'),
+          ]
+          total = 0
+          for path in paths:
+              source = path.read_text(encoding='utf-8')
+              updated, count = re.subn(r'(?<![A-Za-z0-9_.])digest\(', 'extensions.digest(', source)
+              if count:
+                  path.write_text(updated, encoding='utf-8')
+              total += count
+              print(f'{path}: {count} digest call(s) qualified')
+          if total == 0:
+              for path in paths:
+                  if 'extensions.digest(' not in path.read_text(encoding='utf-8'):
+                      raise SystemExit(f'Expected qualified digest marker missing from {path}')
+          PY
+
+          grep -q 'extensions.digest(' supabase/migrations/202607271200_communications_automation.sql
+          grep -q 'extensions.digest(' scripts/communications-automation-behaviour.sql
+          ! grep -E '(^|[^A-Za-z0-9_.])digest\(' \
+            supabase/migrations/202607271200_communications_automation.sql \
+            scripts/communications-automation-behaviour.sql
+
+          if ! git diff --quiet; then
+            git add \
+              supabase/migrations/202607271200_communications_automation.sql \
+              scripts/communications-automation-behaviour.sql
+            git commit -m 'Qualify communications pgcrypto digest calls'
+            git push origin HEAD:communications-automation
+          fi
+
+      - name: Upload SQL patch evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: communications-sql-portability-patch-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            supabase/migrations/202607271200_communications_automation.sql
+            scripts/communications-automation-behaviour.sql
