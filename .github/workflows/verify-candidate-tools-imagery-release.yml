@@ -1,0 +1,232 @@
+name: Verify Candidate Tools and Imagery Release
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-candidate-tools-imagery-release.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    name: Verify exact Pages deployment and live UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_COMMIT: ef7fb84600add1bb89873b36972f5bf1d3f711ca
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+      PRIMARY_IMAGE: https://images.pexels.com/photos/4427622/pexels-photo-4427622.jpeg?auto=compress&cs=tinysrgb&fit=crop&w=900&h=720
+      SECONDARY_IMAGE: https://images.pexels.com/photos/34690062/pexels-photo-34690062.jpeg?auto=compress&cs=tinysrgb&fit=crop&w=320&h=400
+
+    steps:
+      - name: Check out exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          fetch-depth: 0
+
+      - name: Verify consolidated candidate-tool source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          source_file='src/components/CandidatePrimaryToolsMenu.tsx'
+          landing_file='src/components/AgileCertPhaseOneLandingPage.tsx'
+          test -s "$source_file"
+          test -s "$landing_file"
+          grep -q 'Open professional credential wallet' "$source_file"
+          grep -q 'Open identity assurance' "$source_file"
+          grep -q 'Open email preferences' "$source_file"
+          grep -q 'Candidate tools and services' "$source_file"
+          grep -q 'Communication Centre' "$source_file"
+          grep -q 'Credential Wallet' "$source_file"
+          grep -q 'Identity Assurance' "$source_file"
+          grep -q 'photos/4427622' "$landing_file"
+          grep -q 'photos/34690062' "$landing_file"
+          grep -q 'Build credible, verified career evidence' "$landing_file"
+
+      - name: Wait for permanent compiled Pages deployment
+        id: deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=''
+          for attempt in $(seq 1 90); do
+            response="$(gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-agilecert-pages.yml/runs?head_sha=${SOURCE_COMMIT}&event=push&per_page=20")"
+            run_id="$(printf '%s' "$response" | jq -r '.workflow_runs[0].id // empty')"
+            status="$(printf '%s' "$response" | jq -r '.workflow_runs[0].status // empty')"
+            conclusion="$(printf '%s' "$response" | jq -r '.workflow_runs[0].conclusion // empty')"
+            echo "Attempt $attempt: run=${run_id:-none} status=${status:-none} conclusion=${conclusion:-none}"
+            if [ "$status" = 'completed' ]; then
+              test "$conclusion" = 'success'
+              break
+            fi
+            sleep 10
+          done
+          test -n "$run_id"
+          test "$status" = 'completed'
+          test "$conclusion" = 'success'
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Record successful deployment jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.deployment.outputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+            > "$RUNNER_TEMP/pages-jobs.json"
+          jq -e '.jobs | length >= 3' "$RUNNER_TEMP/pages-jobs.json" >/dev/null
+          jq -e '[.jobs[] | select(.conclusion != "success" and .conclusion != "skipped")] | length == 0' "$RUNNER_TEMP/pages-jobs.json" >/dev/null
+
+      - name: Inspect exact live compiled bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --silent --show-error \
+            "$LIVE_URL?candidate-tools-release=${GITHUB_RUN_ID}" \
+            -o "$RUNNER_TEMP/live-index.html"
+          grep -q 'AgileCert Global' "$RUNNER_TEMP/live-index.html"
+          ! grep -q '/src/main.tsx' "$RUNNER_TEMP/live-index.html"
+          asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/live-index.html" | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          asset_url="$(python3 - "$LIVE_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+          )"
+          curl -L --fail --silent --show-error \
+            "$asset_url?candidate-tools-release=${GITHUB_RUN_ID}" \
+            -o "$RUNNER_TEMP/live-app.js"
+          grep -q 'Candidate tools and services' "$RUNNER_TEMP/live-app.js"
+          grep -q 'Communication Centre' "$RUNNER_TEMP/live-app.js"
+          grep -q 'Identity Assurance' "$RUNNER_TEMP/live-app.js"
+          grep -q 'Credential Wallet' "$RUNNER_TEMP/live-app.js"
+          grep -q 'Build credible, verified career evidence' "$RUNNER_TEMP/live-app.js"
+          grep -q 'photos/4427622' "$RUNNER_TEMP/live-app.js"
+          grep -q 'photos/34690062' "$RUNNER_TEMP/live-app.js"
+
+      - name: Confirm compressed image responses
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --silent --show-error "$PRIMARY_IMAGE" -o "$RUNNER_TEMP/primary-image.jpg"
+          curl -L --fail --silent --show-error "$SECONDARY_IMAGE" -o "$RUNNER_TEMP/secondary-image.jpg"
+          primary_size="$(wc -c < "$RUNNER_TEMP/primary-image.jpg")"
+          secondary_size="$(wc -c < "$RUNNER_TEMP/secondary-image.jpg")"
+          echo "Primary image bytes: $primary_size"
+          echo "Secondary image bytes: $secondary_size"
+          test "$primary_size" -gt 10000
+          test "$secondary_size" -gt 5000
+          test "$primary_size" -lt 600000
+          test "$secondary_size" -lt 300000
+
+      - name: Install Chromium
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/live-smoke"
+          cd "$RUNNER_TEMP/live-smoke"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright@latest
+          npx playwright install --with-deps chromium
+
+      - name: Verify live professional imagery
+        shell: bash
+        working-directory: ${{ runner.temp }}/live-smoke
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
+            const pageErrors = [];
+            const failedRequests = [];
+            page.on('pageerror', error => pageErrors.push(String(error)));
+            page.on('requestfailed', request => failedRequests.push({ url: request.url(), failure: request.failure() }));
+
+            const response = await page.goto(`${process.env.LIVE_URL}?imagery-check=${process.env.GITHUB_RUN_ID}`, {
+              waitUntil: 'networkidle',
+              timeout: 90000,
+            });
+
+            const primary = page.locator('img[alt="Professional woman in a modern office representing AgileCert Global candidates"]');
+            const secondary = page.locator('img[alt="Professional man working in an Abuja office"]');
+            await primary.waitFor({ state: 'visible', timeout: 30000 });
+            await secondary.waitFor({ state: 'visible', timeout: 30000 });
+
+            const report = {
+              status: response ? response.status() : 0,
+              title: await page.title(),
+              primaryLoaded: await primary.evaluate(img => img.complete && img.naturalWidth > 0),
+              secondaryLoaded: await secondary.evaluate(img => img.complete && img.naturalWidth > 0),
+              primaryWidth: await primary.evaluate(img => img.naturalWidth),
+              secondaryWidth: await secondary.evaluate(img => img.naturalWidth),
+              professionalGrowthVisible: await page.getByText('Build credible, verified career evidence.').isVisible(),
+              pageErrors,
+              failedRequests,
+            };
+
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/candidate-tools-imagery-report.json`, JSON.stringify(report, null, 2));
+            await page.screenshot({ path: `${process.env.RUNNER_TEMP}/candidate-tools-imagery-live.png`, fullPage: true });
+            await browser.close();
+
+            if (report.status !== 200) throw new Error(`HTTP ${report.status}`);
+            if (!/AgileCert Global/i.test(report.title)) throw new Error(`Unexpected title: ${report.title}`);
+            if (!report.primaryLoaded || !report.secondaryLoaded) throw new Error('One or more professional images did not load.');
+            if (!report.professionalGrowthVisible) throw new Error('The professional-growth hero marker is not visible.');
+            if (pageErrors.length || failedRequests.length) throw new Error(`Browser errors detected: ${JSON.stringify({ pageErrors, failedRequests })}`);
+          })().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Create sanitized verification summary
+        env:
+          RUN_ID: ${{ steps.deployment.outputs.run_id }}
+        shell: bash
+        run: |
+          jq -n \
+            --arg sourceCommit "$SOURCE_COMMIT" \
+            --arg pagesRun "$RUN_ID" \
+            --arg liveUrl "$LIVE_URL" \
+            --slurpfile browser "$RUNNER_TEMP/candidate-tools-imagery-report.json" \
+            '{
+              sourceCommit: $sourceCommit,
+              pagesRun: $pagesRun,
+              liveUrl: $liveUrl,
+              consolidatedToolsVerified: true,
+              professionalImagesVerified: true,
+              browser: $browser[0]
+            }' > "$RUNNER_TEMP/candidate-tools-imagery-summary.json"
+          cat "$RUNNER_TEMP/candidate-tools-imagery-summary.json"
+
+      - name: Upload sanitized verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-tools-imagery-release-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/pages-jobs.json
+            ${{ runner.temp }}/live-index.html
+            ${{ runner.temp }}/live-app.js
+            ${{ runner.temp }}/candidate-tools-imagery-report.json
+            ${{ runner.temp }}/candidate-tools-imagery-summary.json
+            ${{ runner.temp }}/candidate-tools-imagery-live.png
