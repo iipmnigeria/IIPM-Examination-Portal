@@ -12,6 +12,7 @@ import AdminFinanceSponsorshipLauncher from './components/AdminFinanceSponsorshi
 import AdminIdentityAssuranceLauncher from './components/AdminIdentityAssuranceLauncher';
 import AdminIdentityProctoringLauncher from './components/AdminIdentityProctoringLauncher';
 import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
+import AgileCertPolicyExperience from './components/AgileCertPolicyExperience';
 import AiCertificationAdviser from './components/AiCertificationAdviser';
 import AiCvEnhancementLauncher from './components/AiCvEnhancementLauncher';
 import CandidateCertificateCommerce from './components/CandidateCertificateCommerce';
@@ -21,6 +22,7 @@ import CandidateCommunicationPreferences from './components/CandidateCommunicati
 import CandidateCredentialWallet from './components/CandidateCredentialWallet';
 import CandidateIdentityAssurance from './components/CandidateIdentityAssurance';
 import CandidateIdentityProctoringWorkspace from './components/CandidateIdentityProctoringWorkspace';
+import CandidatePrimaryToolsMenu from './components/CandidatePrimaryToolsMenu';
 import CandidateSponsoredAccessWorkspace from './components/CandidateSponsoredAccessWorkspace';
 import CertificatePaymentReturnHandler from './components/CertificatePaymentReturnHandler';
 import LegacyCertificateSecurityGate from './components/LegacyCertificateSecurityGate';
@@ -159,6 +161,8 @@ createRoot(rootElement).render(
   <StrictMode>
     <SupabaseSessionBoundary>
       <App />
+      <CandidatePrimaryToolsMenu />
+      <AgileCertPolicyExperience />
       <CandidateCommerceOverlay />
       <PaymentReturnHandler />
       <AdminCommerceConsole />
