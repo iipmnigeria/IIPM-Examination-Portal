@@ -1,11 +1,11 @@
 begin;
 
--- Communications automation is derived from existing authoritative examination,
--- payment, certificate and credential records. It does not modify those authorities.
+-- Communications are derived from authoritative examination, payment,
+-- certificate and credential state. These records are never rewritten here.
 
 create table if not exists public.agilecert_communication_settings (
   singleton boolean primary key default true check (singleton),
-  provider text not null default 'resend' check (provider in ('resend')),
+  provider text not null default 'resend' check (provider = 'resend'),
   provider_enabled boolean not null default false,
   from_name text not null default 'AgileCert Global',
   from_email text,
@@ -120,15 +120,13 @@ revoke all on public.agilecert_communication_preferences from anon, authenticate
 revoke all on public.agilecert_communication_suppressions from anon, authenticated;
 revoke all on public.agilecert_communication_outbox from anon, authenticated;
 revoke all on public.agilecert_communication_events from anon, authenticated;
-
 grant select on public.agilecert_communication_preferences to authenticated;
 
 drop policy if exists agilecert_communication_preferences_select_own
   on public.agilecert_communication_preferences;
 create policy agilecert_communication_preferences_select_own
   on public.agilecert_communication_preferences
-  for select
-  to authenticated
+  for select to authenticated
   using (candidate_id = auth.uid());
 
 create or replace function public.get_my_agilecert_communication_preferences()
@@ -192,11 +190,8 @@ begin
     v_candidate_id,
     coalesce(p_certificate_reminders, true),
     coalesce(p_course_recommendations, true),
-    case
-      when coalesce(p_certificate_reminders, true) or coalesce(p_course_recommendations, true)
-        then null
-      else now()
-    end,
+    case when coalesce(p_certificate_reminders, true) or coalesce(p_course_recommendations, true)
+      then null else now() end,
     now()
   )
   on conflict (candidate_id) do update set
@@ -205,23 +200,15 @@ begin
     optional_unsubscribed_at = excluded.optional_unsubscribed_at,
     updated_at = now();
 
-  if not coalesce(p_certificate_reminders, true) then
-    update public.agilecert_communication_outbox
-    set status = 'cancelled', cancelled_at = now(), updated_at = now(),
-        failure_code = 'preference_disabled'
-    where candidate_id = v_candidate_id
-      and category = 'certificate_reminder'
-      and status in ('queued', 'failed');
-  end if;
-
-  if not coalesce(p_course_recommendations, true) then
-    update public.agilecert_communication_outbox
-    set status = 'cancelled', cancelled_at = now(), updated_at = now(),
-        failure_code = 'preference_disabled'
-    where candidate_id = v_candidate_id
-      and category = 'marketing'
-      and status in ('queued', 'failed');
-  end if;
+  update public.agilecert_communication_outbox
+  set status = 'cancelled', cancelled_at = now(), updated_at = now(),
+      failure_code = 'preference_disabled'
+  where candidate_id = v_candidate_id
+    and status in ('queued', 'failed')
+    and (
+      not coalesce(p_certificate_reminders, true) and category = 'certificate_reminder'
+      or not coalesce(p_course_recommendations, true) and category = 'marketing'
+    );
 
   return public.get_my_agilecert_communication_preferences();
 end;
@@ -229,8 +216,7 @@ $$;
 
 revoke all on function public.get_my_agilecert_communication_preferences()
   from public, anon, authenticated;
-grant execute on function public.get_my_agilecert_communication_preferences()
-  to authenticated;
+grant execute on function public.get_my_agilecert_communication_preferences() to authenticated;
 revoke all on function public.update_my_agilecert_communication_preferences(boolean, boolean)
   from public, anon, authenticated;
 grant execute on function public.update_my_agilecert_communication_preferences(boolean, boolean)
@@ -255,33 +241,21 @@ begin
   end if;
 
   insert into public.agilecert_communication_preferences(
-    candidate_id,
-    certificate_reminders,
-    course_recommendations,
-    operational_messages,
-    optional_unsubscribed_at,
-    updated_at
+    candidate_id, certificate_reminders, course_recommendations,
+    operational_messages, optional_unsubscribed_at, updated_at
   ) values (
     p_candidate_id,
     v_scope not in ('certificate_reminders', 'all_optional', 'all_email'),
     v_scope not in ('course_recommendations', 'all_optional', 'all_email'),
-    v_scope <> 'all_email',
-    now(),
-    now()
+    v_scope <> 'all_email', now(), now()
   )
   on conflict (candidate_id) do update set
-    certificate_reminders = case
-      when v_scope in ('certificate_reminders', 'all_optional', 'all_email') then false
-      else public.agilecert_communication_preferences.certificate_reminders
-    end,
-    course_recommendations = case
-      when v_scope in ('course_recommendations', 'all_optional', 'all_email') then false
-      else public.agilecert_communication_preferences.course_recommendations
-    end,
-    operational_messages = case
-      when v_scope = 'all_email' then false
-      else public.agilecert_communication_preferences.operational_messages
-    end,
+    certificate_reminders = case when v_scope in ('certificate_reminders', 'all_optional', 'all_email')
+      then false else public.agilecert_communication_preferences.certificate_reminders end,
+    course_recommendations = case when v_scope in ('course_recommendations', 'all_optional', 'all_email')
+      then false else public.agilecert_communication_preferences.course_recommendations end,
+    operational_messages = case when v_scope = 'all_email' then false
+      else public.agilecert_communication_preferences.operational_messages end,
     optional_unsubscribed_at = now(),
     updated_at = now();
 
@@ -296,10 +270,8 @@ begin
     active = true, source = excluded.source, metadata = excluded.metadata, updated_at = now();
 
   update public.agilecert_communication_outbox
-  set status = 'cancelled', cancelled_at = now(), updated_at = now(),
-      failure_code = 'unsubscribed'
-  where candidate_id = p_candidate_id
-    and status in ('queued', 'failed')
+  set status = 'cancelled', cancelled_at = now(), updated_at = now(), failure_code = 'unsubscribed'
+  where candidate_id = p_candidate_id and status in ('queued', 'failed')
     and (
       v_scope in ('all_optional', 'all_email') and category in ('certificate_reminder', 'marketing')
       or v_scope = 'certificate_reminders' and category = 'certificate_reminder'
@@ -325,57 +297,41 @@ as $$
 declare
   v_inserted integer := 0;
   v_cancelled integer := 0;
+  v_rows integer := 0;
 begin
   insert into public.agilecert_communication_preferences(candidate_id)
   select distinct candidate_id
   from (
     select er.candidate_id from public.agilecert_certificate_eligibility_records er
-    union
-    select o.candidate_id from public.agilecert_certificate_orders o
-    union
-    select o.candidate_id from public.exam_orders o
+    union select o.candidate_id from public.agilecert_certificate_orders o
+    union select o.candidate_id from public.exam_orders o
   ) candidates
   on conflict (candidate_id) do nothing;
 
-  -- Paid or waived examination access: preparation material/access notice.
   insert into public.agilecert_communication_outbox(
     candidate_id, recipient_email, recipient_email_hash, message_type, category,
     event_key, due_at, payload
   )
-  select
-    o.candidate_id,
-    lower(u.email),
-    encode(digest(lower(u.email), 'sha256'), 'hex'),
-    'preparation_material_ready',
-    'operational',
-    'exam-material-ready:' || o.id,
+  select o.candidate_id, lower(u.email), encode(digest(lower(u.email), 'sha256'), 'hex'),
+    'preparation_material_ready', 'operational', 'exam-material-ready:' || o.id,
     coalesce(o.fulfilled_at, o.updated_at, o.created_at),
     jsonb_build_object(
-      'orderId', o.id,
-      'examinationId', o.examination_id,
-      'examinationTitle', e.title,
-      'reference', o.reference,
-      'portalUrl', 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+      'orderId', o.id, 'examinationId', o.examination_id,
+      'examinationTitle', e.title, 'reference', o.reference
     )
   from public.exam_orders o
   join auth.users u on u.id = o.candidate_id and u.email is not null
   join public.examinations e on e.id = o.examination_id
   join public.agilecert_communication_preferences pref on pref.candidate_id = o.candidate_id
-  where o.status in ('paid', 'waived')
-    and o.fulfilled_at is not null
+  where o.status in ('paid', 'waived') and o.fulfilled_at is not null
     and pref.operational_messages
   on conflict (event_key) do nothing;
-  get diagnostics v_inserted = row_count;
+  get diagnostics v_rows = row_count;
+  v_inserted := v_inserted + v_rows;
 
-  -- Certificate offer reminders: immediate, day 2, day 5 and final day 7.
   with eligible as (
-    select
-      er.id as eligibility_id,
-      er.candidate_id,
-      er.examination_id,
-      er.score,
-      er.pass_mark,
-      e.title as examination_title,
+    select er.id as eligibility_id, er.candidate_id, er.examination_id,
+      er.score, er.pass_mark, e.title as examination_title,
       coalesce(a.submitted_at, a.graded_at, er.evaluated_at) as passed_at,
       lower(u.email) as email,
       encode(digest(lower(u.email), 'sha256'), 'hex') as email_hash
@@ -403,29 +359,23 @@ begin
     candidate_id, recipient_email, recipient_email_hash, message_type, category,
     event_key, due_at, payload
   )
-  select
-    eligible.candidate_id,
-    eligible.email,
-    eligible.email_hash,
-    cadence.message_type,
-    'certificate_reminder',
+  select eligible.candidate_id, eligible.email, eligible.email_hash,
+    cadence.message_type, 'certificate_reminder',
     'certificate-offer:' || eligible.eligibility_id || ':' || cadence.cadence_key,
     eligible.passed_at + cadence.delay,
     jsonb_build_object(
       'eligibilityId', eligible.eligibility_id,
       'examinationId', eligible.examination_id,
       'examinationTitle', eligible.examination_title,
-      'score', eligible.score,
-      'passMark', eligible.pass_mark,
+      'score', eligible.score, 'passMark', eligible.pass_mark,
       'passedAt', eligible.passed_at,
-      'earlyPriceExpiresAt', eligible.passed_at + interval '7 days',
-      'portalUrl', 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+      'earlyPriceExpiresAt', eligible.passed_at + interval '7 days'
     )
   from eligible cross join cadence
   on conflict (event_key) do nothing;
-  get diagnostics v_inserted = v_inserted + row_count;
+  get diagnostics v_rows = row_count;
+  v_inserted := v_inserted + v_rows;
 
-  -- Cancel reminders immediately after purchase or eligibility loss.
   update public.agilecert_communication_outbox box
   set status = 'cancelled', cancelled_at = p_now, updated_at = p_now,
       failure_code = 'certificate_offer_no_longer_due'
@@ -434,7 +384,7 @@ begin
     and (
       exists (
         select 1 from public.agilecert_certificate_orders o
-        where ('certificate-offer:' || o.eligibility_id || ':') = left(box.event_key, length('certificate-offer:' || o.eligibility_id || ':'))
+        where box.event_key like 'certificate-offer:' || o.eligibility_id || ':%'
           and o.status in ('paid', 'waived')
       )
       or not exists (
@@ -446,28 +396,18 @@ begin
     );
   get diagnostics v_cancelled = row_count;
 
-  -- Verified certificate purchase confirmation.
   insert into public.agilecert_communication_outbox(
     candidate_id, recipient_email, recipient_email_hash, message_type, category,
     event_key, due_at, payload
   )
-  select
-    o.candidate_id,
-    lower(u.email),
-    encode(digest(lower(u.email), 'sha256'), 'hex'),
-    'certificate_purchase_confirmation',
-    'operational',
-    'certificate-purchase:' || o.id,
+  select o.candidate_id, lower(u.email), encode(digest(lower(u.email), 'sha256'), 'hex'),
+    'certificate_purchase_confirmation', 'operational', 'certificate-purchase:' || o.id,
     coalesce(o.fulfilled_at, o.paid_at, o.waived_at, o.updated_at),
     jsonb_build_object(
-      'orderId', o.id,
-      'eligibilityId', o.eligibility_id,
-      'productCode', o.product_code,
-      'productTitle', product.title,
-      'reference', o.reference,
-      'currency', o.currency,
-      'amountMinor', o.payable_amount_minor,
-      'portalUrl', 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+      'orderId', o.id, 'eligibilityId', o.eligibility_id,
+      'productCode', o.product_code, 'productTitle', product.title,
+      'reference', o.reference, 'currency', o.currency,
+      'amountMinor', o.payable_amount_minor
     )
   from public.agilecert_certificate_orders o
   join auth.users u on u.id = o.candidate_id and u.email is not null
@@ -475,55 +415,41 @@ begin
   join public.agilecert_communication_preferences pref on pref.candidate_id = o.candidate_id
   where o.status in ('paid', 'waived') and pref.operational_messages
   on conflict (event_key) do nothing;
-  get diagnostics v_inserted = v_inserted + row_count;
+  get diagnostics v_rows = row_count;
+  v_inserted := v_inserted + v_rows;
 
-  -- Issued paid credential is ready.
   insert into public.agilecert_communication_outbox(
     candidate_id, recipient_email, recipient_email_hash, message_type, category,
     event_key, due_at, payload
   )
-  select
-    credential.candidate_id,
-    lower(u.email),
-    encode(digest(lower(u.email), 'sha256'), 'hex'),
-    'credential_ready',
-    'operational',
-    'credential-ready:' || credential.id,
+  select credential.candidate_id, lower(u.email), encode(digest(lower(u.email), 'sha256'), 'hex'),
+    'credential_ready', 'operational', 'credential-ready:' || credential.id,
     credential.issued_at,
     jsonb_build_object(
-      'credentialId', credential.id,
-      'productCode', credential.product_code,
+      'credentialId', credential.id, 'productCode', credential.product_code,
       'credentialCode', credential.credential_code,
       'verificationUrl', credential.verification_url,
-      'linkedinCredentialName', credential.linkedin_credential_name,
-      'portalUrl', 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+      'linkedinCredentialName', credential.linkedin_credential_name
     )
   from public.agilecert_paid_credentials credential
   join auth.users u on u.id = credential.candidate_id and u.email is not null
   join public.agilecert_communication_preferences pref on pref.candidate_id = credential.candidate_id
   where credential.status = 'active' and pref.operational_messages
   on conflict (event_key) do nothing;
-  get diagnostics v_inserted = v_inserted + row_count;
+  get diagnostics v_rows = row_count;
+  v_inserted := v_inserted + v_rows;
 
-  -- Post-purchase relevant-course campaign enrolment.
   insert into public.agilecert_communication_outbox(
     candidate_id, recipient_email, recipient_email_hash, message_type, category,
     event_key, due_at, payload
   )
-  select
-    credential.candidate_id,
-    lower(u.email),
-    encode(digest(lower(u.email), 'sha256'), 'hex'),
-    'course_recommendation',
-    'marketing',
-    'course-recommendation:' || credential.id,
+  select credential.candidate_id, lower(u.email), encode(digest(lower(u.email), 'sha256'), 'hex'),
+    'course_recommendation', 'marketing', 'course-recommendation:' || credential.id,
     credential.issued_at + interval '1 day',
     jsonb_build_object(
-      'credentialId', credential.id,
-      'productCode', credential.product_code,
+      'credentialId', credential.id, 'productCode', credential.product_code,
       'sourceExaminationId', cert.examination_id,
-      'sourceExaminationTitle', cert.examination_title,
-      'portalUrl', 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+      'sourceExaminationTitle', cert.examination_title
     )
   from public.agilecert_paid_credentials credential
   join public.agilecert_issued_certificates cert on cert.id = credential.certificate_id
@@ -531,18 +457,21 @@ begin
   join public.agilecert_communication_preferences pref on pref.candidate_id = credential.candidate_id
   where credential.status = 'active' and pref.course_recommendations
   on conflict (event_key) do nothing;
-  get diagnostics v_inserted = v_inserted + row_count;
+  get diagnostics v_rows = row_count;
+  v_inserted := v_inserted + v_rows;
 
   insert into public.agilecert_communication_events(outbox_id, candidate_id, event_type, metadata)
   select box.id, box.candidate_id, 'queued', jsonb_build_object('messageType', box.message_type)
   from public.agilecert_communication_outbox box
-  where box.created_at >= p_now - interval '5 seconds'
+  where box.created_at >= p_now - interval '10 seconds'
     and not exists (
       select 1 from public.agilecert_communication_events event
       where event.outbox_id = box.id and event.event_type = 'queued'
     );
 
-  return jsonb_build_object('inserted', v_inserted, 'cancelled', v_cancelled, 'refreshedAt', p_now);
+  return jsonb_build_object(
+    'inserted', v_inserted, 'cancelled', v_cancelled, 'refreshedAt', p_now
+  );
 end;
 $$;
 
@@ -579,8 +508,7 @@ begin
       )
       and not exists (
         select 1 from public.agilecert_communication_suppressions suppression
-        where suppression.email_hash = box.recipient_email_hash
-          and suppression.active
+        where suppression.email_hash = box.recipient_email_hash and suppression.active
           and (
             suppression.scope = 'all_email'
             or suppression.scope = 'all_optional' and box.category <> 'operational'
@@ -593,7 +521,8 @@ begin
     for update skip locked
   )
   update public.agilecert_communication_outbox box
-  set status = 'processing', claimed_at = p_now, attempts = attempts + 1, updated_at = p_now
+  set status = 'processing', claimed_at = p_now,
+      attempts = attempts + 1, updated_at = p_now
   from candidates
   where box.id = candidates.id
   returning box.*;
@@ -627,21 +556,20 @@ begin
   select settings.max_attempts into v_max_attempts
   from public.agilecert_communication_settings settings where settings.singleton;
 
-  select * into v_box from public.agilecert_communication_outbox where id = p_outbox_id for update;
+  select * into v_box
+  from public.agilecert_communication_outbox where id = p_outbox_id for update;
   if v_box.id is null then raise exception 'Communication outbox item not found.'; end if;
 
   update public.agilecert_communication_outbox
-  set status = case
-        when coalesce(p_succeeded, false) then 'sent'
-        when attempts >= coalesce(v_max_attempts, 5) then 'failed'
-        else 'failed'
-      end,
+  set status = case when coalesce(p_succeeded, false) then 'sent' else 'failed' end,
       provider = nullif(trim(coalesce(p_provider, '')), ''),
       provider_message_id = nullif(trim(coalesce(p_provider_message_id, '')), ''),
       subject = nullif(left(trim(coalesce(p_subject, '')), 300), ''),
       provider_metadata = coalesce(p_provider_metadata, '{}'::jsonb),
-      failure_code = case when coalesce(p_succeeded, false) then null else nullif(left(trim(coalesce(p_failure_code, 'delivery_failed')), 120), '') end,
-      failure_message = case when coalesce(p_succeeded, false) then null else nullif(left(trim(coalesce(p_failure_message, '')), 1000), '') end,
+      failure_code = case when coalesce(p_succeeded, false) then null
+        else nullif(left(trim(coalesce(p_failure_code, 'delivery_failed')), 120), '') end,
+      failure_message = case when coalesce(p_succeeded, false) then null
+        else nullif(left(trim(coalesce(p_failure_message, '')), 1000), '') end,
       next_attempt_at = case
         when coalesce(p_succeeded, false) or attempts >= coalesce(v_max_attempts, 5) then null
         else now() + make_interval(mins => least(360, greatest(5, attempts * attempts * 5)))
@@ -653,15 +581,11 @@ begin
   insert into public.agilecert_communication_events(
     outbox_id, candidate_id, provider_message_id, event_type, metadata
   ) values (
-    p_outbox_id,
-    v_box.candidate_id,
+    p_outbox_id, v_box.candidate_id,
     nullif(trim(coalesce(p_provider_message_id, '')), ''),
     case when coalesce(p_succeeded, false) then 'sent' else 'failed' end,
-    jsonb_build_object(
-      'messageType', v_box.message_type,
-      'attempt', v_box.attempts,
-      'failureCode', p_failure_code
-    )
+    jsonb_build_object('messageType', v_box.message_type, 'attempt', v_box.attempts + 1,
+      'failureCode', p_failure_code)
   );
 end;
 $$;
@@ -695,20 +619,18 @@ begin
   select * into v_box
   from public.agilecert_communication_outbox
   where provider_message_id = nullif(trim(coalesce(p_provider_message_id, '')), '')
-  order by sent_at desc nulls last
-  limit 1;
+  order by sent_at desc nulls last limit 1;
 
   insert into public.agilecert_communication_events(
     outbox_id, candidate_id, provider_message_id, event_type, metadata
   ) values (
-    v_box.id,
-    v_box.candidate_id,
+    v_box.id, v_box.candidate_id,
     nullif(trim(coalesce(p_provider_message_id, '')), ''),
-    v_event,
-    coalesce(p_metadata, '{}'::jsonb)
+    v_event, coalesce(p_metadata, '{}'::jsonb)
   );
 
-  if v_event in ('bounced', 'complained') and nullif(trim(coalesce(p_email_hash, '')), '') is not null then
+  if v_event in ('bounced', 'complained')
+    and nullif(trim(coalesce(p_email_hash, '')), '') is not null then
     insert into public.agilecert_communication_suppressions(
       email_hash, reason, scope, active, source, metadata
     ) values (
@@ -717,7 +639,8 @@ begin
       'all_email', true, 'provider_webhook', coalesce(p_metadata, '{}'::jsonb)
     )
     on conflict (email_hash, reason, scope) do update set
-      active = true, source = excluded.source, metadata = excluded.metadata, updated_at = now();
+      active = true, source = excluded.source,
+      metadata = excluded.metadata, updated_at = now();
 
     update public.agilecert_communication_outbox
     set status = 'suppressed', updated_at = now(), failure_code = v_event
@@ -740,7 +663,6 @@ set search_path = public
 as $$
 declare
   v_actor uuid := auth.uid();
-  v_payload jsonb;
 begin
   if v_actor is null or not exists (
     select 1 from public.profiles p
@@ -749,7 +671,7 @@ begin
     raise exception 'Active examination-administrator access is required.';
   end if;
 
-  select jsonb_build_object(
+  return jsonb_build_object(
     'generatedAt', now(),
     'settings', (
       select to_jsonb(settings) - 'updated_by'
@@ -764,20 +686,20 @@ begin
       'cancelled', (select count(*) from public.agilecert_communication_outbox where status = 'cancelled')
     ),
     'recentOutbox', coalesce((
-      select jsonb_agg(to_jsonb(box) - 'recipient_email' order by box.created_at desc)
+      select jsonb_agg(to_jsonb(recent) - 'recipient_email' order by recent.created_at desc)
       from (
-        select * from public.agilecert_communication_outbox order by created_at desc limit 100
-      ) box
+        select * from public.agilecert_communication_outbox
+        order by created_at desc limit 100
+      ) recent
     ), '[]'::jsonb),
     'recentEvents', coalesce((
-      select jsonb_agg(to_jsonb(event) order by event.event_at desc)
+      select jsonb_agg(to_jsonb(recent) order by recent.event_at desc)
       from (
-        select * from public.agilecert_communication_events order by event_at desc limit 100
-      ) event
+        select * from public.agilecert_communication_events
+        order by event_at desc limit 100
+      ) recent
     ), '[]'::jsonb)
-  ) into v_payload;
-
-  return v_payload;
+  );
 end;
 $$;
 
@@ -818,8 +740,7 @@ begin
       reply_to_email = nullif(lower(trim(coalesce(p_reply_to_email, ''))), ''),
       hourly_batch_size = greatest(1, least(coalesce(p_hourly_batch_size, 40), 100)),
       max_attempts = greatest(1, least(coalesce(p_max_attempts, 5), 12)),
-      updated_by = v_actor,
-      updated_at = now()
+      updated_by = v_actor, updated_at = now()
   where singleton;
 
   return public.get_agilecert_communications_admin_console();
