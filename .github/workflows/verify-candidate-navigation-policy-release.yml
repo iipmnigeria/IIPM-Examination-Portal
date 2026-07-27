@@ -1,0 +1,223 @@
+name: Verify Candidate Navigation and Policy Release
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-candidate-navigation-policy-release.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: verify-candidate-navigation-policy-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify exact Pages deployment and live candidate UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_SHA: ad2ecbb27b3c4637239abb13e72f08a38620ffdd
+      LIVE_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+    steps:
+      - name: Wait for permanent compiled Pages deployment
+        id: deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidate-ui-verification"
+          success=0
+          for attempt in $(seq 1 90); do
+            response="$(gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SOURCE_SHA}&event=push&per_page=100")"
+            run="$(printf '%s' "$response" | jq -c '[.workflow_runs[] | select(.name == "Deploy AgileCert Compiled Pages")] | sort_by(.created_at) | last // empty')"
+            if [ -z "$run" ]; then
+              echo "Attempt $attempt: permanent Pages run not listed yet"
+              sleep 5
+              continue
+            fi
+            status="$(printf '%s' "$run" | jq -r '.status')"
+            conclusion="$(printf '%s' "$run" | jq -r '.conclusion // ""')"
+            run_id="$(printf '%s' "$run" | jq -r '.id')"
+            run_url="$(printf '%s' "$run" | jq -r '.html_url')"
+            echo "Attempt $attempt: run=$run_id status=$status conclusion=$conclusion"
+            if [ "$status" = 'completed' ]; then
+              printf '%s\n' "$run" | jq '{id,name,event,status,conclusion,head_sha,html_url,created_at,updated_at}' \
+                > "$RUNNER_TEMP/candidate-ui-verification/pages-run.json"
+              [ "$conclusion" = 'success' ] || exit 1
+              echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+              echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+              success=1
+              break
+            fi
+            sleep 10
+          done
+          test "$success" -eq 1
+
+      - name: Record deployment jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.deployment.outputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+            | jq '{jobs: [.jobs[] | {name,status,conclusion,started_at,completed_at}]}' \
+            > "$RUNNER_TEMP/candidate-ui-verification/pages-jobs.json"
+          jq -e '.jobs | length >= 3' "$RUNNER_TEMP/candidate-ui-verification/pages-jobs.json" >/dev/null
+          jq -e 'all(.jobs[]; .conclusion == "success")' "$RUNNER_TEMP/candidate-ui-verification/pages-jobs.json" >/dev/null
+          cat "$RUNNER_TEMP/candidate-ui-verification/pages-jobs.json"
+
+      - name: Download and inspect exact live bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          curl -L --fail --silent --show-error \
+            "$LIVE_URL?candidate-ui-verification=$cache" \
+            -o "$RUNNER_TEMP/candidate-ui-verification/live-index.html"
+          grep -q 'AgileCert Global' "$RUNNER_TEMP/candidate-ui-verification/live-index.html"
+          ! grep -q '/src/main.tsx' "$RUNNER_TEMP/candidate-ui-verification/live-index.html"
+          asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/candidate-ui-verification/live-index.html" | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          asset_url="$(python3 - "$LIVE_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+          )"
+          curl -L --fail --silent --show-error \
+            "$asset_url?candidate-ui-verification=$cache" \
+            -o "$RUNNER_TEMP/candidate-ui-verification/live-app.js"
+          grep -q 'Secure AgileCert Global account registration and sign-in' "$RUNNER_TEMP/candidate-ui-verification/live-app.js"
+          grep -q 'Policies and candidate standards' "$RUNNER_TEMP/candidate-ui-verification/live-app.js"
+          grep -q 'Credential Store' "$RUNNER_TEMP/candidate-ui-verification/live-app.js"
+          grep -q 'AI CV Studio' "$RUNNER_TEMP/candidate-ui-verification/live-app.js"
+          grep -q 'Privacy Policy' "$RUNNER_TEMP/candidate-ui-verification/live-app.js"
+          grep -q 'Examination & Assessment Policy' "$RUNNER_TEMP/candidate-ui-verification/live-app.js"
+          ! grep -q 'Existing Supabase registration and sign-in' "$RUNNER_TEMP/candidate-ui-verification/live-app.js"
+          sha256sum "$RUNNER_TEMP/candidate-ui-verification/live-app.js" \
+            > "$RUNNER_TEMP/candidate-ui-verification/live-app.sha256"
+
+      - name: Install Chromium
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/candidate-ui-browser"
+          cd "$RUNNER_TEMP/candidate-ui-browser"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright@latest
+          npx playwright install --with-deps chromium
+
+      - name: Verify public wording, footer and policy centre
+        shell: bash
+        working-directory: ${{ runner.temp }}/candidate-ui-browser
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+            const pageErrors = [];
+            const failedRequests = [];
+            page.on('pageerror', error => pageErrors.push(String(error)));
+            page.on('requestfailed', request => failedRequests.push({ url: request.url(), failure: request.failure() }));
+
+            const response = await page.goto(`${process.env.LIVE_URL}?candidate-policy-check=${process.env.GITHUB_RUN_ID}`, {
+              waitUntil: 'networkidle',
+              timeout: 90000,
+            });
+
+            await page.getByText('Secure AgileCert Global account registration and sign-in', { exact: true }).waitFor({ state: 'visible', timeout: 30000 });
+            if (await page.getByText('Existing Supabase registration and sign-in', { exact: true }).count()) {
+              throw new Error('Backend-facing Supabase registration wording is still visible.');
+            }
+
+            const policyLink = page.getByRole('link', { name: 'Privacy Policy' }).first();
+            await policyLink.scrollIntoViewIfNeeded();
+            await policyLink.click();
+            await page.getByRole('heading', { name: 'Privacy Policy', exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+            await page.getByText('AgileCert Global Policy Centre', { exact: true }).waitFor({ state: 'visible' });
+
+            const report = {
+              sourceSha: process.env.SOURCE_SHA,
+              status: response ? response.status() : 0,
+              title: await page.title(),
+              agileCertAccountWordingVisible: await page.getByText('Secure AgileCert Global account registration and sign-in', { exact: true }).isVisible(),
+              backendSupabaseWordingCount: await page.getByText('Existing Supabase registration and sign-in', { exact: true }).count(),
+              footerPrivacyLinkVisible: await policyLink.isVisible(),
+              privacyPolicyHeadingVisible: await page.getByRole('heading', { name: 'Privacy Policy', exact: true }).isVisible(),
+              policyCentreVisible: await page.getByText('AgileCert Global Policy Centre', { exact: true }).isVisible(),
+              pageErrors,
+              failedRequests,
+            };
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/candidate-ui-verification/live-browser-report.json`, JSON.stringify(report, null, 2));
+            await page.screenshot({ path: `${process.env.RUNNER_TEMP}/candidate-ui-verification/live-policy-centre.png`, fullPage: true });
+            await browser.close();
+
+            if (report.status !== 200) throw new Error(`HTTP ${report.status}`);
+            if (!/AgileCert Global/i.test(report.title)) throw new Error(`Unexpected title: ${report.title}`);
+            if (!report.agileCertAccountWordingVisible || report.backendSupabaseWordingCount !== 0) throw new Error('Candidate wording check failed.');
+            if (!report.footerPrivacyLinkVisible || !report.privacyPolicyHeadingVisible || !report.policyCentreVisible) throw new Error('Policy experience check failed.');
+            if (pageErrors.length || failedRequests.length) throw new Error(`Browser errors detected: ${JSON.stringify({ pageErrors, failedRequests })}`);
+          })().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Create sanitized verification summary
+        env:
+          RUN_ID: ${{ steps.deployment.outputs.run_id }}
+          RUN_URL: ${{ steps.deployment.outputs.run_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'candidate-ui-verification'
+          browser = json.loads((root / 'live-browser-report.json').read_text())
+          summary = {
+              'sourceCommit': os.environ['SOURCE_SHA'],
+              'pagesRunId': os.environ['RUN_ID'],
+              'pagesRunUrl': os.environ['RUN_URL'],
+              'pagesDeploymentPassed': True,
+              'liveHttpStatus': browser['status'],
+              'agileCertAccountWordingVisible': browser['agileCertAccountWordingVisible'],
+              'backendSupabaseWordingVisible': browser['backendSupabaseWordingCount'] > 0,
+              'policyFooterVisible': browser['footerPrivacyLinkVisible'],
+              'policyCentreVerified': browser['privacyPolicyHeadingVisible'] and browser['policyCentreVisible'],
+              'credentialStoreInPrimaryToolsBundle': True,
+              'aiCvStudioInPrimaryToolsBundle': True,
+              'applicationOrProductionStateChangedByVerifier': False,
+          }
+          (root / 'candidate-navigation-policy-release-evidence.json').write_text(json.dumps(summary, indent=2))
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload sanitized verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-navigation-policy-release-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/candidate-ui-verification/pages-run.json
+            ${{ runner.temp }}/candidate-ui-verification/pages-jobs.json
+            ${{ runner.temp }}/candidate-ui-verification/live-app.sha256
+            ${{ runner.temp }}/candidate-ui-verification/live-browser-report.json
+            ${{ runner.temp }}/candidate-ui-verification/live-policy-centre.png
+            ${{ runner.temp }}/candidate-ui-verification/candidate-navigation-policy-release-evidence.json
