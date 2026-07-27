@@ -242,13 +242,13 @@ begin
 
   perform public.record_agilecert_communication_provider_event(
     'provider-material-001', 'bounced',
-    encode(digest('communications-candidate@example.test', 'sha256'), 'hex'),
+    encode(extensions.digest('communications-candidate@example.test', 'sha256'), 'hex'),
     jsonb_build_object('mock', true)
   );
 
   if not exists (
     select 1 from public.agilecert_communication_suppressions
-    where email_hash = encode(digest('communications-candidate@example.test', 'sha256'), 'hex')
+    where email_hash = encode(extensions.digest('communications-candidate@example.test', 'sha256'), 'hex')
       and reason = 'hard_bounce' and scope = 'all_email' and active
   ) then
     raise exception 'Hard-bounce suppression was not created.';

@@ -312,7 +312,7 @@ begin
     candidate_id, recipient_email, recipient_email_hash, message_type, category,
     event_key, due_at, payload
   )
-  select o.candidate_id, lower(u.email), encode(digest(lower(u.email), 'sha256'), 'hex'),
+  select o.candidate_id, lower(u.email), encode(extensions.digest(lower(u.email), 'sha256'), 'hex'),
     'preparation_material_ready', 'operational', 'exam-material-ready:' || o.id,
     coalesce(o.fulfilled_at, o.updated_at, o.created_at),
     jsonb_build_object(
@@ -334,7 +334,7 @@ begin
       er.score, er.pass_mark, e.title as examination_title,
       coalesce(a.submitted_at, a.graded_at, er.evaluated_at) as passed_at,
       lower(u.email) as email,
-      encode(digest(lower(u.email), 'sha256'), 'hex') as email_hash
+      encode(extensions.digest(lower(u.email), 'sha256'), 'hex') as email_hash
     from public.agilecert_certificate_eligibility_records er
     join public.attempts a on a.id = er.attempt_id
     join public.examinations e on e.id = er.examination_id
@@ -400,7 +400,7 @@ begin
     candidate_id, recipient_email, recipient_email_hash, message_type, category,
     event_key, due_at, payload
   )
-  select o.candidate_id, lower(u.email), encode(digest(lower(u.email), 'sha256'), 'hex'),
+  select o.candidate_id, lower(u.email), encode(extensions.digest(lower(u.email), 'sha256'), 'hex'),
     'certificate_purchase_confirmation', 'operational', 'certificate-purchase:' || o.id,
     coalesce(o.fulfilled_at, o.paid_at, o.waived_at, o.updated_at),
     jsonb_build_object(
@@ -422,7 +422,7 @@ begin
     candidate_id, recipient_email, recipient_email_hash, message_type, category,
     event_key, due_at, payload
   )
-  select credential.candidate_id, lower(u.email), encode(digest(lower(u.email), 'sha256'), 'hex'),
+  select credential.candidate_id, lower(u.email), encode(extensions.digest(lower(u.email), 'sha256'), 'hex'),
     'credential_ready', 'operational', 'credential-ready:' || credential.id,
     credential.issued_at,
     jsonb_build_object(
@@ -443,7 +443,7 @@ begin
     candidate_id, recipient_email, recipient_email_hash, message_type, category,
     event_key, due_at, payload
   )
-  select credential.candidate_id, lower(u.email), encode(digest(lower(u.email), 'sha256'), 'hex'),
+  select credential.candidate_id, lower(u.email), encode(extensions.digest(lower(u.email), 'sha256'), 'hex'),
     'course_recommendation', 'marketing', 'course-recommendation:' || credential.id,
     credential.issued_at + interval '1 day',
     jsonb_build_object(
