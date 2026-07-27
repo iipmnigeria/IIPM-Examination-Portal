@@ -135,25 +135,42 @@ jobs:
           test -n "$SUPABASE_DB_PASSWORD"
           supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
 
-      - name: Require exactly nine pending production migrations
+      - name: Determine approved migration state
         shell: bash
         run: |
           set -o pipefail
           supabase db push --linked --dry-run 2>&1 | tee phase8-production-dry-run.log
           grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' phase8-production-dry-run.log \
             | sort -u > phase8-production-pending.txt || true
-          diff -u phase8-expected-migrations.txt phase8-production-pending.txt
-          test "$(wc -l < phase8-production-pending.txt | tr -d ' ')" -eq 9
+          pending_count="$(wc -l < phase8-production-pending.txt | tr -d ' ')"
 
-      - name: Apply approved Phase 8 migrations
+          if [ "$pending_count" -eq 9 ]; then
+            diff -u phase8-expected-migrations.txt phase8-production-pending.txt
+            echo 'PHASE8_APPLY_NEEDED=true' >> "$GITHUB_ENV"
+          elif [ "$pending_count" -eq 0 ]; then
+            grep -Eq 'Remote database is up to date|Linked project is up to date' phase8-production-dry-run.log
+            echo 'PHASE8_APPLY_NEEDED=false' >> "$GITHUB_ENV"
+          else
+            printf 'Unexpected pending migration set (%s):\n' "$pending_count"
+            cat phase8-production-pending.txt
+            diff -u phase8-expected-migrations.txt phase8-production-pending.txt || true
+            exit 1
+          fi
+
+      - name: Apply approved Phase 8 migrations when pending
         shell: bash
         run: |
           set -o pipefail
-          printf 'y\n' | supabase db push --linked 2>&1 | tee phase8-production-deploy.log
-          for file in $(cat phase8-expected-migrations.txt); do
-            grep -q "Applying migration $file" phase8-production-deploy.log
-          done
-          grep -q 'Finished supabase db push' phase8-production-deploy.log
+          if [ "$PHASE8_APPLY_NEEDED" = 'true' ]; then
+            printf 'y\n' | supabase db push --linked 2>&1 | tee phase8-production-deploy.log
+            for file in $(cat phase8-expected-migrations.txt); do
+              grep -q "Applying migration $file" phase8-production-deploy.log
+            done
+            grep -q 'Finished supabase db push' phase8-production-deploy.log
+          else
+            printf 'All nine approved Phase 8 migrations are already applied. Verification-only rerun.\n' \
+              | tee phase8-production-deploy.log
+          fi
 
       - name: Verify remote finance and sponsorship authority
         shell: bash
@@ -170,7 +187,7 @@ jobs:
           schema = Path('phase8-production-schema.sql').read_text(encoding='utf-8', errors='ignore')
           required = [
               'agilecert_institutional_customers',
-              'agilecert_institution_billing_contacts',
+              'agilecert_institution_contacts',
               'agilecert_institution_quotes',
               'agilecert_institution_invoices',
               'agilecert_invoice_payment_schedules',
@@ -197,6 +214,7 @@ jobs:
               'sourceCommit': os.environ['EXPECTED_COMMIT'],
               'projectRef': os.environ['PROJECT_REF'],
               'migrationCount': 9,
+              'migrationsAppliedThisRun': os.environ.get('PHASE8_APPLY_NEEDED') == 'true',
               'excludedMigration': os.environ['EXCLUDED_MIGRATION'],
               'excludedMigrationApplied': phase7_applied,
               'requiredSchemaMarkerCount': len(required),
@@ -215,7 +233,7 @@ jobs:
           grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' phase8-post-deploy-dry-run.log \
             | sort -u > phase8-post-deploy-pending.txt || true
           test ! -s phase8-post-deploy-pending.txt
-          grep -q 'Remote database is up to date' phase8-post-deploy-dry-run.log
+          grep -Eq 'Remote database is up to date|Linked project is up to date' phase8-post-deploy-dry-run.log
 
       - name: Upload sanitized production database evidence
         if: always()
@@ -234,6 +252,7 @@ jobs:
             phase8-production-pending.txt
             phase8-production-deploy.log
             phase8-production-schema-dump.log
+            phase8-production-schema.sql
             phase8-post-deploy-dry-run.log
             phase8-post-deploy-pending.txt
             phase8-production-safe.json
