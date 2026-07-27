@@ -1,0 +1,3 @@
+Deploy the approved AgileCert communications activation-safety release from source commit eaaa71de585f3a3a786451129598a3cb2ffce14a.
+Apply only migration 202607271300, deploy only agilecert-communications-control and agilecert-resend-webhook, verify the exact live Pages release, and keep provider delivery disabled.
+Triggered 27 July 2026.
