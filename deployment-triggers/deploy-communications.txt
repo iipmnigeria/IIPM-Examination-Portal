@@ -1,0 +1,3 @@
+Deploy AgileCert Communications Automation from approved source commit 00ff074d2143dfef66e92a4903f670d20f8b9411.
+Apply only migrations 202607271200 through 202607271202, deploy only agilecert-communications, verify the exact live Pages release, and preserve provider_enabled=false with zero outbound messages.
+Triggered 27 July 2026.
