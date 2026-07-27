@@ -1,0 +1,109 @@
+name: Disable AgileCert Communications Provider
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Approved reason for disabling provider delivery
+        required: true
+        type: string
+      confirmed_disable_delivery:
+        description: I confirm outbound communications delivery should be disabled now
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CONTROL_URL: https://cfecicvugfrrhcvhduzc.supabase.co/functions/v1/agilecert-communications-control
+  WORKER_TOKEN: ${{ secrets.AGILECERT_COMMUNICATIONS_WORKER_TOKEN }}
+
+jobs:
+  disable:
+    name: Disable communications provider delivery
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: agilecert-communications-provider-activation
+      cancel-in-progress: false
+    steps:
+      - name: Validate disable authority and confirmation
+        shell: bash
+        env:
+          CONFIRMED: ${{ inputs.confirmed_disable_delivery }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRMED" = 'true'
+          test -n "$WORKER_TOKEN" || { echo 'AGILECERT_COMMUNICATIONS_WORKER_TOKEN is not configured.' >&2; exit 1; }
+
+      - name: Disable provider through private control authority
+        shell: bash
+        env:
+          DISABLE_REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os
+          with open('disable-request.json', 'w', encoding='utf-8') as handle:
+              json.dump({
+                  'action': 'disable-provider',
+                  'reason': os.environ['DISABLE_REASON'],
+              }, handle)
+          PY
+          status="$(curl --silent --show-error \
+            --output disable-response.json \
+            --write-out '%{http_code}' \
+            --request POST "$CONTROL_URL" \
+            --header 'Content-Type: application/json' \
+            --header "x-agilecert-worker-token: $WORKER_TOKEN" \
+            --data @disable-request.json)"
+          test "$status" = '200'
+          jq -e '.disabled == true and .providerEnabled == false' disable-response.json >/dev/null
+          rm -f disable-request.json
+
+      - name: Verify delivery remains disabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error \
+            --output disable-readiness.json \
+            --write-out '%{http_code}' \
+            --request POST "$CONTROL_URL" \
+            --header 'Content-Type: application/json' \
+            --header "x-agilecert-worker-token: $WORKER_TOKEN" \
+            --data '{"action":"activation-readiness"}')"
+          test "$status" = '200'
+          jq -e '.providerEnabled == false' disable-readiness.json >/dev/null
+
+      - name: Create sanitized disable evidence
+        if: always()
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          response = {}
+          readiness = {}
+          for path, target in [('disable-response.json', response), ('disable-readiness.json', readiness)]:
+              if Path(path).exists():
+                  try: target.update(json.loads(Path(path).read_text()))
+                  except Exception: pass
+          evidence = {
+              'disabled': bool(response.get('disabled')),
+              'providerEnabled': bool(readiness.get('providerEnabled')),
+              'deliveryAttempted': False,
+          }
+          Path('communications-provider-disable-evidence.json').write_text(json.dumps(evidence, indent=2))
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload sanitized disable evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-communications-provider-disable-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: communications-provider-disable-evidence.json
