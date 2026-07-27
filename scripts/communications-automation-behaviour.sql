@@ -13,7 +13,7 @@ declare
   v_assignment uuid := '00000000-0000-0000-0000-00000000d201';
   v_session uuid := '00000000-0000-0000-0000-00000000d202';
   v_attempt uuid := '00000000-0000-0000-0000-00000000d203';
-  v_eligibility uuid := '00000000-0000-0000-0000-00000000d204';
+  v_eligibility uuid;
   v_exam_order uuid := '00000000-0000-0000-0000-00000000d205';
   v_certificate_order uuid := '00000000-0000-0000-0000-00000000d206';
   v_certificate uuid := '00000000-0000-0000-0000-00000000d207';
@@ -75,13 +75,26 @@ begin
   );
 
   insert into public.agilecert_certificate_eligibility_records(
-    id, candidate_id, examination_id, attempt_id, score, pass_mark,
+    candidate_id, examination_id, attempt_id, score, pass_mark,
     suspicious_score, attempt_status, integrity_status, eligibility_status,
     reason_code, evaluated_at
   ) values (
-    v_eligibility, v_candidate, v_exam, v_attempt, 82, 70,
+    v_candidate, v_exam, v_attempt, 82, 70,
     0, 'submitted', 'cleared', 'eligible', 'passed', now() - interval '9 minutes'
-  );
+  )
+  on conflict (attempt_id) do update set
+    candidate_id = excluded.candidate_id,
+    examination_id = excluded.examination_id,
+    score = excluded.score,
+    pass_mark = excluded.pass_mark,
+    suspicious_score = excluded.suspicious_score,
+    attempt_status = excluded.attempt_status,
+    integrity_status = excluded.integrity_status,
+    eligibility_status = excluded.eligibility_status,
+    reason_code = excluded.reason_code,
+    evaluated_at = excluded.evaluated_at,
+    updated_at = now()
+  returning id into v_eligibility;
 
   insert into public.exam_orders(
     id, reference, candidate_id, examination_id, currency,
