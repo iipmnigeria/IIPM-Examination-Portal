@@ -1,0 +1,229 @@
+name: Validate AgileCert Communications Automation
+
+on:
+  push:
+    branches: [communications-automation]
+    paths:
+      - '.env.example'
+      - 'docs/AGILECERT_COMMUNICATIONS_AUTOMATION_SCOPE.md'
+      - 'scripts/communications-automation-behaviour.sql'
+      - 'src/components/AdminCommunicationsLauncher.tsx'
+      - 'src/components/CandidateCommunicationPreferences.tsx'
+      - 'src/services/communicationsService.ts'
+      - 'src/main.tsx'
+      - 'supabase/config.toml'
+      - 'supabase/functions/agilecert-communications/index.ts'
+      - 'supabase/migrations/20260727120*_communications_*.sql'
+      - '.github/workflows/validate-agilecert-communications.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - '.env.example'
+      - 'docs/AGILECERT_COMMUNICATIONS_AUTOMATION_SCOPE.md'
+      - 'scripts/communications-automation-behaviour.sql'
+      - 'src/components/AdminCommunicationsLauncher.tsx'
+      - 'src/components/CandidateCommunicationPreferences.tsx'
+      - 'src/services/communicationsService.ts'
+      - 'src/main.tsx'
+      - 'supabase/config.toml'
+      - 'supabase/functions/agilecert-communications/index.ts'
+      - 'supabase/migrations/20260727120*_communications_*.sql'
+      - '.github/workflows/validate-agilecert-communications.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-communications-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: Validate exact communications scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Confirm protected boundaries and release units
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin supabase-integration
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          allowed='^(.env\.example|docs/AGILECERT_COMMUNICATIONS_AUTOMATION_SCOPE\.md|scripts/communications-automation-behaviour\.sql|src/components/(AdminCommunicationsLauncher|CandidateCommunicationPreferences)\.tsx|src/services/communicationsService\.ts|src/main\.tsx|supabase/config\.toml|supabase/functions/agilecert-communications/index\.ts|supabase/migrations/20260727120[0-2]_communications_.*\.sql|\.github/workflows/validate-agilecert-communications\.yml)$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          if [ -n "$unexpected" ]; then
+            printf 'Unexpected communications files:\n%s\n' "$unexpected"
+            exit 1
+          fi
+
+          test -s supabase/migrations/202607271200_communications_automation.sql
+          test -s supabase/migrations/202607271201_communications_conversion_tracking.sql
+          test -s supabase/migrations/202607271202_communications_conversion_trigger.sql
+          test -s supabase/functions/agilecert-communications/index.ts
+
+          git diff --exit-code origin/supabase-integration -- \
+            src/services/commerceService.ts \
+            src/services/certificateCommerceService.ts \
+            src/services/credentialWalletService.ts \
+            src/services/identityProctoringService.ts \
+            src/services/aiCertificationAdviserService.ts \
+            src/services/aiCvEnhancementService.ts \
+            src/components/ExamExperience.tsx \
+            supabase/functions/initialize-exam-payment \
+            supabase/functions/verify-exam-payment \
+            supabase/functions/paystack-webhook \
+            supabase/functions/initialize-certificate-payment \
+            supabase/functions/verify-certificate-payment \
+            supabase/functions/paystack-certificate-webhook \
+            supabase/functions/agilecert-ai-adviser \
+            supabase/functions/agilecert-ai-cv
+
+          python3 <<'PY'
+          from pathlib import Path
+          files = sorted(Path('supabase/migrations').glob('20260727120*_communications_*.sql'))
+          assert len(files) == 3, files
+          sql = '\n'.join(path.read_text() for path in files)
+          edge = Path('supabase/functions/agilecert-communications/index.ts').read_text()
+          required_sql = [
+              'agilecert_communication_settings',
+              'agilecert_communication_preferences',
+              'agilecert_communication_outbox',
+              'agilecert_communication_events',
+              'agilecert_communication_suppressions',
+              'refresh_agilecert_communication_outbox',
+              'claim_agilecert_communication_outbox',
+              'complete_agilecert_communication_delivery',
+              'record_agilecert_communication_provider_event',
+              'record_agilecert_communication_conversions',
+              'certificate_offer_day_7',
+          ]
+          required_edge = [
+              'RESEND_API_KEY',
+              'AGILECERT_COMMUNICATIONS_WORKER_TOKEN',
+              'AGILECERT_COMMUNICATIONS_WEBHOOK_TOKEN',
+              'AGILECERT_COMMUNICATIONS_SIGNING_SECRET',
+              'scan-and-send',
+              'unsubscribe',
+              'email.bounced',
+              'email.complained',
+              'Idempotency-Key',
+          ]
+          assert not [item for item in required_sql if item not in sql]
+          assert not [item for item in required_edge if item not in edge]
+          forbidden = [
+              'PAYSTACK_SECRET_KEY',
+              'update public.question_answer_keys',
+              'update public.candidate_answers',
+              'government_id',
+              'selfie_path',
+          ]
+          found = [item for item in forbidden if item in sql or item in edge]
+          assert not found, f'Protected authority leaked into communications: {found}'
+          PY
+
+  frontend:
+    name: Validate communication workspaces and production bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build communications workspaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'Email Preferences' dist/assets
+          grep -R -q 'Communications Automation' dist/assets
+          grep -R -q 'Certificate offer reminders' dist/assets
+          grep -R -q 'Provider delivery is' dist/assets
+          find dist/assets -maxdepth 1 -type f -name '*.js' -print0 \
+            | sort -z | xargs -0 sha256sum > communications-frontend-bundle.sha256
+      - name: Upload frontend evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-communications-frontend-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            communications-frontend-bundle.sha256
+            dist/index.html
+
+  edge-function:
+    name: Validate communications Edge Function
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check provider, worker and webhook boundaries
+        shell: bash
+        run: |
+          set -o pipefail
+          deno check --node-modules-dir=auto supabase/functions/agilecert-communications/index.ts \
+            2>&1 | tee communications-edge-check.log
+          ! grep -E 'PAYSTACK_SECRET_KEY|question_answer_keys|candidate_answers|government_id|selfie_path' \
+            supabase/functions/agilecert-communications/index.ts
+      - name: Upload Edge Function evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-communications-edge-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: communications-edge-check.log
+
+  database:
+    name: Validate communications lifecycle and privacy
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          commit;
+          SQL
+      - name: Apply complete migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee communications-supabase-start.log
+          supabase db reset --local 2>&1 | tee communications-db-reset.log
+      - name: Exercise queue, cancellation, conversion and suppression lifecycle
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f scripts/communications-automation-behaviour.sql \
+            2>&1 | tee communications-behaviour.log
+      - name: Upload database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-communications-database-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            communications-supabase-start.log
+            communications-db-reset.log
+            communications-behaviour.log
