@@ -1,0 +1,2 @@
+Align communications-automation with the current supabase-integration Phase 7 squash history while preserving the communications tree.
+Triggered 27 July 2026.
