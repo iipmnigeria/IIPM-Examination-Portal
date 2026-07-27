@@ -1,0 +1,4 @@
+Finalize the already-applied AgileCert Communications Automation release from approved source commit 00ff074d2143dfef66e92a4903f670d20f8b9411.
+Confirm remote migration history and structural authority, deploy only agilecert-communications, inspect secret-name readiness without values, and verify the exact live Pages release.
+No migration reapplication and no outbound email are permitted.
+Triggered 27 July 2026.
