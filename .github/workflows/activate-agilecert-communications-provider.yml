@@ -90,7 +90,7 @@ jobs:
 
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.101.0
 
       - name: Validate operator confirmations and credential presence
         shell: bash
