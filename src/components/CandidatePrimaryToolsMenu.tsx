@@ -1,13 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ShoppingBag, Sparkles, Wrench } from 'lucide-react';
+import {
+  BellRing,
+  ChevronDown,
+  ShoppingBag,
+  Sparkles,
+  UserCheck,
+  WalletCards,
+  Wrench,
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getCurrentPortalUser } from '../services/authService';
 
-const hiddenLauncherSelectors = [
-  'button[aria-label="Open AI CV Studio"]',
-  'button[aria-label="Open certificate payment and credentials"]',
-];
+const launcherSelectors = {
+  aiCv: 'button[aria-label="Open AI CV Studio"]',
+  communication: 'button[aria-label="Open email preferences"]',
+  credentialStore: 'button[aria-label="Open certificate payment and credentials"]',
+  credentialWallet: 'button[aria-label="Open professional credential wallet"]',
+  identityAssurance: 'button[aria-label="Open identity assurance"]',
+} as const;
+
+const hiddenLauncherSelectors = Object.values(launcherSelectors);
 
 const hideSecondaryLaunchers = () => {
   hiddenLauncherSelectors.forEach((selector) => {
@@ -29,6 +42,10 @@ const restoreSecondaryLaunchers = () => {
       delete element.dataset.agilecertOriginalDisplay;
     });
   });
+};
+
+const clickHiddenLauncher = (selector: string) => {
+  document.querySelector<HTMLButtonElement>(selector)?.click();
 };
 
 export default function CandidatePrimaryToolsMenu() {
@@ -109,11 +126,8 @@ export default function CandidatePrimaryToolsMenu() {
     };
   }, [isOpen]);
 
-  const openCredentialStore = () => {
-    const launcher = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open certificate payment and credentials"]',
-    );
-    launcher?.click();
+  const openTool = (selector: string) => {
+    clickHiddenLauncher(selector);
     setIsOpen(false);
   };
 
@@ -144,16 +158,34 @@ export default function CandidatePrimaryToolsMenu() {
       {isOpen && (
         <div
           role="menu"
-          className="absolute right-0 top-[calc(100%+0.6rem)] z-[120] w-64 overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 p-2 text-white shadow-2xl"
+          className="absolute right-0 top-[calc(100%+0.6rem)] z-[120] max-h-[min(76vh,36rem)] w-72 overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-2 text-white shadow-2xl"
         >
           <p className="px-3 pb-2 pt-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
-            Candidate tools
+            Candidate tools and services
           </p>
+
           <button
             type="button"
             role="menuitem"
-            onClick={openCredentialStore}
+            onClick={() => openTool(launcherSelectors.credentialWallet)}
             className="flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"
+          >
+            <span className="rounded-lg bg-cyan-400/10 p-2 text-cyan-300">
+              <WalletCards className="h-4 w-4" />
+            </span>
+            <span>
+              <span className="block text-xs font-black">Credential Wallet</span>
+              <span className="mt-1 block text-[11px] leading-5 text-slate-400">
+                Credentials, transcript, CPD, renewals and verified sharing
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => openTool(launcherSelectors.credentialStore)}
+            className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"
           >
             <span className="rounded-lg bg-emerald-400/10 p-2 text-emerald-300">
               <ShoppingBag className="h-4 w-4" />
@@ -165,6 +197,41 @@ export default function CandidatePrimaryToolsMenu() {
               </span>
             </span>
           </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => openTool(launcherSelectors.identityAssurance)}
+            className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"
+          >
+            <span className="rounded-lg bg-blue-400/10 p-2 text-blue-300">
+              <UserCheck className="h-4 w-4" />
+            </span>
+            <span>
+              <span className="block text-xs font-black">Identity Assurance</span>
+              <span className="mt-1 block text-[11px] leading-5 text-slate-400">
+                Submit approved professional evidence for confidential review
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => openTool(launcherSelectors.communication)}
+            className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"
+          >
+            <span className="rounded-lg bg-amber-400/10 p-2 text-amber-300">
+              <BellRing className="h-4 w-4" />
+            </span>
+            <span>
+              <span className="block text-xs font-black">Communication Centre</span>
+              <span className="mt-1 block text-[11px] leading-5 text-slate-400">
+                Manage optional certificate reminders and recommendations
+              </span>
+            </span>
+          </button>
+
           <button
             type="button"
             role="menuitem"
