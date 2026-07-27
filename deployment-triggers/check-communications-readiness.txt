@@ -1,0 +1,2 @@
+Inspect communications secret-name readiness and hourly dispatcher token presence without reading values or sending email.
+Triggered 27 July 2026.
