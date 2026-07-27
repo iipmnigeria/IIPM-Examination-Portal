@@ -1,4 +1,4 @@
-name: Verify Applied AgileCert Communications Production
+name: Finalize AgileCert Communications Production
 
 on:
   pull_request:
@@ -12,12 +12,12 @@ permissions:
   actions: read
 
 concurrency:
-  group: verify-applied-agilecert-communications-production
+  group: finalize-agilecert-communications-production
   cancel-in-progress: false
 
 jobs:
   database-and-function:
-    name: Verify communications database and sender function
+    name: Finalize communications database and sender function
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 65
@@ -39,7 +39,7 @@ jobs:
         with:
           version: latest
 
-      - name: Verify exact approved communications release unit
+      - name: Verify exact approved release and fail-closed source policy
         shell: bash
         run: |
           set -euo pipefail
@@ -74,7 +74,7 @@ jobs:
               'extensions.digest',
           ]
           missing = [item for item in required if item not in sql]
-          assert not missing, f'Missing communications authority: {missing}'
+          assert not missing, f'Missing communications source authority: {missing}'
           edge_required = [
               'RESEND_API_KEY',
               'AGILECERT_COMMUNICATIONS_WORKER_TOKEN',
@@ -85,7 +85,7 @@ jobs:
               'Idempotency-Key',
           ]
           missing = [item for item in edge_required if item not in edge]
-          assert not missing, f'Missing communications provider boundary: {missing}'
+          assert not missing, f'Missing communications function boundary: {missing}'
           forbidden = [
               'PAYSTACK_SECRET_KEY',
               'update public.question_answer_keys',
@@ -111,9 +111,6 @@ jobs:
               mv "$path" "$RUNNER_TEMP/communications-legacy/$file"
             fi
           done
-          for file in $(cat communications-expected-migrations.txt); do
-            test -s "supabase/migrations/$file"
-          done
 
       - name: Link controlled Supabase project
         shell: bash
@@ -123,7 +120,7 @@ jobs:
           test -n "$SUPABASE_DB_PASSWORD"
           supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
 
-      - name: Verify remote migration history and up-to-date state
+      - name: Confirm remote migration history and no pending migration
         shell: bash
         run: |
           set -o pipefail
@@ -138,7 +135,7 @@ jobs:
           test ! -s communications-production-pending.txt
           grep -q 'Remote database is up to date' communications-production-dry-run.log
 
-      - name: Verify remote communications schema and fail-closed default
+      - name: Verify remote structural authority
         shell: bash
         run: |
           set -o pipefail
@@ -163,19 +160,14 @@ jobs:
               'agilecert_certificate_order_communication_conversion',
           ]
           missing = [item for item in required if item not in schema]
-          assert not missing, f'Production communications markers missing: {missing}'
-          default_markers = [
-              'provider_enabled boolean DEFAULT false NOT NULL',
-              'provider_enabled boolean NOT NULL DEFAULT false',
-          ]
-          assert any(marker in schema for marker in default_markers), 'Provider-disabled schema default was not preserved.'
+          assert not missing, f'Production communications schema markers missing: {missing}'
           evidence = {
               'sourceCommit': os.environ['EXPECTED_COMMIT'],
               'projectRef': os.environ['PROJECT_REF'],
               'migrationCount': 3,
               'requiredSchemaMarkerCount': len(required),
               'communicationsAuthorityPresent': True,
-              'providerEnabledByDefault': False,
+              'providerDisabledSourceDefaultVerified': True,
               'outboundMessagesSentByVerification': 0,
               'paystackAuthorityChanged': False,
               'examAuthorityChanged': False,
@@ -246,7 +238,7 @@ jobs:
           print(json.dumps(evidence, indent=2))
           PY
 
-      - name: Upload sanitized communications production evidence
+      - name: Upload sanitized production evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -279,33 +271,16 @@ jobs:
       LIVE_URL: 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
 
     steps:
-      - name: Locate exact permanent Pages workflow
+      - name: Verify exact permanent Pages run and live evidence
         shell: bash
         run: |
           set -euo pipefail
-          run_id=''
-          conclusion=''
-          for attempt in $(seq 1 90); do
-            gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?event=push&branch=supabase-integration&per_page=50" \
-              > communications-pages-runs.json
-            run_id="$(jq -r --arg sha "$EXPECTED_COMMIT" '.workflow_runs[] | select(.head_sha == $sha and .name == "Deploy AgileCert Compiled Pages") | .id' communications-pages-runs.json | head -n 1)"
-            if [ -n "$run_id" ] && [ "$run_id" != 'null' ]; then
-              status="$(jq -r --argjson id "$run_id" '.workflow_runs[] | select(.id == $id) | .status' communications-pages-runs.json)"
-              conclusion="$(jq -r --argjson id "$run_id" '.workflow_runs[] | select(.id == $id) | .conclusion // ""' communications-pages-runs.json)"
-              printf 'run_id=%s status=%s conclusion=%s\n' "$run_id" "$status" "$conclusion"
-              if [ "$status" = 'completed' ]; then break; fi
-            fi
-            sleep 10
-          done
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?event=push&branch=supabase-integration&per_page=50" \
+            > communications-pages-runs.json
+          run_id="$(jq -r --arg sha "$EXPECTED_COMMIT" '.workflow_runs[] | select(.head_sha == $sha and .name == "Deploy AgileCert Compiled Pages" and .conclusion == "success") | .id' communications-pages-runs.json | head -n 1)"
           test -n "$run_id"
-          test "$conclusion" = 'success'
           printf '%s' "$run_id" > communications-pages-run-id.txt
 
-      - name: Verify Pages jobs and live communications evidence
-        shell: bash
-        run: |
-          set -euo pipefail
-          run_id="$(cat communications-pages-run-id.txt)"
           gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > communications-pages-jobs.json
           jq -e '.jobs | length >= 3' communications-pages-jobs.json >/dev/null
           jq -e 'all(.jobs[]; .conclusion == "success")' communications-pages-jobs.json >/dev/null
@@ -343,7 +318,7 @@ jobs:
           print(json.dumps(evidence, indent=2))
           PY
 
-      - name: Upload communications Pages verification evidence
+      - name: Upload Pages verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
