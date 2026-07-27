@@ -1,0 +1,153 @@
+name: Validate AgileCert Original Phase 8 Database
+
+on:
+  push:
+    branches: [phase-8-finance-commerce-sponsorship]
+    paths:
+      - 'docs/AGILECERT_ORIGINAL_PHASE_8_COMPLETION_SCOPE.md'
+      - 'scripts/phase8-completion-behaviour.sql'
+      - 'supabase/migrations/20260727100*_phase_8_*.sql'
+      - '.github/workflows/validate-agilecert-original-phase-8-database.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'docs/AGILECERT_ORIGINAL_PHASE_8_COMPLETION_SCOPE.md'
+      - 'scripts/phase8-completion-behaviour.sql'
+      - 'supabase/migrations/20260727100*_phase_8_*.sql'
+      - '.github/workflows/validate-agilecert-original-phase-8-database.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-original-phase-8-database-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: Validate exact Phase 8 database scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Confirm nine migrations and protected boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/phase8-expected-migrations.txt" <<'EOF'
+          supabase/migrations/202607271000_phase_8_finance_policy_customers.sql
+          supabase/migrations/202607271001_phase_8_quotes_invoices.sql
+          supabase/migrations/202607271002_phase_8_sponsorship_seats.sql
+          supabase/migrations/202607271003_phase_8_payments_receipts.sql
+          supabase/migrations/202607271004_phase_8_refunds_credits.sql
+          supabase/migrations/202607271005_phase_8_reconciliation_reporting.sql
+          supabase/migrations/202607271006_phase_8_privacy_permissions.sql
+          supabase/migrations/202607271007_phase_8_idempotency_refund_access.sql
+          supabase/migrations/202607271008_phase_8_ledger_driven_sponsorship.sql
+          EOF
+          git diff --name-only origin/supabase-integration...HEAD \
+            | grep '^supabase/migrations/' | sort > "$RUNNER_TEMP/phase8-actual-migrations.txt" || true
+          sort -o "$RUNNER_TEMP/phase8-expected-migrations.txt" "$RUNNER_TEMP/phase8-expected-migrations.txt"
+          diff -u "$RUNNER_TEMP/phase8-expected-migrations.txt" "$RUNNER_TEMP/phase8-actual-migrations.txt"
+          test "$(wc -l < "$RUNNER_TEMP/phase8-actual-migrations.txt" | tr -d ' ')" -eq 9
+
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          ! printf '%s\n' "$changed" | grep -E '^supabase/functions/'
+          ! printf '%s\n' "$changed" | grep -E '^supabase/migrations/202607261300_phase_7_'
+          protected='^src/services/(commerceService|adminCommerceService|certificateCommerceService|credentialWalletService|identityProctoringService|aiCertificationAdviserService|aiCvProfileBuilderService)\.ts$|^src/components/(CandidateCommerceOverlay|PaymentReturnHandler|AdminCommerceConsole|CandidateCertificateCommerce|CandidateCredentialWallet|CandidateIdentityProctoringWorkspace|AiCertificationAdviser|AiCvProfileBuilder|ExamExperience)\.tsx$|^supabase/functions/'
+          if printf '%s\n' "$changed" | grep -Eq "$protected"; then
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+
+          python3 <<'PY'
+          from pathlib import Path
+          files = sorted(Path('supabase/migrations').glob('20260727100*_phase_8_*.sql'))
+          assert len(files) == 9, files
+          sql = '\n'.join(path.read_text() for path in files)
+          required = [
+              'agilecert_institutional_customers',
+              'agilecert_institution_quotes',
+              'agilecert_institution_invoices',
+              'agilecert_sponsorship_seat_pools',
+              'agilecert_sponsorship_nominations',
+              'agilecert_institution_payments',
+              'agilecert_finance_receipts',
+              'agilecert_finance_credit_notes',
+              'agilecert_finance_refund_requests',
+              'agilecert_reconciliation_batches',
+              'get_my_agilecert_finance_workspace',
+              'get_agilecert_finance_admin_console',
+              'institutional_sponsorship',
+              'must be paid or explicitly authorised',
+              'agilecert_sync_sponsorship_pool_counts',
+              'agilecert_refresh_invoices_after_payment_status_change',
+              'agilecert_revoke_unused_exam_access_after_full_refund',
+              'candidate_sponsorship_nomination_reaffirmed',
+          ]
+          missing = [marker for marker in required if marker not in sql]
+          assert not missing, f'Missing Original Phase 8 controls: {missing}'
+          forbidden = [
+              'PAYSTACK_SECRET_KEY',
+              'AGILECERT_PAYSTACK_SECRET_KEY',
+              'update public.question_answer_keys',
+              'update public.candidate_answers',
+              '202607261300_phase_7_ai_cv_profile_builder_foundation.sql',
+          ]
+          found = [marker for marker in forbidden if marker in sql]
+          assert not found, f'Protected authority leaked into Phase 8: {found}'
+          PY
+
+  lifecycle:
+    name: Validate complete finance and sponsorship lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          commit;
+          SQL
+
+      - name: Start isolated Supabase and apply complete migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee phase8-supabase-start.log
+          supabase db reset --local 2>&1 | tee phase8-db-reset.log
+
+      - name: Exercise complete Original Phase 8 lifecycle
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f scripts/phase8-completion-behaviour.sql \
+            2>&1 | tee phase8-completion-behaviour.log
+
+      - name: Upload isolated database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-original-phase-8-database-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase8-supabase-start.log
+            phase8-db-reset.log
+            phase8-completion-behaviour.log
