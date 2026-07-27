@@ -1,0 +1,3 @@
+Finalize the approved AgileCert Communications Automation production release for source commit 00ff074d2143dfef66e92a4903f670d20f8b9411.
+Verify the live schema, deployed function, fail-closed dispatch, no pending migrations, zero deployment-authorised sends, and exact live Pages bundle.
+Final verification triggered 27 July 2026.
