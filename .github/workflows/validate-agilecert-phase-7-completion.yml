@@ -1,0 +1,190 @@
+name: Validate AgileCert Phase 7 Completion
+
+on:
+  push:
+    branches: [phase-7-ai-cv-completion]
+    paths:
+      - 'docs/AGILECERT_PHASE_7_AI_CV_PROFILE_BUILDER_SCOPE.md'
+      - 'scripts/phase7-completion-behaviour.sql'
+      - 'src/components/AiCvEnhancementLauncher.tsx'
+      - 'src/services/aiCvEnhancementService.ts'
+      - 'src/main.tsx'
+      - 'supabase/functions/agilecert-ai-cv/index.ts'
+      - 'supabase/migrations/202607271100_phase_7_ai_cv_completion.sql'
+      - '.github/workflows/validate-agilecert-phase-7-completion.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'docs/AGILECERT_PHASE_7_AI_CV_PROFILE_BUILDER_SCOPE.md'
+      - 'scripts/phase7-completion-behaviour.sql'
+      - 'src/components/AiCvEnhancementLauncher.tsx'
+      - 'src/services/aiCvEnhancementService.ts'
+      - 'src/main.tsx'
+      - 'supabase/functions/agilecert-ai-cv/index.ts'
+      - 'supabase/migrations/202607271100_phase_7_ai_cv_completion.sql'
+      - '.github/workflows/validate-agilecert-phase-7-completion.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-phase-7-completion-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: Validate exact Phase 7 completion scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Confirm protected boundaries and release units
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin supabase-integration
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          allowed='^(docs/AGILECERT_PHASE_7_AI_CV_PROFILE_BUILDER_SCOPE\.md|scripts/phase7-completion-behaviour\.sql|src/components/AiCvEnhancementLauncher\.tsx|src/services/aiCvEnhancementService\.ts|src/main\.tsx|supabase/functions/agilecert-ai-cv/index\.ts|supabase/migrations/202607271100_phase_7_ai_cv_completion\.sql|\.github/workflows/validate-agilecert-phase-7-completion\.yml)$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          if [ -n "$unexpected" ]; then
+            printf 'Unexpected Phase 7 completion files:\n%s\n' "$unexpected"
+            exit 1
+          fi
+
+          test -s supabase/migrations/202607261300_phase_7_ai_cv_profile_builder_foundation.sql
+          test -s supabase/migrations/202607271100_phase_7_ai_cv_completion.sql
+          test -s supabase/functions/agilecert-ai-cv/index.ts
+          git diff --exit-code origin/supabase-integration -- \
+            src/services/commerceService.ts \
+            src/services/certificateCommerceService.ts \
+            src/services/credentialWalletService.ts \
+            src/services/identityProctoringService.ts \
+            src/services/aiCertificationAdviserService.ts \
+            src/components/ExamExperience.tsx \
+            supabase/functions/agilecert-ai-adviser \
+            supabase/functions/initialize-exam-payment \
+            supabase/functions/initialize-certificate-payment
+
+          python3 <<'PY'
+          from pathlib import Path
+          sql = Path('supabase/migrations/202607271100_phase_7_ai_cv_completion.sql').read_text()
+          fn = Path('supabase/functions/agilecert-ai-cv/index.ts').read_text()
+          required_sql = [
+              'agilecert_ai_cv_requests',
+              'set_my_agilecert_ai_cv_consent',
+              'register_agilecert_ai_cv_request',
+              'complete_agilecert_ai_cv_request',
+              'mark_my_agilecert_ai_cv_enhancement_applied',
+              'rawCvContentStoredInAudit',
+          ]
+          required_fn = [
+              'professional_summary',
+              'role_tailoring',
+              'achievement_rewrite',
+              'skills_recommendation',
+              'contactDetailsExcluded',
+              'The candidate must explicitly apply them',
+          ]
+          assert not [item for item in required_sql if item not in sql]
+          assert not [item for item in required_fn if item not in fn]
+          forbidden = ['PAYSTACK_SECRET_KEY', 'question_answer_keys', 'candidate_answers', 'identity_evidence']
+          found = [item for item in forbidden if item in sql or item in fn]
+          assert not found, f'Protected authority leaked into Phase 7: {found}'
+          PY
+
+  frontend:
+    name: Validate Phase 7 frontend and production bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build candidate AI CV Studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'Private AI CV Studio' dist/assets
+          grep -R -q 'Generate private suggestion' dist/assets
+          grep -R -q 'Apply reviewed suggestion' dist/assets
+          grep -R -q 'raw CV content' dist/assets
+          find dist/assets -maxdepth 1 -type f -name '*.js' -print0 \
+            | sort -z | xargs -0 sha256sum > phase7-frontend-bundle.sha256
+      - name: Upload frontend evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-phase-7-completion-frontend-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase7-frontend-bundle.sha256
+            dist/index.html
+
+  edge-function:
+    name: Validate Phase 7 AI CV Edge Function
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check provider boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno check supabase/functions/agilecert-ai-cv/index.ts
+          ! grep -E 'contact_email|contact_phone|linkedin_url|portfolio_url' \
+            supabase/functions/agilecert-ai-cv/index.ts
+
+  database:
+    name: Validate private AI CV lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          commit;
+          SQL
+      - name: Apply complete migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee phase7-supabase-start.log
+          supabase db reset --local 2>&1 | tee phase7-db-reset.log
+      - name: Exercise consent, audit, apply and privacy controls
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f scripts/phase7-completion-behaviour.sql \
+            2>&1 | tee phase7-completion-behaviour.log
+      - name: Upload database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-phase-7-completion-database-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase7-supabase-start.log
+            phase7-db-reset.log
+            phase7-completion-behaviour.log
