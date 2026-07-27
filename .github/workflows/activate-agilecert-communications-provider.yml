@@ -88,7 +88,8 @@ jobs:
           ref: ${{ env.APPROVED_SOURCE_COMMIT }}
           fetch-depth: 0
 
-      - uses: supabase/setup-cli@v1
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
         with:
           version: 2.101.0
 
@@ -102,23 +103,23 @@ jobs:
           DELIVERY_CONFIRMED: ${{ inputs.confirmed_enable_delivery }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$APPROVED_SOURCE_COMMIT"
-          test -s supabase/functions/agilecert-communications-control/index.ts
-          test -s supabase/functions/agilecert-resend-webhook/index.ts
-          test "$DOMAIN_CONFIRMED" = 'true'
-          test "$WEBHOOK_CONFIRMED" = 'true'
-          test -n "$SENDER_EMAIL"
+          [ "$(git rev-parse HEAD)" = "$APPROVED_SOURCE_COMMIT" ] || { echo "Approved source commit mismatch." >&2; exit 1; }
+          [ -s supabase/functions/agilecert-communications-control/index.ts ] || { echo "Provider-control source is missing." >&2; exit 1; }
+          [ -s supabase/functions/agilecert-resend-webhook/index.ts ] || { echo "Signed-webhook source is missing." >&2; exit 1; }
+          [ "$DOMAIN_CONFIRMED" = 'true' ] || { echo "Sender-domain confirmation was not checked." >&2; exit 1; }
+          [ "$WEBHOOK_CONFIRMED" = 'true' ] || { echo "Webhook confirmation was not checked." >&2; exit 1; }
           case "$SENDER_EMAIL" in
             *@*.*) ;;
-            *) echo 'The sender email format is invalid.' >&2; exit 1 ;;
+            *) echo "The sender email format is invalid." >&2; exit 1 ;;
           esac
           if [ "$MODE" = 'activate' ]; then
-            test "$DELIVERY_CONFIRMED" = 'true'
-          else
-            test "$MODE" = 'validate_only'
+            [ "$DELIVERY_CONFIRMED" = 'true' ] || { echo "Real-delivery confirmation is required in activate mode." >&2; exit 1; }
+          elif [ "$MODE" != 'validate_only' ]; then
+            echo "Unsupported workflow mode: $MODE" >&2
+            exit 1
           fi
           for variable in SUPABASE_ACCESS_TOKEN RESEND_API_KEY WORKER_TOKEN RESEND_WEBHOOK_SECRET UNSUBSCRIBE_SIGNING_SECRET; do
-            test -n "${!variable:-}" || { echo "Required credential name is not configured: $variable" >&2; exit 1; }
+            [ -n "${!variable:-}" ] || { echo "Required credential is not configured: $variable" >&2; exit 1; }
           done
 
       - name: Install approved communications secrets in Supabase
@@ -135,12 +136,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          supabase functions deploy agilecert-communications-control --project-ref "$PROJECT_REF" \
-            2>&1 | tee activation-control-deploy.log
-          supabase functions deploy agilecert-resend-webhook --project-ref "$PROJECT_REF" \
-            2>&1 | tee activation-webhook-deploy.log
-          supabase functions list --project-ref "$PROJECT_REF" \
-            2>&1 | tee activation-function-list.log
+          supabase functions deploy agilecert-communications-control --project-ref "$PROJECT_REF" 2>&1 | tee activation-control-deploy.log
+          supabase functions deploy agilecert-resend-webhook --project-ref "$PROJECT_REF" 2>&1 | tee activation-webhook-deploy.log
+          supabase functions list --project-ref "$PROJECT_REF" 2>&1 | tee activation-function-list.log
           grep -q 'agilecert-communications-control' activation-function-list.log
           grep -q 'agilecert-resend-webhook' activation-function-list.log
 
@@ -155,7 +153,9 @@ jobs:
             --header 'Content-Type: application/json' \
             --header "x-agilecert-worker-token: $WORKER_TOKEN" \
             --data '{"action":"activation-readiness"}')"
-          test "$status" = '200'
+          echo "Readiness endpoint HTTP status: $status"
+          jq '{providerEnabled,resendApiKeyConfigured,workerTokenConfigured,webhookSecretConfigured,unsubscribeSigningSecretConfigured}' activation-readiness.json || true
+          [ "$status" = '200' ] || { echo "Private control readiness failed." >&2; exit 1; }
           jq -e '.resendApiKeyConfigured == true and .workerTokenConfigured == true and .webhookSecretConfigured == true and .unsubscribeSigningSecretConfigured == true' activation-readiness.json >/dev/null
 
       - name: Test sender and configure reviewed provider state
@@ -196,12 +196,37 @@ jobs:
             --header 'Content-Type: application/json' \
             --header "x-agilecert-worker-token: $WORKER_TOKEN" \
             --data @activation-request.json)"
-          test "$status" = '200'
-          jq -e '.providerTestPassed == true and .configured == true' activation-response.json >/dev/null
-          if [ "$MODE" = 'activate' ]; then
-            jq -e '.providerEnabled == true and (.activation.deliveryCutoverAt | type == "string")' activation-response.json >/dev/null
+          echo "Provider-control HTTP status: $status"
+          if jq -e . activation-response.json >/dev/null 2>&1; then
+            jq '{
+              error,
+              configured,
+              providerTestPassed,
+              providerEnabled,
+              verifiedSenderDomain,
+              activation: {
+                deliveryCutoverAt: .activation.deliveryCutoverAt,
+                cancelledPreActivationBacklog: .activation.cancelledPreActivationBacklog
+              }
+            }' activation-response.json
           else
-            jq -e '.providerEnabled == false' activation-response.json >/dev/null
+            echo "Provider-control response was not valid JSON." >&2
+          fi
+          [ "$status" = '200' ] || { echo "Provider configuration request failed." >&2; exit 1; }
+          jq -e '.providerTestPassed == true and .configured == true' activation-response.json >/dev/null || {
+            echo "Provider sender validation did not pass." >&2
+            exit 1
+          }
+          if [ "$MODE" = 'activate' ]; then
+            jq -e '.providerEnabled == true and (.activation.deliveryCutoverAt | type == "string")' activation-response.json >/dev/null || {
+              echo "Provider was not enabled with a valid delivery cutover." >&2
+              exit 1
+            }
+          else
+            jq -e '.providerEnabled == false' activation-response.json >/dev/null || {
+              echo "Validate-only mode did not preserve the disabled provider state." >&2
+              exit 1
+            }
           fi
           rm -f activation-request.json
 
@@ -218,7 +243,9 @@ jobs:
             --header 'Content-Type: application/json' \
             --header "x-agilecert-worker-token: $WORKER_TOKEN" \
             --data '{"action":"activation-readiness"}')"
-          test "$status" = '200'
+          echo "Final readiness HTTP status: $status"
+          jq '{providerEnabled,deliveryCutoverAt,verifiedSenderDomain}' activation-final-readiness.json || true
+          [ "$status" = '200' ] || { echo "Final provider-state verification failed." >&2; exit 1; }
           if [ "$MODE" = 'activate' ]; then
             jq -e '.providerEnabled == true and (.deliveryCutoverAt | type == "string") and (.verifiedSenderDomain | type == "string")' activation-final-readiness.json >/dev/null
           else
@@ -234,20 +261,24 @@ jobs:
           python3 <<'PY'
           import json, os
           from pathlib import Path
-          readiness = {}
-          response = {}
-          final = {}
+          readiness, response, final = {}, {}, {}
           for path, target in [
               ('activation-readiness.json', readiness),
               ('activation-response.json', response),
               ('activation-final-readiness.json', final),
           ]:
               if Path(path).exists():
-                  try: target.update(json.loads(Path(path).read_text()))
-                  except Exception: pass
+                  try:
+                      target.update(json.loads(Path(path).read_text()))
+                  except Exception:
+                      pass
+          activation = response.get('activation')
+          if not isinstance(activation, dict):
+              activation = {}
           evidence = {
               'sourceCommit': os.environ.get('APPROVED_SOURCE_COMMIT'),
               'mode': os.environ.get('MODE'),
+              'error': response.get('error'),
               'credentialsConfigured': {
                   'resendApiKey': bool(readiness.get('resendApiKeyConfigured')),
                   'workerToken': bool(readiness.get('workerTokenConfigured')),
@@ -258,7 +289,7 @@ jobs:
               'verifiedSenderDomain': response.get('verifiedSenderDomain') or final.get('verifiedSenderDomain'),
               'providerEnabled': bool(final.get('providerEnabled')),
               'deliveryCutoverEstablished': bool(final.get('deliveryCutoverAt')),
-              'cancelledPreActivationBacklog': (response.get('activation') or {}).get('cancelledPreActivationBacklog', 0),
+              'cancelledPreActivationBacklog': activation.get('cancelledPreActivationBacklog', 0),
               'humanRecipientTestEmailSent': False,
           }
           Path('communications-provider-activation-evidence.json').write_text(json.dumps(evidence, indent=2))
