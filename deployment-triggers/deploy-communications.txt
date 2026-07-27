@@ -1,3 +1,4 @@
-Deploy AgileCert Communications Automation from approved source commit 00ff074d2143dfef66e92a4903f670d20f8b9411.
-Apply only migrations 202607271200 through 202607271202, deploy only agilecert-communications, verify the exact live Pages release, and preserve provider_enabled=false with zero outbound messages.
-Retriggered after installation of the controlled production workflow and permanent hourly dispatcher on 27 July 2026.
+Verify the already-applied AgileCert Communications Automation release from approved source commit 00ff074d2143dfef66e92a4903f670d20f8b9411.
+Confirm migration versions 202607271200 through 202607271202 in remote history, verify no migration remains pending, deploy only agilecert-communications, inspect secret-name readiness without values, and verify the exact live Pages release.
+No migration reapplication and no outbound email are permitted by this recovery verification.
+Triggered 27 July 2026.
