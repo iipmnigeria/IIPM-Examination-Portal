@@ -42,6 +42,14 @@ function senderDomain(email: string): string {
   return separator > 0 ? normalized.slice(separator + 1) : '';
 }
 
+async function payloadFingerprint(payload: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
+  return Array.from(new Uint8Array(digest))
+    .slice(0, 16)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 async function testVerifiedSender(input: {
   fromName: string;
   fromEmail: string;
@@ -51,25 +59,30 @@ async function testVerifiedSender(input: {
   const verifiedDomain = senderDomain(input.fromEmail);
   if (!verifiedDomain) throw new Error('A valid verified sender email is required.');
 
+  const emailPayload = {
+    from: `${cleanText(input.fromName, 120) || 'AgileCert Global'} <${input.fromEmail.trim().toLowerCase()}>`,
+    to: ['delivered@resend.dev'],
+    reply_to: input.replyToEmail.trim().toLowerCase() || undefined,
+    subject: 'AgileCert communications provider activation check',
+    text: 'This is a Resend test-mode delivery used to verify the approved AgileCert sender domain. It is not sent to a human recipient.',
+    tags: [
+      { name: 'message_type', value: 'provider_activation' },
+      { name: 'category', value: 'system_validation' },
+    ],
+  };
+  const serializedPayload = JSON.stringify(emailPayload);
+  const fingerprint = await payloadFingerprint(serializedPayload);
   const dateKey = new Date().toISOString().slice(0, 10);
+  const domainKey = verifiedDomain.replace(/[^a-z0-9.-]/g, '').slice(0, 80);
+
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
-      'Idempotency-Key': `agilecert-provider-activation-${verifiedDomain}-${dateKey}`,
+      'Idempotency-Key': `agilecert-provider-activation-${domainKey}-${dateKey}-${fingerprint}`,
     },
-    body: JSON.stringify({
-      from: `${cleanText(input.fromName, 120) || 'AgileCert Global'} <${input.fromEmail.trim().toLowerCase()}>`,
-      to: ['delivered@resend.dev'],
-      reply_to: input.replyToEmail.trim().toLowerCase() || undefined,
-      subject: 'AgileCert communications provider activation check',
-      text: 'This is a Resend test-mode delivery used to verify the approved AgileCert sender domain. It is not sent to a human recipient.',
-      tags: [
-        { name: 'message_type', value: 'provider_activation' },
-        { name: 'category', value: 'system_validation' },
-      ],
-    }),
+    body: serializedPayload,
   });
 
   const payload = (await response.json().catch(() => ({}))) as JsonRecord;
