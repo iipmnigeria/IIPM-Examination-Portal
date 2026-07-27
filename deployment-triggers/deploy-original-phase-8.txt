@@ -3,3 +3,4 @@ Expected source commit: 40b00516a4f301de52938069c83878f7fa7a330a
 Approved migration versions: 202607271000 through 202607271008.
 Excluded pending migration: 202607261300_phase_7_ai_cv_profile_builder_foundation.sql
 Verify permanent compiled Pages deployment for the same exact source commit.
+Retry production verification after correcting the institutional contact schema marker; the approved migrations are already applied.
