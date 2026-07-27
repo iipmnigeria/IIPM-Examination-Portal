@@ -1,0 +1,266 @@
+name: Verify Deployed Original Phase 8 Production
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/verify-original-phase-8.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: verify-deployed-original-phase-8-production
+  cancel-in-progress: false
+
+jobs:
+  database:
+    name: Verify deployed finance and sponsorship system
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      EXPECTED_COMMIT: '40b00516a4f301de52938069c83878f7fa7a330a'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      TRACKING_BOUNDARY: '202607230101'
+      EXCLUDED_MIGRATION: '202607261300_phase_7_ai_cv_profile_builder_foundation.sql'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Checkout exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Verify exact approved Phase 8 release unit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+
+          cat > phase8-expected-migrations.txt <<'EOF'
+          202607271000_phase_8_finance_policy_customers.sql
+          202607271001_phase_8_quotes_invoices.sql
+          202607271002_phase_8_sponsorship_seats.sql
+          202607271003_phase_8_payments_receipts.sql
+          202607271004_phase_8_refunds_credits.sql
+          202607271005_phase_8_reconciliation_reporting.sql
+          202607271006_phase_8_privacy_permissions.sql
+          202607271007_phase_8_idempotency_refund_access.sql
+          202607271008_phase_8_ledger_driven_sponsorship.sql
+          EOF
+
+          find supabase/migrations -maxdepth 1 -type f -name '20260727100*_phase_8_*.sql' \
+            -printf '%f\n' | sort > phase8-source-migrations.txt
+          sort -o phase8-expected-migrations.txt phase8-expected-migrations.txt
+          diff -u phase8-expected-migrations.txt phase8-source-migrations.txt
+          test "$(wc -l < phase8-source-migrations.txt | tr -d ' ')" -eq 9
+          test -s "supabase/migrations/$EXCLUDED_MIGRATION"
+
+      - name: Isolate approved production migration window
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/phase8-legacy" "$RUNNER_TEMP/phase8-excluded"
+          : > phase8-legacy-local-migrations.txt
+          : > phase8-excluded-unrelated-migrations.txt
+
+          for path in supabase/migrations/*.sql; do
+            file="$(basename "$path")"
+            version="${file%%_*}"
+            if [[ "$version" < "$TRACKING_BOUNDARY" ]]; then
+              printf '%s\n' "$file" >> phase8-legacy-local-migrations.txt
+              mv "$path" "$RUNNER_TEMP/phase8-legacy/$file"
+            elif [ "$file" = "$EXCLUDED_MIGRATION" ]; then
+              printf '%s\n' "$file" >> phase8-excluded-unrelated-migrations.txt
+              mv "$path" "$RUNNER_TEMP/phase8-excluded/$file"
+            fi
+          done
+
+          find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' \
+            | sort > phase8-isolated-migration-window.txt
+          test "$(cat phase8-excluded-unrelated-migrations.txt)" = "$EXCLUDED_MIGRATION"
+          ! grep -q "$EXCLUDED_MIGRATION" phase8-isolated-migration-window.txt
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Verify migration history and zero pending changes
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase migration list --linked 2>&1 | tee phase8-production-migration-list.log
+          for file in $(cat phase8-expected-migrations.txt); do
+            version="${file%%_*}"
+            grep -q "$version" phase8-production-migration-list.log
+          done
+          ! grep -q '202607261300' phase8-production-migration-list.log
+
+          supabase db push --linked --dry-run 2>&1 | tee phase8-post-deploy-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' phase8-post-deploy-dry-run.log \
+            | sort -u > phase8-post-deploy-pending.txt || true
+          test ! -s phase8-post-deploy-pending.txt
+          grep -q 'Remote database is up to date' phase8-post-deploy-dry-run.log
+
+      - name: Verify remote finance and sponsorship authority
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db dump --linked --schema public --file phase8-production-schema.sql \
+            2>&1 | tee phase8-production-schema-dump.log
+
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          schema = Path('phase8-production-schema.sql').read_text(encoding='utf-8', errors='ignore')
+          required = [
+              'agilecert_institutional_customers',
+              'agilecert_institution_contacts',
+              'agilecert_institution_quotes',
+              'agilecert_institution_invoices',
+              'agilecert_invoice_payment_schedules',
+              'agilecert_sponsorship_seat_pools',
+              'agilecert_sponsorship_nominations',
+              'agilecert_institution_payments',
+              'agilecert_finance_receipts',
+              'agilecert_finance_credit_notes',
+              'agilecert_finance_refund_requests',
+              'agilecert_reconciliation_batches',
+              'get_my_agilecert_finance_workspace',
+              'get_agilecert_finance_admin_console',
+              'agilecert_sync_sponsorship_pool_counts',
+              'agilecert_refresh_invoices_after_payment_status_change',
+              'agilecert_revoke_unused_exam_access_after_full_refund',
+          ]
+          missing = [marker for marker in required if marker not in schema]
+          assert not missing, f'Production Phase 8 schema markers missing: {missing}'
+
+          phase7_applied = 'agilecert_candidate_cv_documents' in schema
+          assert not phase7_applied, 'The explicitly excluded Phase 7 CV migration is present in production.'
+
+          evidence = {
+              'sourceCommit': os.environ['EXPECTED_COMMIT'],
+              'projectRef': os.environ['PROJECT_REF'],
+              'migrationCount': 9,
+              'excludedMigration': os.environ['EXCLUDED_MIGRATION'],
+              'excludedMigrationApplied': phase7_applied,
+              'requiredSchemaMarkerCount': len(required),
+              'financeAndSponsorshipAuthorityPresent': True,
+              'paystackAuthorityChanged': False,
+          }
+          Path('phase8-production-safe.json').write_text(json.dumps(evidence, indent=2), encoding='utf-8')
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload sanitized production database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-phase-8-production-recovery-database-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase8-expected-migrations.txt
+            phase8-source-migrations.txt
+            phase8-legacy-local-migrations.txt
+            phase8-excluded-unrelated-migrations.txt
+            phase8-isolated-migration-window.txt
+            phase8-production-migration-list.log
+            phase8-post-deploy-dry-run.log
+            phase8-post-deploy-pending.txt
+            phase8-production-schema-dump.log
+            phase8-production-schema.sql
+            phase8-production-safe.json
+
+  pages:
+    name: Verify exact compiled Phase 8 Pages deployment
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EXPECTED_COMMIT: '40b00516a4f301de52938069c83878f7fa7a330a'
+      GH_TOKEN: ${{ github.token }}
+      LIVE_URL: 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+
+    steps:
+      - name: Locate exact permanent Pages workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?event=push&branch=supabase-integration&per_page=50" \
+            > phase8-pages-runs.json
+          run_id="$(jq -r --arg sha "$EXPECTED_COMMIT" '.workflow_runs[] | select(.head_sha == $sha and .name == "Deploy AgileCert Compiled Pages" and .conclusion == "success") | .id' phase8-pages-runs.json | head -n 1)"
+          test -n "$run_id"
+          printf '%s' "$run_id" > phase8-pages-run-id.txt
+
+      - name: Verify Pages jobs and live evidence artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id="$(cat phase8-pages-run-id.txt)"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > phase8-pages-jobs.json
+          jq -e '.jobs | length >= 3' phase8-pages-jobs.json >/dev/null
+          jq -e 'all(.jobs[]; .conclusion == "success")' phase8-pages-jobs.json >/dev/null
+
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" > phase8-pages-artifacts.json
+          artifact_id="$(jq -r '.artifacts[] | select(.name == "agilecert-pages-live-verification" and (.expired | not)) | .id' phase8-pages-artifacts.json | head -n 1)"
+          test -n "$artifact_id"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > phase8-pages-live-evidence.zip
+          mkdir -p phase8-pages-live-evidence
+          unzip -q phase8-pages-live-evidence.zip -d phase8-pages-live-evidence
+
+          live_js="$(find phase8-pages-live-evidence -type f -name 'live-app.js' | head -n 1)"
+          mount_report="$(find phase8-pages-live-evidence -type f -name 'agilecert-live-mount-report.json' | head -n 1)"
+          test -s "$live_js"
+          test -s "$mount_report"
+          grep -q 'Sponsored Access & Refunds' "$live_js"
+          grep -q 'Finance, Commerce & Institutional Sponsorship' "$live_js"
+          grep -q 'Create quotation' "$live_js"
+          grep -q 'Reconciliation' "$live_js"
+          jq -e '.status == 200 and .adviserButtonVisible == true and .bootShellExists == false' "$mount_report" >/dev/null
+
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = {
+              'sourceCommit': os.environ['EXPECTED_COMMIT'],
+              'deploymentRunId': int(Path('phase8-pages-run-id.txt').read_text()),
+              'liveUrl': os.environ['LIVE_URL'],
+              'candidateWorkspace': 'Sponsored Access & Refunds',
+              'administratorConsole': 'Finance, Commerce & Institutional Sponsorship',
+              'liveMountVerified': True,
+          }
+          Path('phase8-pages-production-safe.json').write_text(json.dumps(evidence, indent=2), encoding='utf-8')
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload Pages verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-phase-8-production-recovery-pages-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase8-pages-run-id.txt
+            phase8-pages-runs.json
+            phase8-pages-jobs.json
+            phase8-pages-artifacts.json
+            phase8-pages-production-safe.json
