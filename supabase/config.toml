@@ -20,3 +20,9 @@ verify_jwt = false
 
 [functions.agilecert-communications]
 verify_jwt = false
+
+[functions.agilecert-communications-control]
+verify_jwt = false
+
+[functions.agilecert-resend-webhook]
+verify_jwt = false
