@@ -1,4 +1,4 @@
-Verify the already-applied AgileCert Communications Automation release from approved source commit 00ff074d2143dfef66e92a4903f670d20f8b9411.
-Confirm migration versions 202607271200 through 202607271202 in remote history, verify no migration remains pending, deploy only agilecert-communications, inspect secret-name readiness without values, and verify the exact live Pages release.
-No migration reapplication and no outbound email are permitted by this recovery verification.
+Finalize the already-applied AgileCert Communications Automation release from approved source commit 00ff074d2143dfef66e92a4903f670d20f8b9411.
+Confirm migration versions 202607271200 through 202607271202 in remote history, verify no migration remains pending, verify remote structural authority, deploy only agilecert-communications, inspect secret-name readiness without values, and verify the exact live Pages release.
+No migration reapplication and no outbound email are permitted by this final structural verification.
 Triggered 27 July 2026.
