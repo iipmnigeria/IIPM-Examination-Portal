@@ -18,13 +18,6 @@ interface AgileCertPhaseOneLandingPageProps {
   onLoginSuccess: (name: string, role: 'student' | 'admin') => void;
 }
 
-const heroImages = {
-  primary:
-    'https://images.pexels.com/photos/4427622/pexels-photo-4427622.jpeg?auto=compress&cs=tinysrgb&fit=crop&w=900&h=720',
-  secondary:
-    'https://images.pexels.com/photos/34690062/pexels-photo-34690062.jpeg?auto=compress&cs=tinysrgb&fit=crop&w=320&h=400',
-};
-
 const specialistAreas = [
   {
     title: 'Project Risk & Quality Management',
@@ -204,61 +197,30 @@ export default function AgileCertPhaseOneLandingPage({
               </div>
             </div>
 
-            <aside className="self-center overflow-hidden rounded-3xl border border-slate-700 bg-white text-slate-900 shadow-2xl">
-              <div className="relative h-56 overflow-hidden bg-slate-900 md:h-64">
-                <img
-                  src={heroImages.primary}
-                  alt="Professional woman in a modern office representing AgileCert Global candidates"
-                  className="h-full w-full object-cover object-[center_28%]"
-                  loading="eager"
-                  decoding="async"
-                  fetchPriority="high"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
-                <div className="absolute bottom-5 left-5 max-w-[68%]">
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">
-                    Professional growth
-                  </p>
-                  <p className="mt-1 text-lg font-black leading-6 text-white">
-                    Build credible, verified career evidence.
-                  </p>
-                </div>
-                <div className="absolute bottom-4 right-4 h-28 w-24 overflow-hidden rounded-2xl border-4 border-white bg-white shadow-xl md:h-32 md:w-28">
-                  <img
-                    src={heroImages.secondary}
-                    alt="Professional man working in an Abuja office"
-                    className="h-full w-full object-cover object-top"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </div>
+            <aside className="self-center rounded-3xl border border-slate-700 bg-white p-6 text-slate-900 shadow-2xl md:p-8">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
+                Candidate journey
+              </p>
+              <h2 className="mt-2 text-2xl font-black">Use one secure AgileCert Global workspace</h2>
+
+              <div className="mt-7 space-y-4">
+                {[
+                  'Create or access your candidate account',
+                  'Select an available specialist examination',
+                  'Complete payment or accept sponsored access',
+                  'Take the examination and review your result',
+                ].map((item, index) => (
+                  <div key={item} className="flex items-start gap-3 rounded-2xl bg-slate-50 p-4">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-sm font-black text-emerald-700">
+                      {index + 1}
+                    </div>
+                    <p className="pt-1 text-sm font-bold leading-6 text-slate-700">{item}</p>
+                  </div>
+                ))}
               </div>
 
-              <div className="p-6 md:p-8">
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
-                  Candidate journey
-                </p>
-                <h2 className="mt-2 text-2xl font-black">Use one secure AgileCert Global workspace</h2>
-
-                <div className="mt-7 space-y-4">
-                  {[
-                    'Create or access your candidate account',
-                    'Select an available specialist examination',
-                    'Complete payment or accept sponsored access',
-                    'Take the examination and review your result',
-                  ].map((item, index) => (
-                    <div key={item} className="flex items-start gap-3 rounded-2xl bg-slate-50 p-4">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-sm font-black text-emerald-700">
-                        {index + 1}
-                      </div>
-                      <p className="pt-1 text-sm font-bold leading-6 text-slate-700">{item}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-6 text-amber-900">
-                  <strong>Fee disclosure:</strong> examination and certificate or credential fees are separate unless a published offer, approved waiver or institutional sponsorship states otherwise.
-                </div>
+              <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-6 text-amber-900">
+                <strong>Fee disclosure:</strong> examination and certificate or credential fees are separate unless a published offer, approved waiver or institutional sponsorship states otherwise.
               </div>
             </aside>
           </div>

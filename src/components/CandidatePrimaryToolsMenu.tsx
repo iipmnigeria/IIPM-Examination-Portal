@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   BellRing,
   ChevronDown,
+  Gift,
   ShoppingBag,
   Sparkles,
   UserCheck,
@@ -18,6 +19,7 @@ const launcherSelectors = {
   credentialStore: 'button[aria-label="Open certificate payment and credentials"]',
   credentialWallet: 'button[aria-label="Open professional credential wallet"]',
   identityAssurance: 'button[aria-label="Open identity assurance"]',
+  sponsoredAccess: 'button[aria-label="Open sponsored access and refunds workspace"]',
 } as const;
 
 const hiddenLauncherSelectors = Object.values(launcherSelectors);
@@ -167,8 +169,25 @@ export default function CandidatePrimaryToolsMenu() {
           <button
             type="button"
             role="menuitem"
-            onClick={() => openTool(launcherSelectors.credentialWallet)}
+            onClick={() => openTool(launcherSelectors.sponsoredAccess)}
             className="flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"
+          >
+            <span className="rounded-lg bg-emerald-400/10 p-2 text-emerald-300">
+              <Gift className="h-4 w-4" />
+            </span>
+            <span>
+              <span className="block text-xs font-black">Sponsored Access & Refunds</span>
+              <span className="mt-1 block text-[11px] leading-5 text-slate-400">
+                Review nominations, sponsored access and refund requests
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => openTool(launcherSelectors.credentialWallet)}
+            className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"
           >
             <span className="rounded-lg bg-cyan-400/10 p-2 text-cyan-300">
               <WalletCards className="h-4 w-4" />
