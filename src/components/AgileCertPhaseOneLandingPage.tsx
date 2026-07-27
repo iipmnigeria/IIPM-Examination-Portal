@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Target,
 } from 'lucide-react';
+import AgileCertFooter from './AgileCertFooter';
 import LoginPortal from './LoginPortal';
 
 interface AgileCertPhaseOneLandingPageProps {
@@ -65,22 +66,29 @@ const processSteps = [
   },
   {
     number: '02',
-    title: 'Register and pay the examination fee',
+    title: 'Register and secure your access',
     description:
-      'Create a candidate account and complete the existing secure examination-payment process.',
+      'Create your AgileCert Global account and complete payment or accept an approved sponsored opportunity.',
   },
   {
     number: '03',
     title: 'Prepare and take the examination',
     description:
-      'Access the current candidate workspace and complete the timed assessment under integrity controls.',
+      'Use your candidate workspace, available materials and the secured assessment environment.',
   },
   {
     number: '04',
-    title: 'Receive your result',
+    title: 'Receive your result and credential options',
     description:
-      'The portal grades the examination and records your result in the existing candidate dashboard.',
+      'Review your recorded result and, where eligible, proceed to available certificate and credential services.',
   },
+];
+
+const candidateCapabilities = [
+  'Secure AgileCert Global account registration and sign-in',
+  'Current specialist examination catalogue',
+  'Protected examination payment and sponsored-access controls',
+  'Secured assessment, result and credential records',
 ];
 
 function scrollToCandidateAccess() {
@@ -123,6 +131,9 @@ export default function AgileCertPhaseOneLandingPage({
             <a href="#positioning" className="hover:text-white">
               About AgileCert
             </a>
+            <a href="#policy-privacy" className="hover:text-white">
+              Policies
+            </a>
           </nav>
 
           <button
@@ -153,7 +164,7 @@ export default function AgileCertPhaseOneLandingPage({
               </h1>
 
               <p className="mt-6 max-w-3xl text-base leading-8 text-slate-300 md:text-lg">
-                AgileCert Global is an examination-led specialist credential platform powered by IIPM. It gives professionals access to focused modular examinations in practical competency areas.
+                AgileCert Global is an examination-led specialist credential platform powered by IIPM. Professionals can access focused modular examinations, secure candidate services and verifiable credential pathways from one connected workspace.
               </p>
 
               <div className="mt-8 flex flex-wrap gap-3">
@@ -176,7 +187,7 @@ export default function AgileCertPhaseOneLandingPage({
                 {[
                   ['Examination-led', 'Training is not compulsory'],
                   ['Globally accessible', 'Available to candidates internationally'],
-                  ['Powered by IIPM', 'Independent specialist assessment platform'],
+                  ['Connected services', 'Access, results and credentials in one workspace'],
                 ].map(([title, caption]) => (
                   <div key={title} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
                     <p className="text-sm font-black text-white">{title}</p>
@@ -188,16 +199,16 @@ export default function AgileCertPhaseOneLandingPage({
 
             <aside className="self-center rounded-3xl border border-slate-700 bg-white p-6 text-slate-900 shadow-2xl md:p-8">
               <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
-                Phase 1 candidate journey
+                Candidate journey
               </p>
-              <h2 className="mt-2 text-2xl font-black">Use the existing secure examination portal</h2>
+              <h2 className="mt-2 text-2xl font-black">Use one secure AgileCert Global workspace</h2>
 
               <div className="mt-7 space-y-4">
                 {[
                   'Create or access your candidate account',
                   'Select an available specialist examination',
-                  'Complete the current secure examination payment',
-                  'Take the examination and receive your result',
+                  'Complete payment or accept sponsored access',
+                  'Take the examination and review your result',
                 ].map((item, index) => (
                   <div key={item} className="flex items-start gap-3 rounded-2xl bg-slate-50 p-4">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-sm font-black text-emerald-700">
@@ -209,7 +220,7 @@ export default function AgileCertPhaseOneLandingPage({
               </div>
 
               <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-6 text-amber-900">
-                <strong>Fee disclosure:</strong> the examination fee covers examination access under the current portal process. Optional certificate products and certificate fees will be introduced and tested in a later implementation phase.
+                <strong>Fee disclosure:</strong> examination and certificate or credential fees are separate unless a published offer, approved waiver or institutional sponsorship states otherwise.
               </div>
             </aside>
           </div>
@@ -225,7 +236,7 @@ export default function AgileCertPhaseOneLandingPage({
                 Build competence one focused area at a time
               </h2>
               <p className="mt-4 text-base leading-7 text-slate-600">
-                AgileCert Global is intended for modular, niche and specialised competencies. Full training-led professional certification pathways remain within the IIPM professional ecosystem.
+                AgileCert Global supports modular, niche and specialised competencies. Full training-led professional certification pathways remain available within the IIPM professional ecosystem.
               </p>
             </div>
 
@@ -290,7 +301,7 @@ export default function AgileCertPhaseOneLandingPage({
                 AgileCert for specialist examinations. IIPM for full professional programmes.
               </h2>
               <p className="mt-5 text-sm leading-7 text-slate-300">
-                AgileCert Global provides focused modular examination opportunities. IIPM continues to provide complete training-led professional pathways such as PMFC, CPMA and CPMP.
+                AgileCert Global provides focused modular examination opportunities and connected credential services. IIPM continues to provide complete training-led professional pathways such as PMFC, CPMA and CPMP.
               </p>
               <a
                 href="https://iipmi.org"
@@ -306,8 +317,8 @@ export default function AgileCertPhaseOneLandingPage({
               {[
                 ['AgileCert Global', 'Focused modular examinations'],
                 ['IIPM Ecosystem', 'Complete training-led pathways'],
-                ['Independent identity', 'Clear product and payment positioning'],
-                ['Future integration', 'Shared verification can be introduced later'],
+                ['Secure candidate identity', 'One account for examination and credential services'],
+                ['Verifiable records', 'Results and credentials backed by authoritative records'],
               ].map(([title, caption]) => (
                 <article key={title} className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
                   <CheckCircle2 className="h-6 w-6 text-emerald-400" />
@@ -330,22 +341,21 @@ export default function AgileCertPhaseOneLandingPage({
                   Register or continue to your existing examination workspace
                 </h2>
                 <p className="mt-4 text-sm leading-7 text-slate-600">
-                  Phase 1 changes the public identity and entry experience only. The current registration, authentication, examination catalogue, payment and assessment functions remain unchanged.
+                  Your AgileCert Global account connects registration, examination access, protected payments, secured assessments, results and available professional credential services in one candidate experience.
                 </p>
 
                 <div className="mt-6 space-y-3 text-sm font-semibold text-slate-700">
-                  {[
-                    'Existing Supabase registration and sign-in',
-                    'Existing examination catalogue',
-                    'Existing examination payment controls',
-                    'Existing secured assessment and result records',
-                  ].map((item) => (
+                  {candidateCapabilities.map((item) => (
                     <div key={item} className="flex items-start gap-2">
                       <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                       {item}
                     </div>
                   ))}
                 </div>
+
+                <p className="mt-6 text-xs leading-6 text-slate-500">
+                  By creating or using an account, you agree to the <a href="#policy-terms" className="font-bold text-emerald-700 hover:underline">Terms of Use</a>, acknowledge the <a href="#policy-privacy" className="font-bold text-emerald-700 hover:underline">Privacy Policy</a> and accept applicable examination policies.
+                </p>
               </div>
 
               <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
@@ -356,15 +366,7 @@ export default function AgileCertPhaseOneLandingPage({
         </section>
       </main>
 
-      <footer className="border-t border-slate-800 bg-slate-950 py-10 text-slate-400">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 text-xs leading-6 md:flex-row md:items-center md:justify-between md:px-6">
-          <div>
-            <p className="font-black uppercase tracking-[0.16em] text-emerald-400">AgileCert Global</p>
-            <p>Focused professional examinations. Powered by IIPM.</p>
-          </div>
-          <p>© 2026 Integrated Institute of Professional Management. All rights reserved.</p>
-        </div>
-      </footer>
+      <AgileCertFooter />
     </div>
   );
 }
