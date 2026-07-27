@@ -6,6 +6,7 @@ import AdminCertificateCommerceLauncher from './components/AdminCertificateComme
 import AdminCertificateManagementLauncher from './components/AdminCertificateManagementLauncher';
 import AdminCertificateCompletionLauncher from './components/AdminCertificateCompletionLauncher';
 import AdminCommerceConsole from './components/AdminCommerceConsole';
+import AdminCommunicationsLauncher from './components/AdminCommunicationsLauncher';
 import AdminCredentialLifecycleLauncher from './components/AdminCredentialLifecycleLauncher';
 import AdminFinanceSponsorshipLauncher from './components/AdminFinanceSponsorshipLauncher';
 import AdminIdentityAssuranceLauncher from './components/AdminIdentityAssuranceLauncher';
@@ -16,6 +17,7 @@ import AiCvEnhancementLauncher from './components/AiCvEnhancementLauncher';
 import CandidateCertificateCommerce from './components/CandidateCertificateCommerce';
 import CandidateCertificateWorkspace from './components/CandidateCertificateWorkspace';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
+import CandidateCommunicationPreferences from './components/CandidateCommunicationPreferences';
 import CandidateCredentialWallet from './components/CandidateCredentialWallet';
 import CandidateIdentityAssurance from './components/CandidateIdentityAssurance';
 import CandidateIdentityProctoringWorkspace from './components/CandidateIdentityProctoringWorkspace';
@@ -172,12 +174,14 @@ createRoot(rootElement).render(
       <CandidateCertificateCommerce />
       <CandidateCredentialWallet />
       <CandidateSponsoredAccessWorkspace />
+      <CandidateCommunicationPreferences />
       <CertificatePaymentReturnHandler />
       <AdminIdentityAssuranceLauncher />
       <AdminIdentityProctoringLauncher />
       <AdminCertificateCommerceLauncher />
       <AdminCredentialLifecycleLauncher />
       <AdminFinanceSponsorshipLauncher />
+      <AdminCommunicationsLauncher />
       <AiCvEnhancementLauncher />
       <AiCertificationAdviser />
     </SupabaseSessionBoundary>
