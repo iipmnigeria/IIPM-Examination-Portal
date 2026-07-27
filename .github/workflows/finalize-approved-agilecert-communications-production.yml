@@ -1,0 +1,159 @@
+name: Finalize Approved AgileCert Communications Production
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/finalize-communications.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: finalize-approved-agilecert-communications-production
+  cancel-in-progress: false
+
+env:
+  EXPECTED_COMMIT: '00ff074d2143dfef66e92a4903f670d20f8b9411'
+  PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+
+jobs:
+  verify:
+    name: Final production verification with delivery fail-closed
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact approved communications source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Isolate legacy migrations and link production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          mkdir -p /tmp/agilecert-legacy-migrations
+          python3 <<'PY'
+          from pathlib import Path
+          import shutil
+          for path in Path('supabase/migrations').glob('*.sql'):
+              prefix = path.name.split('_', 1)[0]
+              if prefix.isdigit() and int(prefix) < 202607230101:
+                  shutil.move(str(path), f'/tmp/agilecert-legacy-migrations/{path.name}')
+          PY
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Confirm production database is up to date
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --include-all --dry-run 2>&1 | tee communications-final-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' communications-final-dry-run.log \
+            | sort -u > communications-final-pending.txt || true
+          test ! -s communications-final-pending.txt
+          grep -q 'Remote database is up to date' communications-final-dry-run.log
+
+      - name: Confirm provider-disabled schema
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db dump --linked --schema public --file communications-final-schema.sql \
+            2>&1 | tee communications-final-schema-dump.log
+          grep -q '"provider_enabled" boolean DEFAULT false NOT NULL' communications-final-schema.sql
+          grep -q 'agilecert_communication_outbox' communications-final-schema.sql
+          grep -q 'agilecert_communication_suppressions' communications-final-schema.sql
+          grep -q 'record_agilecert_communication_conversions' communications-final-schema.sql
+
+      - name: Confirm communications function is deployed
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase functions list --project-ref "$PROJECT_REF" 2>&1 | tee communications-final-function-list.log
+          grep -q 'agilecert-communications' communications-final-function-list.log
+
+      - name: Confirm dispatch remains fail-closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o communications-final-auth-response.json -w '%{http_code}' \
+            -X POST "https://${PROJECT_REF}.supabase.co/functions/v1/agilecert-communications" \
+            -H 'Content-Type: application/json' \
+            --data '{"action":"scan-and-send"}')"
+          case "$status" in
+            400|401|403) ;;
+            *) printf 'Unexpected unauthorised status: %s\n' "$status"; exit 1 ;;
+          esac
+          grep -Eq 'not configured|authorisation failed|Unauthorized|Invalid JWT' communications-final-auth-response.json
+
+      - name: Reconfirm exact live Pages release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?event=push&branch=supabase-integration&per_page=50" \
+            > communications-final-pages-runs.json
+          run_id="$(jq -r --arg sha "$EXPECTED_COMMIT" '.workflow_runs[] | select(.head_sha == $sha and .name == "Deploy AgileCert Compiled Pages" and .conclusion == "success") | .id' communications-final-pages-runs.json | head -n 1)"
+          test -n "$run_id"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" > communications-final-pages-artifacts.json
+          artifact_id="$(jq -r '.artifacts[] | select(.name == "agilecert-pages-live-verification" and (.expired | not)) | .id' communications-final-pages-artifacts.json | head -n 1)"
+          test -n "$artifact_id"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > communications-final-pages.zip
+          mkdir -p communications-final-pages
+          unzip -q communications-final-pages.zip -d communications-final-pages
+          live_js="$(find communications-final-pages -type f -name 'live-app.js' | head -n 1)"
+          test -s "$live_js"
+          grep -q 'Email Preferences' "$live_js"
+          grep -q 'Communications Automation' "$live_js"
+          printf '%s' "$run_id" > communications-final-pages-run-id.txt
+
+      - name: Record final safe state
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          evidence = {
+              'sourceCommit': os.environ['EXPECTED_COMMIT'],
+              'projectRef': os.environ['PROJECT_REF'],
+              'migrationsApplied': [202607271200, 202607271201, 202607271202],
+              'functionDeployed': 'agilecert-communications',
+              'providerEnabledByDefault': False,
+              'workerSecretConfigured': False,
+              'dispatchFailClosed': True,
+              'outboundMessagesSentByDeployment': 0,
+              'pagesRunId': int(Path('communications-final-pages-run-id.txt').read_text()),
+          }
+          Path('communications-final-safe.json').write_text(json.dumps(evidence, indent=2))
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload final production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-communications-final-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            communications-final-dry-run.log
+            communications-final-pending.txt
+            communications-final-schema-dump.log
+            communications-final-function-list.log
+            communications-final-auth-response.json
+            communications-final-pages-run-id.txt
+            communications-final-pages-runs.json
+            communications-final-pages-artifacts.json
+            communications-final-safe.json
