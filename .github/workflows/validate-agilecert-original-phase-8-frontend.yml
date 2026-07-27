@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           changed="$(git diff --name-only origin/supabase-integration...HEAD)"
-          allowed='^(docs/AGILECERT_ORIGINAL_PHASE_8_COMPLETION_SCOPE\.md|scripts/phase8-completion-behaviour\.sql|src/components/(AdminFinanceSponsorshipLauncher|CandidateSponsoredAccessWorkspace)\.tsx|src/services/(financeSponsorshipService|financeDocumentService)\.ts|src/main\.tsx|supabase/migrations/20260727100[0-7]_phase_8_.*\.sql|\.github/workflows/validate-agilecert-original-phase-8-(database|frontend)\.yml)$'
+          allowed='^(docs/AGILECERT_ORIGINAL_PHASE_8_COMPLETION_SCOPE\.md|scripts/phase8-completion-behaviour\.sql|src/components/(AdminFinanceSponsorshipLauncher|CandidateSponsoredAccessWorkspace)\.tsx|src/services/(financeSponsorshipService|financeDocumentService)\.ts|src/main\.tsx|supabase/migrations/20260727100[0-8]_phase_8_.*\.sql|\.github/workflows/validate-agilecert-original-phase-8-(database|frontend)\.yml)$'
           unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
           if [ -n "$unexpected" ]; then
             printf 'Unexpected Phase 8 files:\n%s\n' "$unexpected"
