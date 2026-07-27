@@ -1,0 +1,3 @@
+Complete the approved AgileCert Communications Automation production release for source commit 00ff074d2143dfef66e92a4903f670d20f8b9411.
+Confirm migrations 202607271200 through 202607271202 are already applied, verify provider_enabled=false, deploy only agilecert-communications, and reconfirm the exact live Pages bundle.
+Fresh completion trigger 27 July 2026.
