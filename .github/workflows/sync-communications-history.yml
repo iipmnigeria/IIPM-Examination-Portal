@@ -28,7 +28,7 @@ jobs:
           fetch-depth: 0
           token: ${{ github.token }}
 
-      - name: Merge current source ancestry while preserving communications files
+      - name: Align source ancestry and patch webhook body handling
         shell: bash
         run: |
           set -euo pipefail
@@ -44,10 +44,31 @@ jobs:
             echo 'Current supabase-integration is already an ancestor.' | tee communications-history-result.txt
           else
             git merge -s ours --no-edit "$base"
-            git push origin HEAD:communications-automation
             echo 'Communications tree preserved; current supabase-integration added as ancestry.' | tee communications-history-result.txt
           fi
 
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('supabase/functions/agilecert-communications/index.ts')
+          source = path.read_text(encoding='utf-8')
+          old = "const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;"
+          new = "const body = (await request.clone().json().catch(() => ({}))) as Record<string, unknown>;"
+          if old in source:
+              path.write_text(source.replace(old, new, 1), encoding='utf-8')
+              print('Patched webhook request parsing to preserve the body for the webhook handler.')
+          elif new in source:
+              print('Webhook request parsing is already patched.')
+          else:
+              raise SystemExit('Expected communications request parsing marker was not found.')
+          PY
+
+          if ! git diff --quiet; then
+            git add supabase/functions/agilecert-communications/index.ts
+            git commit -m 'Preserve communications webhook request body'
+          fi
+
+          git push origin HEAD:communications-automation
           git fetch origin communications-automation supabase-integration
           git merge-base --is-ancestor origin/supabase-integration origin/communications-automation
           git diff --name-only origin/supabase-integration...origin/communications-automation \
@@ -58,6 +79,8 @@ jobs:
             cat communications-final-changed-files.txt
             exit 1
           fi
+
+          grep -q 'request.clone().json()' supabase/functions/agilecert-communications/index.ts
 
       - name: Upload history-alignment evidence
         if: always()
