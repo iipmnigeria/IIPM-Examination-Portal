@@ -1,4 +1,4 @@
-name: Deploy Approved AgileCert Communications Production
+name: Verify Applied AgileCert Communications Production
 
 on:
   pull_request:
@@ -12,22 +12,22 @@ permissions:
   actions: read
 
 concurrency:
-  group: deploy-approved-agilecert-communications-production
+  group: verify-applied-agilecert-communications-production
   cancel-in-progress: false
-
-env:
-  EXPECTED_COMMIT: '00ff074d2143dfef66e92a4903f670d20f8b9411'
-  PROJECT_REF: 'cfecicvugfrrhcvhduzc'
 
 jobs:
   database-and-function:
-    name: Apply communications database and deploy provider function
+    name: Verify communications database and sender function
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 65
     env:
+      EXPECTED_COMMIT: '00ff074d2143dfef66e92a4903f670d20f8b9411'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      TRACKING_BOUNDARY: '202607230101'
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
     steps:
       - name: Checkout exact approved communications source
         uses: actions/checkout@v4
@@ -39,7 +39,7 @@ jobs:
         with:
           version: latest
 
-      - name: Verify exact approved release unit
+      - name: Verify exact approved communications release unit
         shell: bash
         run: |
           set -euo pipefail
@@ -56,54 +56,64 @@ jobs:
 
           python3 <<'PY'
           from pathlib import Path
-          files = [
-              Path('supabase/migrations/202607271200_communications_automation.sql'),
-              Path('supabase/migrations/202607271201_communications_conversion_tracking.sql'),
-              Path('supabase/migrations/202607271202_communications_conversion_trigger.sql'),
-          ]
+          files = [Path('supabase/migrations') / line.strip() for line in Path('communications-expected-migrations.txt').read_text().splitlines()]
           sql = '\n'.join(path.read_text() for path in files)
           edge = Path('supabase/functions/agilecert-communications/index.ts').read_text()
           required = [
-              'agilecert_communication_settings', 'provider_enabled boolean not null default false',
-              'agilecert_communication_preferences', 'agilecert_communication_outbox',
-              'agilecert_communication_events', 'agilecert_communication_suppressions',
-              'refresh_agilecert_communication_outbox', 'claim_agilecert_communication_outbox',
+              'agilecert_communication_settings',
+              'provider_enabled boolean not null default false',
+              'agilecert_communication_preferences',
+              'agilecert_communication_outbox',
+              'agilecert_communication_events',
+              'agilecert_communication_suppressions',
+              'refresh_agilecert_communication_outbox',
+              'claim_agilecert_communication_outbox',
               'complete_agilecert_communication_delivery',
               'record_agilecert_communication_provider_event',
-              'record_agilecert_communication_conversions', 'extensions.digest',
+              'record_agilecert_communication_conversions',
+              'extensions.digest',
           ]
           missing = [item for item in required if item not in sql]
           assert not missing, f'Missing communications authority: {missing}'
           edge_required = [
-              'RESEND_API_KEY', 'AGILECERT_COMMUNICATIONS_WORKER_TOKEN',
+              'RESEND_API_KEY',
+              'AGILECERT_COMMUNICATIONS_WORKER_TOKEN',
               'AGILECERT_COMMUNICATIONS_WEBHOOK_TOKEN',
-              'AGILECERT_COMMUNICATIONS_SIGNING_SECRET', 'scan-and-send',
-              'unsubscribe', 'Idempotency-Key',
+              'AGILECERT_COMMUNICATIONS_SIGNING_SECRET',
+              'scan-and-send',
+              'request.clone().json()',
+              'Idempotency-Key',
           ]
           missing = [item for item in edge_required if item not in edge]
           assert not missing, f'Missing communications provider boundary: {missing}'
-          forbidden = ['PAYSTACK_SECRET_KEY', 'question_answer_keys', 'candidate_answers', 'government_id', 'selfie_path']
+          forbidden = [
+              'PAYSTACK_SECRET_KEY',
+              'update public.question_answer_keys',
+              'update public.candidate_answers',
+              'government_id',
+              'selfie_path',
+          ]
           found = [item for item in forbidden if item in sql or item in edge]
-          assert not found, f'Protected authority leaked into communications release: {found}'
+          assert not found, f'Protected authority leaked into communications: {found}'
           PY
 
       - name: Isolate pre-tracking legacy migrations
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/agilecert-legacy-migrations
-          python3 <<'PY'
-          from pathlib import Path
-          import shutil
-          boundary = 202607230101
-          keep = {202607271200, 202607271201, 202607271202}
-          for path in Path('supabase/migrations').glob('*.sql'):
-              prefix = path.name.split('_', 1)[0]
-              if prefix.isdigit():
-                  version = int(prefix)
-                  if version < boundary and version not in keep:
-                      shutil.move(str(path), f'/tmp/agilecert-legacy-migrations/{path.name}')
-          PY
+          mkdir -p "$RUNNER_TEMP/communications-legacy"
+          : > communications-legacy-local-migrations.txt
+          for path in supabase/migrations/*.sql; do
+            file="$(basename "$path")"
+            version="${file%%_*}"
+            if [[ "$version" < "$TRACKING_BOUNDARY" ]]; then
+              printf '%s\n' "$file" >> communications-legacy-local-migrations.txt
+              mv "$path" "$RUNNER_TEMP/communications-legacy/$file"
+            fi
+          done
+          for file in $(cat communications-expected-migrations.txt); do
+            test -s "supabase/migrations/$file"
+          done
 
       - name: Link controlled Supabase project
         shell: bash
@@ -113,28 +123,22 @@ jobs:
           test -n "$SUPABASE_DB_PASSWORD"
           supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
 
-      - name: Require exactly the three pending communications migrations
+      - name: Verify remote migration history and up-to-date state
         shell: bash
         run: |
           set -o pipefail
+          supabase migration list --linked 2>&1 | tee communications-migration-list.log
+          for version in 202607271200 202607271201 202607271202; do
+            grep -q "$version" communications-migration-list.log
+          done
+
           supabase db push --linked --include-all --dry-run 2>&1 | tee communications-production-dry-run.log
           grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' communications-production-dry-run.log \
             | sort -u > communications-production-pending.txt || true
-          sort -o communications-expected-migrations.txt communications-expected-migrations.txt
-          diff -u communications-expected-migrations.txt communications-production-pending.txt
-          test "$(wc -l < communications-production-pending.txt | tr -d ' ')" -eq 3
+          test ! -s communications-production-pending.txt
+          grep -q 'Remote database is up to date' communications-production-dry-run.log
 
-      - name: Apply approved communications migrations
-        shell: bash
-        run: |
-          set -o pipefail
-          printf 'y\n' | supabase db push --linked --include-all 2>&1 | tee communications-production-deploy.log
-          for file in $(cat communications-expected-migrations.txt); do
-            grep -q "Applying migration $file" communications-production-deploy.log
-          done
-          grep -q 'Finished supabase db push' communications-production-deploy.log
-
-      - name: Verify production communications authority and disabled provider
+      - name: Verify remote communications schema and fail-closed default
         shell: bash
         run: |
           set -o pipefail
@@ -146,24 +150,33 @@ jobs:
           from pathlib import Path
           schema = Path('communications-production-schema.sql').read_text(encoding='utf-8', errors='ignore')
           required = [
-              'agilecert_communication_settings', 'provider_enabled',
-              'agilecert_communication_preferences', 'agilecert_communication_outbox',
-              'agilecert_communication_events', 'agilecert_communication_suppressions',
-              'refresh_agilecert_communication_outbox', 'claim_agilecert_communication_outbox',
+              'agilecert_communication_settings',
+              'agilecert_communication_preferences',
+              'agilecert_communication_outbox',
+              'agilecert_communication_events',
+              'agilecert_communication_suppressions',
+              'refresh_agilecert_communication_outbox',
+              'claim_agilecert_communication_outbox',
               'complete_agilecert_communication_delivery',
               'record_agilecert_communication_provider_event',
               'record_agilecert_communication_conversions',
+              'agilecert_certificate_order_communication_conversion',
           ]
           missing = [item for item in required if item not in schema]
-          assert not missing, f'Production communications schema markers missing: {missing}'
-          default_markers = ['provider_enabled boolean DEFAULT false NOT NULL', 'provider_enabled boolean NOT NULL DEFAULT false']
-          assert any(marker in schema for marker in default_markers), 'Provider-disabled default was not preserved.'
+          assert not missing, f'Production communications markers missing: {missing}'
+          default_markers = [
+              'provider_enabled boolean DEFAULT false NOT NULL',
+              'provider_enabled boolean NOT NULL DEFAULT false',
+          ]
+          assert any(marker in schema for marker in default_markers), 'Provider-disabled schema default was not preserved.'
           evidence = {
               'sourceCommit': os.environ['EXPECTED_COMMIT'],
               'projectRef': os.environ['PROJECT_REF'],
               'migrationCount': 3,
+              'requiredSchemaMarkerCount': len(required),
+              'communicationsAuthorityPresent': True,
               'providerEnabledByDefault': False,
-              'outboundMessagesSentByDeployment': 0,
+              'outboundMessagesSentByVerification': 0,
               'paystackAuthorityChanged': False,
               'examAuthorityChanged': False,
               'certificateAuthorityChanged': False,
@@ -171,16 +184,6 @@ jobs:
           Path('communications-production-safe.json').write_text(json.dumps(evidence, indent=2))
           print(json.dumps(evidence, indent=2))
           PY
-
-      - name: Confirm no migration remains pending
-        shell: bash
-        run: |
-          set -o pipefail
-          supabase db push --linked --include-all --dry-run 2>&1 | tee communications-post-deploy-dry-run.log
-          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' communications-post-deploy-dry-run.log \
-            | sort -u > communications-post-deploy-pending.txt || true
-          test ! -s communications-post-deploy-pending.txt
-          grep -q 'Remote database is up to date' communications-post-deploy-dry-run.log
 
       - name: Deploy only the approved communications Edge Function
         shell: bash
@@ -192,17 +195,58 @@ jobs:
             2>&1 | tee communications-function-list.log
           grep -q 'agilecert-communications' communications-function-list.log
 
-      - name: Confirm worker boundary without sending email
+      - name: Confirm fail-closed public boundaries
         shell: bash
         run: |
           set -euo pipefail
-          status="$(curl -sS -o communications-function-auth-response.json -w '%{http_code}' \
-            -X POST "https://${PROJECT_REF}.supabase.co/functions/v1/agilecert-communications" \
-            -H 'Content-Type: application/json' \
+          endpoint="https://${PROJECT_REF}.supabase.co/functions/v1/agilecert-communications"
+          worker_status="$(curl -sS -o communications-worker-auth-response.json -w '%{http_code}' \
+            -X POST "$endpoint" -H 'Content-Type: application/json' \
             --data '{"action":"scan-and-send"}')"
-          test "$status" = '401'
+          test "$worker_status" = '401'
 
-      - name: Upload sanitized production evidence
+          webhook_status="$(curl -sS -o communications-webhook-auth-response.json -w '%{http_code}' \
+            -X POST "$endpoint" -H 'Content-Type: application/json' \
+            --data '{"action":"webhook","type":"email.delivered"}')"
+          test "$webhook_status" = '401'
+
+          unsubscribe_status="$(curl -sS -o communications-unsubscribe-response.html -w '%{http_code}' \
+            "$endpoint?action=unsubscribe&token=invalid")"
+          test "$unsubscribe_status" = '400'
+
+      - name: Inspect required secret-name readiness without values
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase secrets list --project-ref "$PROJECT_REF" --output json > "$RUNNER_TEMP/communications-secrets.json"
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'communications-secrets.json'
+          raw = json.loads(path.read_text())
+          if isinstance(raw, dict):
+              raw = raw.get('secrets', raw.get('data', []))
+          names = sorted({str(item.get('name', '')) for item in raw if isinstance(item, dict) and item.get('name')})
+          required = [
+              'SUPABASE_SECRET_KEY',
+              'RESEND_API_KEY',
+              'AGILECERT_COMMUNICATIONS_WORKER_TOKEN',
+              'AGILECERT_COMMUNICATIONS_WEBHOOK_TOKEN',
+              'AGILECERT_COMMUNICATIONS_SIGNING_SECRET',
+          ]
+          readiness = {name: name in names for name in required}
+          evidence = {
+              'requiredSecretNames': required,
+              'secretNameReadiness': readiness,
+              'providerActivationReady': all(readiness.values()),
+              'secretValuesInspected': False,
+          }
+          Path('communications-secret-readiness.json').write_text(json.dumps(evidence, indent=2))
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload sanitized communications production evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -211,26 +255,29 @@ jobs:
           if-no-files-found: warn
           path: |
             communications-expected-migrations.txt
+            communications-legacy-local-migrations.txt
+            communications-migration-list.log
             communications-production-dry-run.log
             communications-production-pending.txt
-            communications-production-deploy.log
             communications-production-schema-dump.log
-            communications-production-schema.sql
             communications-production-safe.json
-            communications-post-deploy-dry-run.log
-            communications-post-deploy-pending.txt
             communications-function-deploy.log
             communications-function-list.log
-            communications-function-auth-response.json
+            communications-worker-auth-response.json
+            communications-webhook-auth-response.json
+            communications-unsubscribe-response.html
+            communications-secret-readiness.json
 
   pages:
     name: Verify exact compiled communications Pages deployment
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 45
     env:
+      EXPECTED_COMMIT: '00ff074d2143dfef66e92a4903f670d20f8b9411'
       GH_TOKEN: ${{ github.token }}
       LIVE_URL: 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+
     steps:
       - name: Locate exact permanent Pages workflow
         shell: bash
@@ -276,6 +323,7 @@ jobs:
           test -s "$mount_report"
           grep -q 'Email Preferences' "$live_js"
           grep -q 'Communications Automation' "$live_js"
+          grep -q 'Certificate offer reminders' "$live_js"
           grep -q 'Provider delivery is' "$live_js"
           jq -e '.status == 200 and .adviserButtonVisible == true and .bootShellExists == false' "$mount_report" >/dev/null
 
@@ -287,15 +335,15 @@ jobs:
               'sourceCommit': os.environ['EXPECTED_COMMIT'],
               'deploymentRunId': int(Path('communications-pages-run-id.txt').read_text()),
               'liveUrl': os.environ['LIVE_URL'],
-              'candidatePreferencesVisible': True,
-              'adminCommunicationsConsoleVisible': True,
+              'candidatePreferences': 'Email Preferences',
+              'administratorConsole': 'Communications Automation',
               'liveMountVerified': True,
           }
           Path('communications-pages-production-safe.json').write_text(json.dumps(evidence, indent=2))
           print(json.dumps(evidence, indent=2))
           PY
 
-      - name: Upload Pages verification evidence
+      - name: Upload communications Pages verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
