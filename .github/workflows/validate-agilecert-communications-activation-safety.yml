@@ -1,0 +1,277 @@
+name: Validate AgileCert Communications Activation Safety
+
+on:
+  push:
+    branches: [communications-activation-safety-source]
+    paths:
+      - 'docs/AGILECERT_COMMUNICATIONS_ACTIVATION_SAFETY_SCOPE.md'
+      - 'src/components/AdminCommunicationsLauncher.tsx'
+      - 'src/services/communicationsService.ts'
+      - 'supabase/config.toml'
+      - 'supabase/functions/agilecert-communications-control/index.ts'
+      - 'supabase/functions/agilecert-resend-webhook/index.ts'
+      - 'supabase/migrations/202607271300_communications_activation_safety.sql'
+      - '.github/workflows/validate-agilecert-communications-activation-safety.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'docs/AGILECERT_COMMUNICATIONS_ACTIVATION_SAFETY_SCOPE.md'
+      - 'src/components/AdminCommunicationsLauncher.tsx'
+      - 'src/services/communicationsService.ts'
+      - 'supabase/config.toml'
+      - 'supabase/functions/agilecert-communications-control/index.ts'
+      - 'supabase/functions/agilecert-resend-webhook/index.ts'
+      - 'supabase/migrations/202607271300_communications_activation_safety.sql'
+      - '.github/workflows/validate-agilecert-communications-activation-safety.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-agilecert-communications-activation-safety-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  scope:
+    name: Validate exact activation-safety scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Confirm release units and protected boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin supabase-integration
+          changed="$(git diff --name-only origin/supabase-integration...HEAD)"
+          allowed='^(docs/AGILECERT_COMMUNICATIONS_ACTIVATION_SAFETY_SCOPE\.md|src/components/AdminCommunicationsLauncher\.tsx|src/services/communicationsService\.ts|supabase/config\.toml|supabase/functions/(agilecert-communications-control|agilecert-resend-webhook)/index\.ts|supabase/migrations/202607271300_communications_activation_safety\.sql|\.github/workflows/validate-agilecert-communications-activation-safety\.yml)$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          if [ -n "$unexpected" ]; then
+            printf 'Unexpected activation-safety files:\n%s\n' "$unexpected"
+            exit 1
+          fi
+
+          test -s supabase/migrations/202607271300_communications_activation_safety.sql
+          test -s supabase/functions/agilecert-communications-control/index.ts
+          test -s supabase/functions/agilecert-resend-webhook/index.ts
+
+          git diff --exit-code origin/supabase-integration -- \
+            src/services/commerceService.ts \
+            src/services/certificateCommerceService.ts \
+            src/services/credentialWalletService.ts \
+            src/services/identityProctoringService.ts \
+            src/services/aiCertificationAdviserService.ts \
+            src/services/aiCvEnhancementService.ts \
+            src/components/ExamExperience.tsx \
+            supabase/functions/initialize-exam-payment \
+            supabase/functions/verify-exam-payment \
+            supabase/functions/paystack-webhook \
+            supabase/functions/initialize-certificate-payment \
+            supabase/functions/verify-certificate-payment \
+            supabase/functions/paystack-certificate-webhook \
+            supabase/functions/agilecert-ai-adviser \
+            supabase/functions/agilecert-ai-cv \
+            supabase/functions/agilecert-communications
+
+          python3 <<'PY'
+          from pathlib import Path
+          sql = Path('supabase/migrations/202607271300_communications_activation_safety.sql').read_text()
+          control = Path('supabase/functions/agilecert-communications-control/index.ts').read_text()
+          webhook = Path('supabase/functions/agilecert-resend-webhook/index.ts').read_text()
+          required_sql = [
+              'delivery_cutover_at',
+              'pre_activation_backlog',
+              'configure_agilecert_communication_provider_activation',
+              "auth.role() <> 'service_role'",
+              'Provider activation requires the controlled credential and verified-domain workflow.',
+              'box.due_at >= settings.delivery_cutover_at',
+          ]
+          required_control = [
+              'delivered@resend.dev',
+              'RESEND_API_KEY',
+              'AGILECERT_COMMUNICATIONS_WORKER_TOKEN',
+              'configure-provider',
+              'disable-provider',
+              'activation-readiness',
+          ]
+          required_webhook = [
+              "from 'npm:svix@1'",
+              'RESEND_WEBHOOK_SECRET',
+              'svix-id',
+              'svix-timestamp',
+              'svix-signature',
+              'record_agilecert_communication_provider_event',
+          ]
+          assert not [item for item in required_sql if item not in sql]
+          assert not [item for item in required_control if item not in control]
+          assert not [item for item in required_webhook if item not in webhook]
+          forbidden = ['PAYSTACK_SECRET_KEY', 'question_answer_keys', 'candidate_answers', 'government_id', 'selfie_path']
+          combined = '\n'.join([sql, control, webhook])
+          found = [item for item in forbidden if item in combined]
+          assert not found, f'Protected authority leaked into activation safety: {found}'
+          PY
+
+  frontend:
+    name: Validate activation console and production bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build activation-aware communications console
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'Controlled activation' dist/assets
+          grep -R -q 'Delivery cutover' dist/assets
+          grep -R -q 'verified Resend credentials' dist/assets
+          find dist/assets -maxdepth 1 -type f -name '*.js' -print0 \
+            | sort -z | xargs -0 sha256sum > communications-activation-frontend.sha256
+      - name: Upload frontend evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-communications-activation-frontend-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            communications-activation-frontend.sha256
+            dist/index.html
+
+  edge-functions:
+    name: Validate provider control and signed webhook
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check activation boundaries
+        shell: bash
+        run: |
+          set -o pipefail
+          deno check --node-modules-dir=auto \
+            supabase/functions/agilecert-communications-control/index.ts \
+            supabase/functions/agilecert-resend-webhook/index.ts \
+            2>&1 | tee communications-activation-edge-check.log
+          ! grep -R -E 'PAYSTACK_SECRET_KEY|question_answer_keys|candidate_answers|government_id|selfie_path' \
+            supabase/functions/agilecert-communications-control \
+            supabase/functions/agilecert-resend-webhook
+      - name: Upload Edge Function evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-communications-activation-edge-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: communications-activation-edge-check.log
+
+  database:
+    name: Validate cutover and service-role authority
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          commit;
+          SQL
+      - name: Apply complete migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee communications-activation-supabase-start.log
+          supabase db reset --local 2>&1 | tee communications-activation-db-reset.log
+      - name: Assert structural activation safety
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 2>&1 <<'SQL' | tee communications-activation-structure.log
+          do $$
+          declare
+            v_claim text;
+            v_update text;
+            v_guard text;
+          begin
+            if not exists (
+              select 1 from information_schema.columns
+              where table_schema = 'public'
+                and table_name = 'agilecert_communication_settings'
+                and column_name = 'delivery_cutover_at'
+            ) then raise exception 'delivery_cutover_at is missing'; end if;
+
+            if not exists (
+              select 1 from pg_trigger
+              where tgname = 'agilecert_communication_outbox_cutover_guard'
+                and not tgisinternal
+            ) then raise exception 'cutover guard trigger is missing'; end if;
+
+            if has_function_privilege(
+              'authenticated',
+              'public.configure_agilecert_communication_provider_activation(boolean,text,text,text,integer,integer,text,boolean,text)',
+              'EXECUTE'
+            ) then raise exception 'authenticated role received provider activation authority'; end if;
+
+            if not has_function_privilege(
+              'service_role',
+              'public.configure_agilecert_communication_provider_activation(boolean,text,text,text,integer,integer,text,boolean,text)',
+              'EXECUTE'
+            ) then raise exception 'service_role provider activation authority is missing'; end if;
+
+            select pg_get_functiondef(
+              'public.claim_agilecert_communication_outbox(integer,timestamp with time zone)'::regprocedure
+            ) into v_claim;
+            if position('box.due_at >= settings.delivery_cutover_at' in v_claim) = 0 then
+              raise exception 'claim authority does not enforce the cutover';
+            end if;
+
+            select pg_get_functiondef(
+              'public.update_agilecert_communication_settings(boolean,text,text,text,integer,integer)'::regprocedure
+            ) into v_update;
+            if position('controlled credential and verified-domain workflow' in v_update) = 0 then
+              raise exception 'browser activation guard is missing';
+            end if;
+
+            select pg_get_functiondef(
+              'public.guard_agilecert_communication_outbox_cutover()'::regprocedure
+            ) into v_guard;
+            if position('pre_activation_backlog' in v_guard) = 0 then
+              raise exception 'pre-activation backlog cancellation is missing';
+            end if;
+
+            if exists (
+              select 1 from public.agilecert_communication_settings
+              where provider_enabled
+            ) then raise exception 'migration unexpectedly enabled the provider'; end if;
+          end;
+          $$;
+          SQL
+      - name: Upload database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-communications-activation-database-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            communications-activation-supabase-start.log
+            communications-activation-db-reset.log
+            communications-activation-structure.log

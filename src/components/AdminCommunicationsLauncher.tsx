@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, CheckCircle2, Loader2, MailCheck, RefreshCw, Settings2, X } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, Loader2, MailCheck, RefreshCw, Settings2, ShieldCheck, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getCurrentPortalUser } from '../services/authService';
 import {
@@ -81,7 +81,10 @@ export default function AdminCommunicationsLauncher() {
         maxAttempts,
       });
       setConsoleData(data);
-      setMessage('Communications delivery settings have been updated.');
+      setProviderEnabled(Boolean(data.settings.provider_enabled));
+      setMessage(data.settings.provider_enabled
+        ? 'Communications delivery settings have been updated.'
+        : 'Delivery settings have been saved. Provider activation remains controlled by the credential-gated release workflow.');
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Unable to update communications settings.');
     } finally {
@@ -159,8 +162,12 @@ export default function AdminCommunicationsLauncher() {
                       <div>
                         <h3 className="font-black">Provider delivery is {providerEnabled ? 'enabled' : 'disabled'}</h3>
                         <p className="mt-1 text-sm leading-6">
-                          Queue derivation remains safe when delivery is disabled. Enable only after the verified sender domain and required Edge Function secrets are configured.
+                          Queue derivation remains safe when delivery is disabled. Enabling requires verified Resend credentials, a signed webhook and the controlled production activation workflow.
                         </p>
+                        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                          <div><dt className="font-black text-slate-600">Verified sender domain</dt><dd>{consoleData.settings.verified_sender_domain || 'Not activated'}</dd></div>
+                          <div><dt className="font-black text-slate-600">Delivery cutover</dt><dd>{consoleData.settings.delivery_cutover_at ? new Date(consoleData.settings.delivery_cutover_at).toLocaleString() : 'Not established'}</dd></div>
+                        </dl>
                       </div>
                     </div>
                   </section>
@@ -177,7 +184,13 @@ export default function AdminCommunicationsLauncher() {
                           <label className="text-xs font-black uppercase tracking-wider text-slate-500">Max attempts<input type="number" min={1} max={12} value={maxAttempts} onChange={(event) => setMaxAttempts(Number(event.target.value))} className="mt-2 w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm normal-case tracking-normal" /></label>
                         </div>
                       </div>
-                      <label className="mt-4 flex items-start gap-3 rounded-2xl border border-slate-200 p-4"><input type="checkbox" checked={providerEnabled} onChange={(event) => setProviderEnabled(event.target.checked)} className="mt-1 h-5 w-5 accent-cyan-700" /><span><strong>Enable provider delivery</strong><span className="mt-1 block text-sm leading-6 text-slate-600">Requires a verified sender plus `RESEND_API_KEY`, worker, webhook and signing secrets in Supabase.</span></span></label>
+                      <div className="mt-4 flex items-start gap-3 rounded-2xl border border-cyan-200 bg-cyan-50 p-4">
+                        <ShieldCheck className="mt-0.5 h-5 w-5 text-cyan-700" />
+                        <div><strong>Controlled activation</strong><span className="mt-1 block text-sm leading-6 text-slate-600">The portal cannot activate a disabled provider. Use the production workflow after credentials, sender-domain verification, signed webhook and cutover review are complete.</span></div>
+                      </div>
+                      {providerEnabled && (
+                        <label className="mt-4 flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4"><input type="checkbox" checked={providerEnabled} onChange={(event) => setProviderEnabled(event.target.checked)} className="mt-1 h-5 w-5 accent-rose-700" /><span><strong>Keep provider delivery enabled</strong><span className="mt-1 block text-sm leading-6 text-slate-600">Clear this checkbox and save to disable delivery immediately. Re-enabling requires the controlled workflow.</span></span></label>
+                      )}
                       <button type="button" disabled={saving} onClick={() => void saveSettings()} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-5 py-3 text-sm font-black text-white hover:bg-cyan-800 disabled:opacity-60">{saving && <Loader2 className="h-4 w-4 animate-spin" />}Save delivery settings</button>
                     </section>
                   )}

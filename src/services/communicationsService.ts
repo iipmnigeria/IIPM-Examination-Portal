@@ -18,6 +18,11 @@ export interface CommunicationSettings {
   portal_url: string;
   hourly_batch_size: number;
   max_attempts: number;
+  verified_sender_domain?: string | null;
+  delivery_cutover_at?: string | null;
+  initial_provider_activated_at?: string | null;
+  last_provider_disabled_at?: string | null;
+  activation_notes?: string | null;
   updated_at?: string;
 }
 
