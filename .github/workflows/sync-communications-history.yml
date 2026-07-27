@@ -1,0 +1,72 @@
+name: Align Communications Branch History
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/sync-communications-history.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: align-communications-branch-history
+  cancel-in-progress: false
+
+jobs:
+  align:
+    name: Preserve communications tree and align Phase 7 ancestry
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout communications branch
+        uses: actions/checkout@v4
+        with:
+          ref: communications-automation
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Merge current source ancestry while preserving communications files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin supabase-integration
+
+          before="$(git rev-parse HEAD)"
+          base="$(git rev-parse origin/supabase-integration)"
+          printf 'communications_before=%s\nsupabase_integration=%s\n' "$before" "$base" | tee communications-history-before.txt
+
+          if git merge-base --is-ancestor "$base" HEAD; then
+            echo 'Current supabase-integration is already an ancestor.' | tee communications-history-result.txt
+          else
+            git merge -s ours --no-edit "$base"
+            git push origin HEAD:communications-automation
+            echo 'Communications tree preserved; current supabase-integration added as ancestry.' | tee communications-history-result.txt
+          fi
+
+          git fetch origin communications-automation supabase-integration
+          git merge-base --is-ancestor origin/supabase-integration origin/communications-automation
+          git diff --name-only origin/supabase-integration...origin/communications-automation \
+            | sort > communications-final-changed-files.txt
+
+          protected='^(docs/AGILECERT_PHASE_7_AI_CV_PROFILE_BUILDER_SCOPE\.md|scripts/phase7-completion-behaviour\.sql|src/components/AiCvEnhancementLauncher\.tsx|src/services/aiCvEnhancementService\.ts|supabase/functions/agilecert-ai-cv/|supabase/migrations/202607271100_phase_7_)'
+          if grep -Eq "$protected" communications-final-changed-files.txt; then
+            cat communications-final-changed-files.txt
+            exit 1
+          fi
+
+      - name: Upload history-alignment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: communications-history-alignment-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            communications-history-before.txt
+            communications-history-result.txt
+            communications-final-changed-files.txt
