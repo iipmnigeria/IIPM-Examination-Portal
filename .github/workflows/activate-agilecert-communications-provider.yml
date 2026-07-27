@@ -1,0 +1,279 @@
+name: Activate AgileCert Communications Provider
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate credentials and sender only, or activate outbound delivery
+        required: true
+        type: choice
+        default: validate_only
+        options:
+          - validate_only
+          - activate
+      sender_name:
+        description: Approved sender display name
+        required: true
+        type: string
+        default: AgileCert Global
+      sender_email:
+        description: Approved email address on the verified Resend domain
+        required: true
+        type: string
+      reply_to_email:
+        description: Monitored reply-to email address
+        required: false
+        type: string
+      hourly_batch_size:
+        description: Maximum communications claimed each hour
+        required: true
+        type: number
+        default: 10
+      max_attempts:
+        description: Maximum provider delivery attempts
+        required: true
+        type: number
+        default: 5
+      confirmed_sender_domain_verified:
+        description: I confirmed the sender domain is verified in Resend
+        required: true
+        type: boolean
+        default: false
+      confirmed_webhook_registered:
+        description: I confirmed the signed Resend webhook endpoint and events are registered
+        required: true
+        type: boolean
+        default: false
+      confirmed_enable_delivery:
+        description: Required only for activate mode — enable real post-cutover email delivery
+        required: true
+        type: boolean
+        default: false
+      reset_delivery_cutover:
+        description: Establish a new cutover and cancel older queued messages; normally keep false
+        required: true
+        type: boolean
+        default: false
+      activation_notes:
+        description: Operator-approved activation or validation note
+        required: false
+        type: string
+        default: Controlled AgileCert communications provider activation
+
+permissions:
+  contents: read
+
+env:
+  PROJECT_REF: cfecicvugfrrhcvhduzc
+  APPROVED_SOURCE_COMMIT: eaaa71de585f3a3a786451129598a3cb2ffce14a
+  CONTROL_URL: https://cfecicvugfrrhcvhduzc.supabase.co/functions/v1/agilecert-communications-control
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+  WORKER_TOKEN: ${{ secrets.AGILECERT_COMMUNICATIONS_WORKER_TOKEN }}
+  RESEND_WEBHOOK_SECRET: ${{ secrets.RESEND_WEBHOOK_SECRET }}
+  UNSUBSCRIBE_SIGNING_SECRET: ${{ secrets.AGILECERT_COMMUNICATIONS_SIGNING_SECRET }}
+
+jobs:
+  activate:
+    name: Validate and control communications provider
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: agilecert-communications-provider-activation
+      cancel-in-progress: false
+    steps:
+      - name: Check out exact approved activation-safety source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.APPROVED_SOURCE_COMMIT }}
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Validate operator confirmations and credential presence
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          SENDER_EMAIL: ${{ inputs.sender_email }}
+          DOMAIN_CONFIRMED: ${{ inputs.confirmed_sender_domain_verified }}
+          WEBHOOK_CONFIRMED: ${{ inputs.confirmed_webhook_registered }}
+          DELIVERY_CONFIRMED: ${{ inputs.confirmed_enable_delivery }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APPROVED_SOURCE_COMMIT"
+          test -s supabase/functions/agilecert-communications-control/index.ts
+          test -s supabase/functions/agilecert-resend-webhook/index.ts
+          test "$DOMAIN_CONFIRMED" = 'true'
+          test "$WEBHOOK_CONFIRMED" = 'true'
+          test -n "$SENDER_EMAIL"
+          case "$SENDER_EMAIL" in
+            *@*.*) ;;
+            *) echo 'The sender email format is invalid.' >&2; exit 1 ;;
+          esac
+          if [ "$MODE" = 'activate' ]; then
+            test "$DELIVERY_CONFIRMED" = 'true'
+          else
+            test "$MODE" = 'validate_only'
+          fi
+          for variable in SUPABASE_ACCESS_TOKEN RESEND_API_KEY WORKER_TOKEN RESEND_WEBHOOK_SECRET UNSUBSCRIBE_SIGNING_SECRET; do
+            test -n "${!variable:-}" || { echo "Required credential name is not configured: $variable" >&2; exit 1; }
+          done
+
+      - name: Install approved communications secrets in Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase secrets set --project-ref "$PROJECT_REF" \
+            RESEND_API_KEY="$RESEND_API_KEY" \
+            AGILECERT_COMMUNICATIONS_WORKER_TOKEN="$WORKER_TOKEN" \
+            RESEND_WEBHOOK_SECRET="$RESEND_WEBHOOK_SECRET" \
+            AGILECERT_COMMUNICATIONS_SIGNING_SECRET="$UNSUBSCRIBE_SIGNING_SECRET"
+
+      - name: Deploy only provider-control and signed-webhook functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions deploy agilecert-communications-control --project-ref "$PROJECT_REF" \
+            2>&1 | tee activation-control-deploy.log
+          supabase functions deploy agilecert-resend-webhook --project-ref "$PROJECT_REF" \
+            2>&1 | tee activation-webhook-deploy.log
+          supabase functions list --project-ref "$PROJECT_REF" \
+            2>&1 | tee activation-function-list.log
+          grep -q 'agilecert-communications-control' activation-function-list.log
+          grep -q 'agilecert-resend-webhook' activation-function-list.log
+
+      - name: Verify private control readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error \
+            --output activation-readiness.json \
+            --write-out '%{http_code}' \
+            --request POST "$CONTROL_URL" \
+            --header 'Content-Type: application/json' \
+            --header "x-agilecert-worker-token: $WORKER_TOKEN" \
+            --data '{"action":"activation-readiness"}')"
+          test "$status" = '200'
+          jq -e '.resendApiKeyConfigured == true and .workerTokenConfigured == true and .webhookSecretConfigured == true and .unsubscribeSigningSecretConfigured == true' activation-readiness.json >/dev/null
+
+      - name: Test sender and configure reviewed provider state
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          SENDER_NAME: ${{ inputs.sender_name }}
+          SENDER_EMAIL: ${{ inputs.sender_email }}
+          REPLY_TO_EMAIL: ${{ inputs.reply_to_email }}
+          HOURLY_BATCH_SIZE: ${{ inputs.hourly_batch_size }}
+          MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+          RESET_CUTOVER: ${{ inputs.reset_delivery_cutover }}
+          ACTIVATION_NOTES: ${{ inputs.activation_notes }}
+        run: |
+          set -euo pipefail
+          export ENABLE_PROVIDER='false'
+          if [ "$MODE" = 'activate' ]; then export ENABLE_PROVIDER='true'; fi
+          python3 <<'PY'
+          import json, os
+          payload = {
+              'action': 'configure-provider',
+              'enable': os.environ['ENABLE_PROVIDER'] == 'true',
+              'fromName': os.environ['SENDER_NAME'],
+              'fromEmail': os.environ['SENDER_EMAIL'],
+              'replyToEmail': os.environ.get('REPLY_TO_EMAIL', ''),
+              'hourlyBatchSize': int(os.environ['HOURLY_BATCH_SIZE']),
+              'maxAttempts': int(os.environ['MAX_ATTEMPTS']),
+              'resetCutover': os.environ['RESET_CUTOVER'] == 'true',
+              'activationNotes': os.environ.get('ACTIVATION_NOTES', ''),
+          }
+          with open('activation-request.json', 'w', encoding='utf-8') as handle:
+              json.dump(payload, handle)
+          PY
+          status="$(curl --silent --show-error \
+            --output activation-response.json \
+            --write-out '%{http_code}' \
+            --request POST "$CONTROL_URL" \
+            --header 'Content-Type: application/json' \
+            --header "x-agilecert-worker-token: $WORKER_TOKEN" \
+            --data @activation-request.json)"
+          test "$status" = '200'
+          jq -e '.providerTestPassed == true and .configured == true' activation-response.json >/dev/null
+          if [ "$MODE" = 'activate' ]; then
+            jq -e '.providerEnabled == true and (.activation.deliveryCutoverAt | type == "string")' activation-response.json >/dev/null
+          else
+            jq -e '.providerEnabled == false' activation-response.json >/dev/null
+          fi
+          rm -f activation-request.json
+
+      - name: Verify final controlled state
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error \
+            --output activation-final-readiness.json \
+            --write-out '%{http_code}' \
+            --request POST "$CONTROL_URL" \
+            --header 'Content-Type: application/json' \
+            --header "x-agilecert-worker-token: $WORKER_TOKEN" \
+            --data '{"action":"activation-readiness"}')"
+          test "$status" = '200'
+          if [ "$MODE" = 'activate' ]; then
+            jq -e '.providerEnabled == true and (.deliveryCutoverAt | type == "string") and (.verifiedSenderDomain | type == "string")' activation-final-readiness.json >/dev/null
+          else
+            jq -e '.providerEnabled == false' activation-final-readiness.json >/dev/null
+          fi
+
+      - name: Create sanitized activation evidence
+        if: always()
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          python3 <<'PY'
+          import json, os
+          from pathlib import Path
+          readiness = {}
+          response = {}
+          final = {}
+          for path, target in [
+              ('activation-readiness.json', readiness),
+              ('activation-response.json', response),
+              ('activation-final-readiness.json', final),
+          ]:
+              if Path(path).exists():
+                  try: target.update(json.loads(Path(path).read_text()))
+                  except Exception: pass
+          evidence = {
+              'sourceCommit': os.environ.get('APPROVED_SOURCE_COMMIT'),
+              'mode': os.environ.get('MODE'),
+              'credentialsConfigured': {
+                  'resendApiKey': bool(readiness.get('resendApiKeyConfigured')),
+                  'workerToken': bool(readiness.get('workerTokenConfigured')),
+                  'webhookSecret': bool(readiness.get('webhookSecretConfigured')),
+                  'unsubscribeSigningSecret': bool(readiness.get('unsubscribeSigningSecretConfigured')),
+              },
+              'providerTestPassed': bool(response.get('providerTestPassed')),
+              'verifiedSenderDomain': response.get('verifiedSenderDomain') or final.get('verifiedSenderDomain'),
+              'providerEnabled': bool(final.get('providerEnabled')),
+              'deliveryCutoverEstablished': bool(final.get('deliveryCutoverAt')),
+              'cancelledPreActivationBacklog': (response.get('activation') or {}).get('cancelledPreActivationBacklog', 0),
+              'humanRecipientTestEmailSent': False,
+          }
+          Path('communications-provider-activation-evidence.json').write_text(json.dumps(evidence, indent=2))
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload sanitized activation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-communications-provider-activation-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            communications-provider-activation-evidence.json
+            activation-control-deploy.log
+            activation-webhook-deploy.log
+            activation-function-list.log
