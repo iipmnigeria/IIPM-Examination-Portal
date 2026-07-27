@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.paystack-certificate-webhook]
 verify_jwt = false
+
+[functions.agilecert-communications]
+verify_jwt = false
