@@ -1,2 +1,3 @@
 Align communications-automation with the current supabase-integration Phase 7 squash history while preserving the communications tree.
-Triggered 27 July 2026.
+Patch the communications webhook request-body handling before validation.
+Retriggered 27 July 2026.
