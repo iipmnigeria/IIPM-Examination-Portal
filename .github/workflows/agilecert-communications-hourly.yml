@@ -1,0 +1,61 @@
+name: AgileCert Hourly Communications Dispatcher
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agilecert-hourly-communications-dispatcher
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Refresh and deliver due communications
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FUNCTION_URL: 'https://cfecicvugfrrhcvhduzc.supabase.co/functions/v1/agilecert-communications'
+      WORKER_TOKEN: ${{ secrets.AGILECERT_COMMUNICATIONS_WORKER_TOKEN }}
+    steps:
+      - name: Record disabled dispatcher state
+        if: env.WORKER_TOKEN == ''
+        shell: bash
+        run: |
+          cat > communications-dispatch-result.json <<'JSON'
+          {
+            "dispatcherConfigured": false,
+            "deliveryAttempted": false,
+            "reason": "AGILECERT_COMMUNICATIONS_WORKER_TOKEN is not configured in GitHub Actions."
+          }
+          JSON
+          cat communications-dispatch-result.json
+
+      - name: Refresh and deliver due communications
+        if: env.WORKER_TOKEN != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error \
+            --output communications-dispatch-result.json \
+            --write-out '%{http_code}' \
+            --request POST "$FUNCTION_URL" \
+            --header 'Content-Type: application/json' \
+            --header "x-agilecert-worker-token: $WORKER_TOKEN" \
+            --data '{"action":"scan-and-send"}')"
+          test "$status" = '200'
+          jq -e 'has("providerEnabled") and has("claimed") and has("sent") and has("failed")' \
+            communications-dispatch-result.json >/dev/null
+          jq '{providerEnabled, claimed, sent, failed, message}' communications-dispatch-result.json
+
+      - name: Upload sanitized dispatcher evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-hourly-communications-dispatch-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: communications-dispatch-result.json
