@@ -36,6 +36,10 @@ export interface ProctorLogEvent {
   severity: 'low' | 'medium' | 'high';
   message: string;
   snapshotUrl?: string;
+  snapshotPath?: string;
+  source?: string;
+  confidence?: number | null;
+  riskWeight?: number;
 }
 
 export interface Attempt {
@@ -50,6 +54,8 @@ export interface Attempt {
   logs: ProctorLogEvent[];
   status: 'ongoing' | 'submitted' | 'flagged' | 'terminated';
   suspiciousScore: number;
+  evidenceStatus?: 'no_evidence' | 'event_evidence' | 'visual_evidence' | 'partial_visual_evidence';
+  reviewNotes?: string | null;
 }
 
 export interface ProctorAnalysisResult {
