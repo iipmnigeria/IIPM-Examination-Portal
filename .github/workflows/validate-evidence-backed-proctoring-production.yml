@@ -12,6 +12,7 @@ on:
       - 'src/types.ts'
       - 'supabase/migrations/202607281500_evidence_backed_proctoring_audit.sql'
       - 'supabase/migrations/202607281501_proctor_evidence_confidence_hardening.sql'
+      - 'supabase/migrations/202607281502_integrity_review_note_preservation.sql'
       - 'supabase/tests/evidence_backed_proctoring_production_fixture.sql'
       - 'supabase/tests/evidence_backed_proctoring_production_smoke.sql'
       - '.github/workflows/validate-evidence-backed-proctoring-production.yml'
@@ -26,6 +27,7 @@ on:
       - 'src/types.ts'
       - 'supabase/migrations/202607281500_evidence_backed_proctoring_audit.sql'
       - 'supabase/migrations/202607281501_proctor_evidence_confidence_hardening.sql'
+      - 'supabase/migrations/202607281502_integrity_review_note_preservation.sql'
       - 'supabase/tests/evidence_backed_proctoring_production_fixture.sql'
       - 'supabase/tests/evidence_backed_proctoring_production_smoke.sql'
       - '.github/workflows/validate-evidence-backed-proctoring-production.yml'
@@ -139,7 +141,8 @@ jobs:
             -f supabase/tests/evidence_backed_proctoring_production_smoke.sql \
             2>&1 | tee evidence-behaviour.log
           grep -q 'Legacy suspicion score removed' evidence-behaviour.log
-          grep -q 'flagged' evidence-behaviour.log
+          grep -q '"decision": "insufficient_evidence"' evidence-behaviour.log
+          grep -q '"decision": "flag_attempt"' evidence-behaviour.log
           grep -q '25.00' evidence-behaviour.log
 
       - name: Capture evidence schema and permissions
