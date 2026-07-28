@@ -125,6 +125,12 @@ jobs:
               missing = [marker for marker in markers if marker not in text]
               assert not missing, f'{filename} is missing required markers: {missing}'
 
+          migration_files = list(Path('supabase/migrations').glob('*.sql'))
+          assert len(migration_files) > len(expected), (
+              'The full historical migration ledger is not present. '
+              'Previously applied migration files must remain available for Supabase history comparison.'
+          )
+
           combined = '\n'.join(
               Path('supabase/migrations', filename).read_text(encoding='utf-8')
               for filename in expected
@@ -137,27 +143,6 @@ jobs:
           ]
           found = [marker for marker in forbidden if marker in combined]
           assert not found, f'Protected unrelated authority found in release: {found}'
-          PY
-
-      - name: Isolate only the approved migration release unit
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/agilecert-nonrelease-migrations
-          python3 <<'PY'
-          from pathlib import Path
-          import shutil
-
-          approved = {
-              line.strip()
-              for line in Path('approved-evidence-migrations.txt').read_text().splitlines()
-              if line.strip()
-          }
-          for path in Path('supabase/migrations').glob('*.sql'):
-              if path.name not in approved:
-                  shutil.move(str(path), f'/tmp/agilecert-nonrelease-migrations/{path.name}')
-          remaining = sorted(path.name for path in Path('supabase/migrations').glob('*.sql'))
-          assert remaining == sorted(approved), f'Unexpected isolated migration set: {remaining}'
           PY
 
       - name: Link production Supabase project
@@ -181,7 +166,10 @@ jobs:
           elif [ ! -s evidence-proctoring-pending.txt ] && grep -q 'Remote database is up to date' evidence-proctoring-dry-run.log; then
             echo 'apply=false' >> "$GITHUB_OUTPUT"
           else
-            echo 'Unexpected production migration state:' >&2
+            echo 'Unexpected production migration state. Deployment is blocked.' >&2
+            echo 'Approved pending set:' >&2
+            cat evidence-proctoring-expected.txt >&2
+            echo 'Actual pending set:' >&2
             cat evidence-proctoring-pending.txt >&2
             exit 1
           fi
@@ -192,6 +180,8 @@ jobs:
         run: |
           set -euo pipefail
           echo 'Read-only validation succeeded.'
+          echo 'The complete local migration ledger matched production history.'
+          echo 'Only the four approved evidence-backed proctoring migrations are pending.'
           echo 'No production migration was applied.'
 
       - name: Apply only the approved evidence migrations
@@ -236,7 +226,7 @@ jobs:
           assert not missing, f'Remote evidence schema markers missing: {missing}'
           PY
 
-      - name: Confirm no approved migration remains pending
+      - name: Confirm no migration remains pending
         if: inputs.mode == 'deploy'
         shell: bash
         run: |
@@ -280,6 +270,7 @@ jobs:
                   os.environ.get('MODE') == 'deploy'
                   and os.environ.get('APPLY_STATE') == 'true'
               ),
+              'fullMigrationLedgerPreserved': True,
               'frontendMergedByWorkflow': False,
               'paymentAuthorityChanged': False,
               'certificateAuthorityChanged': False,
