@@ -21,6 +21,18 @@ const detectionType = (detections: unknown): ProctorEventType => {
   return 'looking_away';
 };
 
+const requestSnapshot = (body: BodyInit | null | undefined): string | undefined => {
+  if (typeof body !== 'string') return undefined;
+  try {
+    const payload = JSON.parse(body) as Record<string, unknown>;
+    return typeof payload.image === 'string' && payload.image.startsWith('data:image/')
+      ? payload.image
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 export default function ExamExperience(props: ExamExperienceProps) {
   const [activeTest, setActiveTest] = useState(props.test);
   const [runtimeReady, setRuntimeReady] = useState(!props.test.proctoringPolicy);
@@ -68,17 +80,21 @@ export default function ExamExperience(props: ExamExperienceProps) {
           });
         }
 
+        const capturedFrame = policy.retainWebcamImages ? requestSnapshot(init?.body) : undefined;
         const response = await originalFetch(input, init);
         if (response.ok && policy.liveEventCaptureEnabled) {
           void response.clone().json().then((payload: Record<string, unknown>) => {
             if (!payload?.isSuspicious) return;
+            const confidence = Math.max(0, Math.min(1, Number(payload.confidence || 0)));
             const detail = {
               id: `ai-${Date.now()}-${crypto.randomUUID()}`,
               timestamp: new Date().toISOString(),
               type: detectionType(payload.detections),
-              severity: Number(payload.confidence || 0) >= 0.8 ? 'high' : 'medium',
+              severity: confidence >= 0.8 ? 'high' : 'medium',
               message: String(payload.reason || 'AI visual-analysis risk indicator recorded.'),
               aiGenerated: true,
+              confidence,
+              snapshotUrl: capturedFrame,
             };
             window.dispatchEvent(new CustomEvent('agilecert-proctor-event', { detail }));
           }).catch(() => undefined);
@@ -141,6 +157,7 @@ export default function ExamExperience(props: ExamExperienceProps) {
   return (
     <>
       <LiveProctoringEventBridge
+        examSessionId={activeTest.sessionId}
         proctoringSessionId={activeTest.proctoringSessionId}
         policy={activeTest.proctoringPolicy}
       />
