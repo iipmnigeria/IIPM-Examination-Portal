@@ -1,0 +1,203 @@
+name: Validate Evidence-Backed Proctoring Production
+
+on:
+  push:
+    branches: [fix/evidence-backed-proctoring-production]
+    paths:
+      - 'src/App.tsx'
+      - 'src/components/AdminPortal.tsx'
+      - 'src/components/ExamExperience.tsx'
+      - 'src/components/LiveProctoringEventBridge.tsx'
+      - 'src/services/proctoringAuditService.ts'
+      - 'src/types.ts'
+      - 'supabase/migrations/202607281500_evidence_backed_proctoring_audit.sql'
+      - 'supabase/migrations/202607281501_proctor_evidence_confidence_hardening.sql'
+      - 'supabase/tests/evidence_backed_proctoring_production_fixture.sql'
+      - 'supabase/tests/evidence_backed_proctoring_production_smoke.sql'
+      - '.github/workflows/validate-evidence-backed-proctoring-production.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/App.tsx'
+      - 'src/components/AdminPortal.tsx'
+      - 'src/components/ExamExperience.tsx'
+      - 'src/components/LiveProctoringEventBridge.tsx'
+      - 'src/services/proctoringAuditService.ts'
+      - 'src/types.ts'
+      - 'supabase/migrations/202607281500_evidence_backed_proctoring_audit.sql'
+      - 'supabase/migrations/202607281501_proctor_evidence_confidence_hardening.sql'
+      - 'supabase/tests/evidence_backed_proctoring_production_fixture.sql'
+      - 'supabase/tests/evidence_backed_proctoring_production_smoke.sql'
+      - '.github/workflows/validate-evidence-backed-proctoring-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evidence-backed-proctoring-production-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Validate current AgileCert frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out production-based patch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate TypeScript
+        run: npm run lint
+
+      - name: Build production portal
+        run: npm run build
+
+      - name: Verify evidence-backed frontend controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          grep -q 'Evidence-backed administration' src/components/AdminPortal.tsx
+          grep -q 'Flag with evidence' src/components/AdminPortal.tsx
+          grep -q 'View private snapshot' src/components/AdminPortal.tsx
+          grep -q 'agilecert-proctor-evidence' src/components/LiveProctoringEventBridge.tsx
+          grep -q 'snapshotPath' src/components/LiveProctoringEventBridge.tsx
+          ! grep -R "suspiciousScore: newStatus === 'submitted' ? 15 : 75" src
+          ! grep -q 'onOverrideStatus' src/components/AdminPortal.tsx
+
+  database:
+    name: Reset full Supabase schema and test evidence decisions
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Check out production-based patch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap='supabase/migrations/202607200003_bootstrap_super_admin.sql'
+          test -s "$bootstrap"
+          sha256sum "$bootstrap" | tee evidence-bootstrap-original.sha256
+          cat > "$bootstrap" <<'SQL'
+          begin;
+          -- Isolated CI only: test users are installed by the evidence fixture.
+          commit;
+          SQL
+          sha256sum "$bootstrap" | tee evidence-bootstrap-ci.sha256
+
+      - name: Insert isolated legacy fixture before the patch migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture='supabase/tests/evidence_backed_proctoring_production_fixture.sql'
+          target='supabase/migrations/202607281499_ci_evidence_fixture.sql'
+          test -s "$fixture"
+          cp "$fixture" "$target"
+          test -s "$target"
+
+      - name: Start isolated Supabase services
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee evidence-supabase-start.log
+
+      - name: Apply every repository migration from scratch
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee evidence-db-reset.log
+
+      - name: Run evidence-backed behaviour smoke tests
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/evidence_backed_proctoring_production_smoke.sql \
+            2>&1 | tee evidence-behaviour.log
+          grep -q 'Legacy suspicion score removed' evidence-behaviour.log
+          grep -q 'flagged' evidence-behaviour.log
+          grep -q '25.00' evidence-behaviour.log
+
+      - name: Capture evidence schema and permissions
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 <<'SQL' | tee evidence-schema.log
+          \d+ public.agilecert_attempt_integrity_reviews
+          \d+ public.proctor_events
+          select id, public, file_size_limit, allowed_mime_types
+          from storage.buckets
+          where id = 'agilecert-proctor-evidence';
+          select proname, proconfig
+          from pg_proc
+          where proname in (
+            'get_agilecert_attempt_integrity_evidence',
+            'review_agilecert_attempt_integrity',
+            'agilecert_session_evidence_score',
+            'agilecert_refresh_proctoring_session_risk'
+          )
+          order by proname;
+          select schemaname, tablename, policyname, roles, cmd
+          from pg_policies
+          where (schemaname = 'storage' and policyname like 'agilecert_proctor_evidence%')
+             or (schemaname = 'public' and tablename = 'agilecert_attempt_integrity_reviews')
+          order by schemaname, tablename, policyname;
+          select tgname
+          from pg_trigger
+          where tgname in (
+            'agilecert_normalize_proctor_event_evidence_trigger',
+            'agilecert_refresh_attempt_evidence_score_trigger',
+            'agilecert_attempt_integrity_reviews_immutable_trigger'
+          ) and not tgisinternal
+          order by tgname;
+          SQL
+          grep -q 'agilecert-proctor-evidence' evidence-schema.log
+          grep -q 'get_agilecert_attempt_integrity_evidence' evidence-schema.log
+          grep -q 'review_agilecert_attempt_integrity' evidence-schema.log
+          grep -q 'agilecert_attempt_integrity_reviews_immutable_trigger' evidence-schema.log
+
+      - name: Upload isolated validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-backed-proctoring-production-validation
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            evidence-bootstrap-original.sha256
+            evidence-bootstrap-ci.sha256
+            evidence-supabase-start.log
+            evidence-db-reset.log
+            evidence-behaviour.log
+            evidence-schema.log
+
+      - name: Stop isolated Supabase services
+        if: always()
+        run: supabase stop --no-backup || true
