@@ -1,0 +1,52 @@
+name: Validate Evidence-Backed Proctoring
+
+on:
+  push:
+    branches:
+      - fix/evidence-backed-proctoring-audit
+  pull_request:
+    paths:
+      - src/App.tsx
+      - src/components/AdminPortal.tsx
+      - src/services/examService.ts
+      - src/services/proctoringAuditService.ts
+      - src/types.ts
+      - supabase/migrations/202607281500_evidence_backed_proctoring_audit.sql
+      - .github/workflows/validate-evidence-backed-proctoring.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out integrity patch
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate TypeScript
+        run: npm run lint
+
+      - name: Build production portal
+        run: npm run build
+
+      - name: Verify evidence-backed safety controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration='supabase/migrations/202607281500_evidence_backed_proctoring_audit.sql'
+          test -s "$migration"
+          grep -q 'get_agilecert_attempt_integrity_evidence' "$migration"
+          grep -q 'review_agilecert_attempt_integrity' "$migration"
+          grep -q 'visual_snapshot_missing' "$migration"
+          grep -q 'Legacy suspicion score removed' "$migration"
+          ! grep -R "suspiciousScore: newStatus === 'submitted' ? 15 : 75" src
