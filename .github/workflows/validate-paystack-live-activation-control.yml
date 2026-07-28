@@ -1,0 +1,59 @@
+name: Validate Paystack Live Activation Control
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/activate-paystack-live-examination-payments.yml'
+      - '.github/workflows/validate-paystack-live-activation-control.yml'
+      - 'docs/PAYSTACK_LIVE_EXAMINATION_ACTIVATION_RUNBOOK.md'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate workflow syntax and safety boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse workflow YAML
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -e "require 'yaml'; YAML.safe_load(File.read('.github/workflows/activate-paystack-live-examination-payments.yml'), aliases: true); puts 'Activation workflow YAML parsed successfully.'"
+
+      - name: Verify controlled activation markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow='.github/workflows/activate-paystack-live-examination-payments.yml'
+          runbook='docs/PAYSTACK_LIVE_EXAMINATION_ACTIVATION_RUNBOOK.md'
+          test -s "$workflow"
+          test -s "$runbook"
+          grep -q 'validate_only' "$workflow"
+          grep -q 'PAYSTACK_LIVE_SECRET_KEY' "$workflow"
+          grep -q 'sk_live_' "$workflow"
+          grep -q 'integration/payment_session_timeout' "$workflow"
+          grep -q 'initialize-exam-payment' "$workflow"
+          grep -q 'verify-exam-payment' "$workflow"
+          grep -q 'paystack-webhook' "$workflow"
+          grep -q 'CIPMN12-ACCESS88' "$workflow"
+          grep -q 'realChargeCreatedByWorkflow.*False' "$workflow"
+          grep -q 'NGN 3,000' "$runbook"
+          ! grep -RE 'sk_live_[A-Za-z0-9]+' "$workflow" "$runbook"
+          ! grep -RE 'pk_live_[A-Za-z0-9]+' "$workflow" "$runbook"
+
+      - name: Confirm exact three-function deployment boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow='.github/workflows/activate-paystack-live-examination-payments.yml'
+          count="$(grep -c 'supabase functions deploy ' "$workflow")"
+          test "$count" -eq 3
+          grep -q 'supabase functions deploy initialize-exam-payment' "$workflow"
+          grep -q 'supabase functions deploy verify-exam-payment' "$workflow"
+          grep -q 'supabase functions deploy paystack-webhook' "$workflow"
+          ! grep -q 'supabase db push' "$workflow"
