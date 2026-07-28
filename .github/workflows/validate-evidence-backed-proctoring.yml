@@ -12,6 +12,7 @@ on:
       - src/services/proctoringAuditService.ts
       - src/types.ts
       - supabase/migrations/202607281500_evidence_backed_proctoring_audit.sql
+      - supabase/migrations/202607281501_proctor_evidence_confidence_hardening.sql
       - .github/workflows/validate-evidence-backed-proctoring.yml
 
 permissions:
@@ -44,9 +45,13 @@ jobs:
         run: |
           set -euo pipefail
           migration='supabase/migrations/202607281500_evidence_backed_proctoring_audit.sql'
+          hardening='supabase/migrations/202607281501_proctor_evidence_confidence_hardening.sql'
           test -s "$migration"
+          test -s "$hardening"
           grep -q 'get_agilecert_attempt_integrity_evidence' "$migration"
           grep -q 'review_agilecert_attempt_integrity' "$migration"
           grep -q 'visual_snapshot_missing' "$migration"
           grep -q 'Legacy suspicion score removed' "$migration"
+          grep -q 'regexp_match' "$hardening"
+          grep -q 'agilecert_proctor_snapshot_is_unlinked' "$hardening"
           ! grep -R "suspiciousScore: newStatus === 'submitted' ? 15 : 75" src
