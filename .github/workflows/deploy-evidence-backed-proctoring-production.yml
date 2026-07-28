@@ -108,11 +108,13 @@ jobs:
                   'review_agilecert_attempt_integrity',
               ],
               '202607281501_proctor_evidence_confidence_hardening.sql': [
-                  'ai_confidence',
-                  'event_source',
+                  'agilecert_normalize_proctor_event_evidence',
+                  'new.confidence',
+                  'new.source',
               ],
               '202607281502_integrity_review_note_preservation.sql': [
-                  'review_reason',
+                  'review_notes = left(concat_ws',
+                  'priorReviewNotes',
               ],
               '202607281503_phase5_evidence_weight_compatibility.sql': [
                   'risk_weight',
@@ -224,9 +226,10 @@ jobs:
               'get_agilecert_attempt_integrity_evidence',
               'review_agilecert_attempt_integrity',
               'agilecert_attempt_integrity_reviews',
+              'agilecert_normalize_proctor_event_evidence',
               'snapshot_path',
-              'ai_confidence',
-              'event_source',
+              'confidence',
+              'source',
               'risk_weight',
           ]
           missing = [marker for marker in required if marker not in schema]
