@@ -1,0 +1,325 @@
+name: Activate Paystack Live Examination Payments
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate live readiness only, or install the live key and deploy examination payment functions
+        required: true
+        type: choice
+        default: validate_only
+        options:
+          - validate_only
+          - activate
+      confirmed_paystack_account_live:
+        description: I confirmed the Paystack business account is approved for live collections
+        required: true
+        type: boolean
+        default: false
+      confirmed_webhook_registered:
+        description: I registered the approved live webhook URL in Paystack
+        required: true
+        type: boolean
+        default: false
+      confirmed_enable_real_payments:
+        description: Required only in activate mode — I authorise real examination charges
+        required: true
+        type: boolean
+        default: false
+      activation_notes:
+        description: Operator-approved activation or validation note
+        required: false
+        type: string
+        default: Controlled AgileCert live examination payment activation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agilecert-paystack-live-examination-activation
+  cancel-in-progress: false
+
+env:
+  PROJECT_REF: cfecicvugfrrhcvhduzc
+  APPROVED_SOURCE_COMMIT: c86032aa73962f55f19f26c2a3759d426808b84b
+  PORTAL_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+  WEBHOOK_URL: https://cfecicvugfrrhcvhduzc.supabase.co/functions/v1/paystack-webhook
+  PAYSTACK_LIVE_SECRET_KEY: ${{ secrets.PAYSTACK_LIVE_SECRET_KEY }}
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  activate:
+    name: Validate and activate live examination payments
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact approved examination-payment source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.APPROVED_SOURCE_COMMIT }}
+          fetch-depth: 0
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Validate source, credentials and operator confirmations
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          ACCOUNT_CONFIRMED: ${{ inputs.confirmed_paystack_account_live }}
+          WEBHOOK_CONFIRMED: ${{ inputs.confirmed_webhook_registered }}
+          REAL_PAYMENTS_CONFIRMED: ${{ inputs.confirmed_enable_real_payments }}
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$APPROVED_SOURCE_COMMIT" ] || {
+            echo "Approved examination-payment source commit mismatch." >&2
+            exit 1
+          }
+
+          for path in \
+            supabase/functions/_shared/paystack.ts \
+            supabase/functions/initialize-exam-payment/index.ts \
+            supabase/functions/verify-exam-payment/index.ts \
+            supabase/functions/paystack-webhook/index.ts \
+            supabase/migrations/202607251714_cipmn_module_mock_access88_coupon.sql; do
+            [ -s "$path" ] || { echo "Required release source is missing: $path" >&2; exit 1; }
+          done
+
+          [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || {
+            echo "GitHub secret SUPABASE_ACCESS_TOKEN is not configured." >&2
+            exit 1
+          }
+          [ -n "${PAYSTACK_LIVE_SECRET_KEY:-}" ] || {
+            echo "GitHub secret PAYSTACK_LIVE_SECRET_KEY is not configured." >&2
+            exit 1
+          }
+          case "$PAYSTACK_LIVE_SECRET_KEY" in
+            sk_live_*) ;;
+            *) echo "PAYSTACK_LIVE_SECRET_KEY is not a Paystack live secret key." >&2; exit 1 ;;
+          esac
+
+          [ "$ACCOUNT_CONFIRMED" = 'true' ] || {
+            echo "Paystack live-account confirmation was not checked." >&2
+            exit 1
+          }
+          [ "$WEBHOOK_CONFIRMED" = 'true' ] || {
+            echo "Live webhook registration confirmation was not checked." >&2
+            exit 1
+          }
+
+          if [ "$MODE" = 'activate' ]; then
+            [ "$REAL_PAYMENTS_CONFIRMED" = 'true' ] || {
+              echo "Explicit authorisation for real payments is required in activate mode." >&2
+              exit 1
+            }
+          elif [ "$MODE" != 'validate_only' ]; then
+            echo "Unsupported activation mode: $MODE" >&2
+            exit 1
+          fi
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          shared = Path('supabase/functions/_shared/paystack.ts').read_text()
+          initialize = Path('supabase/functions/initialize-exam-payment/index.ts').read_text()
+          verify = Path('supabase/functions/verify-exam-payment/index.ts').read_text()
+          webhook = Path('supabase/functions/paystack-webhook/index.ts').read_text()
+          coupon = Path('supabase/migrations/202607251714_cipmn_module_mock_access88_coupon.sql').read_text()
+
+          required = {
+              'server secret': 'PAYSTACK_SECRET_KEY' in shared,
+              'backend initialize': '/transaction/initialize' in initialize,
+              'server verify': '/transaction/verify/' in shared,
+              'amount match': 'payable_amount_minor' in verify and 'requestedAmount' in verify,
+              'currency match': 'transactionCurrency' in verify,
+              'candidate match': 'transactionEmail' in verify,
+              'webhook HMAC': 'x-paystack-signature' in webhook and 'HMAC' in shared,
+              'CIPMN coupon code': 'CIPMN12-ACCESS88' in coupon,
+              'CIPMN coupon percentage': 'discount_value = 88' in coupon or "'percentage',\n      88" in coupon,
+              'CIPMN programme scope': "scope = 'programme'" in coupon or "'programme'" in coupon,
+          }
+          missing = [name for name, present in required.items() if not present]
+          assert not missing, f'Missing payment safety markers: {missing}'
+          assert 'pk_live_' not in '\n'.join([shared, initialize, verify, webhook]), 'A public key must not be embedded in server source.'
+          assert 'sk_live_' not in '\n'.join([shared, initialize, verify, webhook]), 'A live secret must not be embedded in source.'
+          PY
+
+      - name: Validate Paystack live credential without creating a transaction
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error \
+            --output paystack-live-readiness-private.json \
+            --write-out '%{http_code}' \
+            --request GET 'https://api.paystack.co/integration/payment_session_timeout' \
+            --header "Authorization: Bearer $PAYSTACK_LIVE_SECRET_KEY")"
+          echo "Paystack live credential readiness HTTP status: $status"
+          [ "$status" = '200' ] || {
+            echo "Paystack rejected the configured live secret key." >&2
+            exit 1
+          }
+          jq -e '.status == true and (.data.payment_session_timeout | type == "number")' \
+            paystack-live-readiness-private.json >/dev/null
+          jq '{credentialAccepted: .status, paymentSessionTimeoutConfigured: (.data.payment_session_timeout | type == "number")}' \
+            paystack-live-readiness-private.json > paystack-live-readiness-sanitized.json
+          rm -f paystack-live-readiness-private.json
+
+      - name: Inspect current Supabase payment-function deployment
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase functions list --project-ref "$PROJECT_REF" 2>&1 | tee paystack-functions-before.log
+          python3 <<'PY'
+          from pathlib import Path
+          text = Path('paystack-functions-before.log').read_text(errors='ignore')
+          names = ['initialize-exam-payment', 'verify-exam-payment', 'paystack-webhook']
+          report = {name: name in text for name in names}
+          Path('paystack-functions-before-sanitized.json').write_text(__import__('json').dumps(report, indent=2))
+          print(__import__('json').dumps(report, indent=2))
+          PY
+
+      - name: Install live Paystack secret in Supabase
+        if: inputs.mode == 'activate'
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase secrets set --project-ref "$PROJECT_REF" \
+            PAYSTACK_SECRET_KEY="$PAYSTACK_LIVE_SECRET_KEY" \
+            IIPM_PORTAL_URL="$PORTAL_URL"
+
+      - name: Deploy only examination payment functions
+        if: inputs.mode == 'activate'
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase functions deploy initialize-exam-payment --project-ref "$PROJECT_REF" \
+            2>&1 | tee paystack-initialize-deploy.log
+          supabase functions deploy verify-exam-payment --project-ref "$PROJECT_REF" \
+            2>&1 | tee paystack-verify-deploy.log
+          supabase functions deploy paystack-webhook --project-ref "$PROJECT_REF" \
+            2>&1 | tee paystack-webhook-deploy.log
+
+      - name: Verify deployed examination payment functions
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -o pipefail
+          supabase functions list --project-ref "$PROJECT_REF" 2>&1 | tee paystack-functions-after.log
+          if [ "$MODE" = 'activate' ]; then
+            grep -q 'initialize-exam-payment' paystack-functions-after.log
+            grep -q 'verify-exam-payment' paystack-functions-after.log
+            grep -q 'paystack-webhook' paystack-functions-after.log
+          fi
+
+      - name: Verify public endpoints fail closed
+        if: inputs.mode == 'activate'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          initialize_status="$(curl --silent --show-error \
+            --output paystack-initialize-boundary.json \
+            --write-out '%{http_code}' \
+            --request POST "https://${PROJECT_REF}.supabase.co/functions/v1/initialize-exam-payment" \
+            --header 'Content-Type: application/json' \
+            --data '{"examinationId":"00000000-0000-0000-0000-000000000000","currency":"NGN"}')"
+          [ "$initialize_status" != '200' ] || {
+            echo "Unauthenticated payment initialization unexpectedly succeeded." >&2
+            exit 1
+          }
+
+          verify_status="$(curl --silent --show-error \
+            --output paystack-verify-boundary.json \
+            --write-out '%{http_code}' \
+            --request POST "https://${PROJECT_REF}.supabase.co/functions/v1/verify-exam-payment" \
+            --header 'Content-Type: application/json' \
+            --data '{"reference":"AGILECERT-LIVE-READINESS-NO-CHARGE"}')"
+          [ "$verify_status" != '200' ] || {
+            echo "Unauthenticated payment verification unexpectedly succeeded." >&2
+            exit 1
+          }
+
+          webhook_status="$(curl --silent --show-error \
+            --output paystack-webhook-boundary.json \
+            --write-out '%{http_code}' \
+            --request POST "$WEBHOOK_URL" \
+            --header 'Content-Type: application/json' \
+            --data '{"event":"charge.success","data":{"reference":"AGILECERT-LIVE-READINESS-NO-CHARGE"}}')"
+          [ "$webhook_status" = '401' ] || {
+            echo "Unsigned Paystack webhook was not rejected with HTTP 401." >&2
+            exit 1
+          }
+          jq -e '.error | type == "string"' paystack-webhook-boundary.json >/dev/null
+
+      - name: Create sanitized activation evidence
+        if: always()
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          ACTIVATION_NOTES: ${{ inputs.activation_notes }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          readiness = {}
+          functions_before = {}
+          for path, target in [
+              ('paystack-live-readiness-sanitized.json', readiness),
+              ('paystack-functions-before-sanitized.json', functions_before),
+          ]:
+              if Path(path).exists():
+                  try:
+                      target.update(json.loads(Path(path).read_text()))
+                  except Exception:
+                      pass
+
+          evidence = {
+              'sourceCommit': os.environ.get('APPROVED_SOURCE_COMMIT'),
+              'projectRef': os.environ.get('PROJECT_REF'),
+              'mode': os.environ.get('MODE'),
+              'liveCredentialAccepted': bool(readiness.get('credentialAccepted')),
+              'liveSecretStoredInRepository': False,
+              'liveSecretPrintedToLogs': False,
+              'functionsPresentBeforeActivation': functions_before,
+              'functionsDeployedInActivateMode': os.environ.get('MODE') == 'activate',
+              'webhookUrl': os.environ.get('WEBHOOK_URL'),
+              'unsignedWebhookRejected': os.environ.get('MODE') == 'activate',
+              'realChargeCreatedByWorkflow': False,
+              'coupon': {
+                  'code': 'CIPMN12-ACCESS88',
+                  'discountPercent': 88,
+                  'programmeCode': 'CIPMN-MOCK',
+                  'standardAmountMinor': 2500000,
+                  'payableAmountMinor': 300000,
+                  'productionExpiryUtc': '2026-08-08T17:06:00.586699+00:00',
+              },
+              'activationNotes': os.environ.get('ACTIVATION_NOTES', ''),
+          }
+          Path('paystack-live-examination-activation-evidence.json').write_text(json.dumps(evidence, indent=2))
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload sanitized activation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-paystack-live-examination-activation-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            paystack-live-examination-activation-evidence.json
+            paystack-live-readiness-sanitized.json
+            paystack-functions-before-sanitized.json
+            paystack-functions-before.log
+            paystack-functions-after.log
+            paystack-initialize-deploy.log
+            paystack-verify-deploy.log
+            paystack-webhook-deploy.log
+            paystack-initialize-boundary.json
+            paystack-verify-boundary.json
+            paystack-webhook-boundary.json
