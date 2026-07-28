@@ -1,0 +1,309 @@
+name: Deploy Evidence-Backed Proctoring Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate the exact pending migration set, or deploy it to production
+        required: true
+        type: choice
+        default: validate_only
+        options:
+          - validate_only
+          - deploy
+      confirmed_production_project:
+        description: I confirmed this is the AgileCert production Supabase project
+        required: true
+        type: boolean
+        default: false
+      confirmed_exact_four_migrations:
+        description: I authorise only the four approved evidence-backed proctoring migrations
+        required: true
+        type: boolean
+        default: false
+      confirmed_apply_production_changes:
+        description: Required only in deploy mode — I authorise the production database changes
+        required: true
+        type: boolean
+        default: false
+      deployment_notes:
+        description: Operator-approved validation or deployment note
+        required: false
+        type: string
+        default: Controlled evidence-backed proctoring production release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agilecert-evidence-backed-proctoring-production
+  cancel-in-progress: false
+
+env:
+  PROJECT_REF: cfecicvugfrrhcvhduzc
+  APPROVED_SOURCE_COMMIT: 278b3c39672bfbdff20310d0c0584ce907f6ac67
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+jobs:
+  production-control:
+    name: Validate and deploy evidence-backed proctoring migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact approved proctoring source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.APPROVED_SOURCE_COMMIT }}
+          fetch-depth: 0
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Validate source, credentials and operator confirmations
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          PROJECT_CONFIRMED: ${{ inputs.confirmed_production_project }}
+          MIGRATIONS_CONFIRMED: ${{ inputs.confirmed_exact_four_migrations }}
+          DEPLOY_CONFIRMED: ${{ inputs.confirmed_apply_production_changes }}
+        run: |
+          set -euo pipefail
+
+          test "$(git rev-parse HEAD)" = "$APPROVED_SOURCE_COMMIT"
+          test "$PROJECT_CONFIRMED" = 'true'
+          test "$MIGRATIONS_CONFIRMED" = 'true'
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          test -n "${SUPABASE_DB_PASSWORD:-}"
+
+          if [ "$MODE" = 'deploy' ]; then
+            test "$DEPLOY_CONFIRMED" = 'true'
+          else
+            test "$MODE" = 'validate_only'
+          fi
+
+          cat > approved-evidence-migrations.txt <<'EOF'
+          202607281500_evidence_backed_proctoring_audit.sql
+          202607281501_proctor_evidence_confidence_hardening.sql
+          202607281502_integrity_review_note_preservation.sql
+          202607281503_phase5_evidence_weight_compatibility.sql
+          EOF
+
+          while IFS= read -r migration; do
+            test -s "supabase/migrations/$migration" || {
+              echo "Approved migration is missing: $migration" >&2
+              exit 1
+            }
+          done < approved-evidence-migrations.txt
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          expected = {
+              '202607281500_evidence_backed_proctoring_audit.sql': [
+                  'agilecert-proctor-evidence',
+                  'get_agilecert_attempt_integrity_evidence',
+                  'review_agilecert_attempt_integrity',
+              ],
+              '202607281501_proctor_evidence_confidence_hardening.sql': [
+                  'ai_confidence',
+                  'event_source',
+              ],
+              '202607281502_integrity_review_note_preservation.sql': [
+                  'review_reason',
+              ],
+              '202607281503_phase5_evidence_weight_compatibility.sql': [
+                  'risk_weight',
+              ],
+          }
+          for filename, markers in expected.items():
+              text = Path('supabase/migrations', filename).read_text(encoding='utf-8')
+              missing = [marker for marker in markers if marker not in text]
+              assert not missing, f'{filename} is missing required markers: {missing}'
+
+          combined = '\n'.join(
+              Path('supabase/migrations', filename).read_text(encoding='utf-8')
+              for filename in expected
+          )
+          forbidden = [
+              'PAYSTACK_SECRET_KEY',
+              'RESEND_API_KEY',
+              'question_answer_keys',
+              'certificate_prices',
+          ]
+          found = [marker for marker in forbidden if marker in combined]
+          assert not found, f'Protected unrelated authority found in release: {found}'
+          PY
+
+      - name: Isolate only the approved migration release unit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/agilecert-nonrelease-migrations
+          python3 <<'PY'
+          from pathlib import Path
+          import shutil
+
+          approved = {
+              line.strip()
+              for line in Path('approved-evidence-migrations.txt').read_text().splitlines()
+              if line.strip()
+          }
+          for path in Path('supabase/migrations').glob('*.sql'):
+              if path.name not in approved:
+                  shutil.move(str(path), f'/tmp/agilecert-nonrelease-migrations/{path.name}')
+          remaining = sorted(path.name for path in Path('supabase/migrations').glob('*.sql'))
+          assert remaining == sorted(approved), f'Unexpected isolated migration set: {remaining}'
+          PY
+
+      - name: Link production Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Determine exact production migration state
+        id: migration_state
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --include-all --dry-run 2>&1 | tee evidence-proctoring-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' evidence-proctoring-dry-run.log \
+            | sort -u > evidence-proctoring-pending.txt || true
+          sort approved-evidence-migrations.txt > evidence-proctoring-expected.txt
+
+          if diff -u evidence-proctoring-expected.txt evidence-proctoring-pending.txt; then
+            echo 'apply=true' >> "$GITHUB_OUTPUT"
+          elif [ ! -s evidence-proctoring-pending.txt ] && grep -q 'Remote database is up to date' evidence-proctoring-dry-run.log; then
+            echo 'apply=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Unexpected production migration state:' >&2
+            cat evidence-proctoring-pending.txt >&2
+            exit 1
+          fi
+
+      - name: Stop after successful read-only validation
+        if: inputs.mode == 'validate_only'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Read-only validation succeeded.'
+          echo 'No production migration was applied.'
+
+      - name: Apply only the approved evidence migrations
+        if: inputs.mode == 'deploy' && steps.migration_state.outputs.apply == 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked --include-all 2>&1 | tee evidence-proctoring-deploy.log
+          for migration in \
+            202607281500_evidence_backed_proctoring_audit.sql \
+            202607281501_proctor_evidence_confidence_hardening.sql \
+            202607281502_integrity_review_note_preservation.sql \
+            202607281503_phase5_evidence_weight_compatibility.sql; do
+            grep -q "Applying migration $migration" evidence-proctoring-deploy.log
+          done
+          grep -q 'Finished supabase db push' evidence-proctoring-deploy.log
+
+      - name: Verify remote evidence-backed schema
+        if: inputs.mode == 'deploy'
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db dump --linked --schema public --file evidence-proctoring-public-schema.sql \
+            2>&1 | tee evidence-proctoring-schema-dump.log
+          python3 <<'PY'
+          from pathlib import Path
+
+          schema = Path('evidence-proctoring-public-schema.sql').read_text(
+              encoding='utf-8', errors='ignore'
+          )
+          required = [
+              'get_agilecert_attempt_integrity_evidence',
+              'review_agilecert_attempt_integrity',
+              'agilecert_attempt_integrity_reviews',
+              'snapshot_path',
+              'ai_confidence',
+              'event_source',
+              'risk_weight',
+          ]
+          missing = [marker for marker in required if marker not in schema]
+          assert not missing, f'Remote evidence schema markers missing: {missing}'
+          PY
+
+      - name: Confirm no approved migration remains pending
+        if: inputs.mode == 'deploy'
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --include-all --dry-run 2>&1 | tee evidence-proctoring-post-deploy-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' evidence-proctoring-post-deploy-dry-run.log \
+            | sort -u > evidence-proctoring-post-deploy-pending.txt || true
+          test ! -s evidence-proctoring-post-deploy-pending.txt
+          grep -q 'Remote database is up to date' evidence-proctoring-post-deploy-dry-run.log
+
+      - name: Create sanitized production evidence
+        if: always()
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          APPLY_STATE: ${{ steps.migration_state.outputs.apply }}
+          DEPLOYMENT_NOTES: ${{ inputs.deployment_notes }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          pending = []
+          pending_path = Path('evidence-proctoring-pending.txt')
+          if pending_path.exists():
+              pending = [line.strip() for line in pending_path.read_text().splitlines() if line.strip()]
+
+          evidence = {
+              'sourceCommit': os.environ.get('APPROVED_SOURCE_COMMIT'),
+              'projectRef': os.environ.get('PROJECT_REF'),
+              'mode': os.environ.get('MODE'),
+              'approvedMigrations': [
+                  '202607281500_evidence_backed_proctoring_audit.sql',
+                  '202607281501_proctor_evidence_confidence_hardening.sql',
+                  '202607281502_integrity_review_note_preservation.sql',
+                  '202607281503_phase5_evidence_weight_compatibility.sql',
+              ],
+              'pendingBeforeAction': pending,
+              'migrationAppliedThisRun': (
+                  os.environ.get('MODE') == 'deploy'
+                  and os.environ.get('APPLY_STATE') == 'true'
+              ),
+              'frontendMergedByWorkflow': False,
+              'paymentAuthorityChanged': False,
+              'certificateAuthorityChanged': False,
+              'candidateDataExported': False,
+              'deploymentNotes': os.environ.get('DEPLOYMENT_NOTES', ''),
+          }
+          Path('evidence-backed-proctoring-production-evidence.json').write_text(
+              json.dumps(evidence, indent=2)
+          )
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-backed-proctoring-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            evidence-backed-proctoring-production-evidence.json
+            approved-evidence-migrations.txt
+            evidence-proctoring-expected.txt
+            evidence-proctoring-dry-run.log
+            evidence-proctoring-pending.txt
+            evidence-proctoring-deploy.log
+            evidence-proctoring-schema-dump.log
+            evidence-proctoring-public-schema.sql
+            evidence-proctoring-post-deploy-dry-run.log
+            evidence-proctoring-post-deploy-pending.txt
