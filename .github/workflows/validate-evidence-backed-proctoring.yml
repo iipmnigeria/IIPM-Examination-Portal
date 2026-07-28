@@ -13,6 +13,8 @@ on:
       - src/types.ts
       - supabase/migrations/202607281500_evidence_backed_proctoring_audit.sql
       - supabase/migrations/202607281501_proctor_evidence_confidence_hardening.sql
+      - supabase/tests/evidence_backed_proctoring_fixture.sql
+      - supabase/tests/evidence_backed_proctoring_smoke.sql
       - .github/workflows/validate-evidence-backed-proctoring.yml
 
 permissions:
@@ -21,6 +23,25 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
     steps:
       - name: Check out integrity patch
         uses: actions/checkout@v6
@@ -48,6 +69,8 @@ jobs:
           hardening='supabase/migrations/202607281501_proctor_evidence_confidence_hardening.sql'
           test -s "$migration"
           test -s "$hardening"
+          test -s supabase/tests/evidence_backed_proctoring_fixture.sql
+          test -s supabase/tests/evidence_backed_proctoring_smoke.sql
           grep -q 'get_agilecert_attempt_integrity_evidence' "$migration"
           grep -q 'review_agilecert_attempt_integrity' "$migration"
           grep -q 'visual_snapshot_missing' "$migration"
@@ -55,3 +78,14 @@ jobs:
           grep -q 'regexp_match' "$hardening"
           grep -q 'agilecert_proctor_snapshot_is_unlinked' "$hardening"
           ! grep -R "suspiciousScore: newStatus === 'submitted' ? 15 : 75" src
+
+      - name: Create disposable database fixture
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/evidence_backed_proctoring_fixture.sql
+
+      - name: Apply evidence-backed migrations locally
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/202607281500_evidence_backed_proctoring_audit.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/202607281501_proctor_evidence_confidence_hardening.sql
+
+      - name: Run evidence and decision smoke tests
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/evidence_backed_proctoring_smoke.sql
