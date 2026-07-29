@@ -225,8 +225,28 @@ async function renderMessage(
   const functionUrl = `${requiredEnvironment('SUPABASE_URL').replace(/\/$/, '')}/functions/v1/agilecert-communications`;
   const unsubscribeUrl = `${functionUrl}?action=unsubscribe&token=${encodeURIComponent(preferencesToken)}`;
   const optionalFooter = row.category === 'operational'
-    ? `This is an operational message about an examination, payment or credential. Manage optional reminders in the portal.`
+    ? `This is an operational message about an AgileCert account or service. Manage optional reminders in the portal.`
     : `You may <a href="${escapeHtml(unsubscribeUrl)}" style="color:#475569">unsubscribe from optional AgileCert emails</a> or manage preferences in the portal.`;
+
+  if (row.message_type === 'admin_message') {
+    const subject = cleanText(payload.subject, 180) || 'Message from AgileCert Global';
+    const body = cleanText(payload.body, 10000) || 'Please sign in to your AgileCert Global account for an important update.';
+    const recipientName = cleanText(payload.recipientName, 180) || name;
+    const senderName = cleanText(payload.senderName, 180) || 'AgileCert Administration';
+    const bodyHtml = escapeHtml(body).replace(/\r?\n/g, '<br>');
+    return {
+      subject,
+      html: emailFrame({
+        heading: subject,
+        intro: `Hello ${recipientName},`,
+        content: `<div style="font-size:15px;line-height:1.8;color:#334155">${bodyHtml}</div>`,
+        actionLabel: 'Open AgileCert portal',
+        actionUrl: portalUrl,
+        footer: `Sent by ${escapeHtml(senderName)} through the authorised AgileCert administration console. ${optionalFooter}`,
+      }),
+      text: `Hello ${recipientName},\n\n${body}\n\nOpen AgileCert: ${portalUrl}\n\nSent by ${senderName}.`,
+    };
+  }
 
   if (row.message_type === 'preparation_material_ready') {
     const title = cleanText(payload.examinationTitle, 240) || 'your examination';
