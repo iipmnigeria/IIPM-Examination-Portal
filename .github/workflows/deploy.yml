@@ -1,4 +1,5 @@
 # Phase 4 recovery republish: 2026-07-25
+# CIPMN secure import console republish: 2026-07-29
 name: Deploy to GitHub Pages
 
 on:
