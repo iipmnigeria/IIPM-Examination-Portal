@@ -156,6 +156,27 @@ export default function AdminPeopleMessagingLauncher() {
     }
   };
 
+  const changeRole = async (record: PeopleDirectoryRecord, nextRole: PortalRole) => {
+    if (nextRole === record.role) return;
+    const confirmed = window.confirm(
+      `Change ${record.fullName} from ${roleLabel[record.role]} to ${roleLabel[nextRole]}?`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setBusy(`role:${record.id}`);
+      setError('');
+      setMessage('');
+      await updatePortalPerson({ userId: record.id, role: nextRole });
+      setMessage(`${record.fullName} is now assigned the ${roleLabel[nextRole]} role.`);
+      await loadDirectory();
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : 'Unable to change the portal role.');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const requireProfileUpdate = async (record: PeopleDirectoryRecord) => {
     try {
       setBusy(`profile:${record.id}`);
@@ -280,7 +301,29 @@ export default function AdminPeopleMessagingLauncher() {
                             <td className="px-4 py-4"><span className={`rounded-full border px-2.5 py-1 text-[10px] font-black ${record.role !== 'candidate' || record.onboardingComplete ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>{record.role !== 'candidate' ? 'Staff profile' : record.onboardingComplete ? 'Complete' : 'Required'}</span><p className="mt-2 max-w-40 text-[10px] text-slate-400">{record.programmeCodes.join(', ') || 'No programme activity'}</p></td>
                             <td className="px-4 py-4"><span className={`rounded-full border px-2.5 py-1 text-[10px] font-black ${statusClass(record.isActive)}`}>{record.isActive ? 'Active' : 'Suspended'}</span></td>
                             <td className="px-4 py-4 text-xs text-slate-500">{record.lastSignInAt ? new Date(record.lastSignInAt).toLocaleString() : 'Never'}</td>
-                            <td className="px-4 py-4"><div className="flex flex-col gap-2">{isSuperAdmin && <button type="button" disabled={busy === `status:${record.id}`} onClick={() => void toggleAccount(record)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-[10px] font-black hover:bg-slate-50">{record.isActive ? 'Suspend' : 'Activate'}</button>}{isSuperAdmin && record.role === 'candidate' && <button type="button" disabled={busy === `profile:${record.id}`} onClick={() => void requireProfileUpdate(record)} className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[10px] font-black text-amber-800">Require update</button>}<button type="button" onClick={() => { setSelectedIds([record.id]); setGroupLabel(`Individual: ${record.fullName}`); setTab('message'); }} className="rounded-lg border border-violet-300 bg-violet-50 px-2.5 py-1.5 text-[10px] font-black text-violet-800">Email</button></div></td>
+                            <td className="px-4 py-4">
+                              <div className="flex min-w-36 flex-col gap-2">
+                                {isSuperAdmin && (
+                                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                    Change role
+                                    <select
+                                      value={record.role}
+                                      disabled={busy === `role:${record.id}`}
+                                      onChange={(event) => void changeRole(record, event.target.value as PortalRole)}
+                                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-bold normal-case tracking-normal text-slate-700 disabled:opacity-50"
+                                    >
+                                      <option value="candidate">Candidate</option>
+                                      <option value="auditor">Auditor</option>
+                                      <option value="exam_admin">Exam Administrator</option>
+                                      <option value="super_admin">Super Administrator</option>
+                                    </select>
+                                  </label>
+                                )}
+                                {isSuperAdmin && <button type="button" disabled={busy === `status:${record.id}`} onClick={() => void toggleAccount(record)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-[10px] font-black hover:bg-slate-50">{record.isActive ? 'Suspend' : 'Activate'}</button>}
+                                {isSuperAdmin && record.role === 'candidate' && <button type="button" disabled={busy === `profile:${record.id}`} onClick={() => void requireProfileUpdate(record)} className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[10px] font-black text-amber-800">Require update</button>}
+                                <button type="button" onClick={() => { setSelectedIds([record.id]); setGroupLabel(`Individual: ${record.fullName}`); setTab('message'); }} className="rounded-lg border border-violet-300 bg-violet-50 px-2.5 py-1.5 text-[10px] font-black text-violet-800">Email</button>
+                              </div>
+                            </td>
                           </tr>
                         ))}
                         {!loading && !records.length && <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-500">No people match the selected filters.</td></tr>}
