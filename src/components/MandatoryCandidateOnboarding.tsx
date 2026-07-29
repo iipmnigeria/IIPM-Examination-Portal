@@ -7,6 +7,7 @@ import {
   LogOut,
   ShieldCheck,
   UserRoundCheck,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   completeMyCandidateOnboarding,
@@ -21,6 +22,24 @@ interface MandatoryCandidateOnboardingProps {
   onComplete: () => void | Promise<void>;
   onLogout: () => void | Promise<void>;
 }
+
+type FeatureCard = {
+  Icon: LucideIcon;
+  title: string;
+  description: string;
+};
+
+type Acknowledgement = {
+  checked: boolean;
+  setChecked: (value: boolean) => void;
+  label: string;
+};
+
+const featureCards: FeatureCard[] = [
+  { Icon: ShieldCheck, title: 'Identity accuracy', description: 'Used on examination and credential records' },
+  { Icon: LockKeyhole, title: 'Private and protected', description: 'Profile access remains role-controlled' },
+  { Icon: FileCheck2, title: 'Policy acceptance', description: 'Required before secured candidate services' },
+];
 
 const inputClass =
   'mt-2 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100';
@@ -78,6 +97,16 @@ export default function MandatoryCandidateOnboarding({
       active = false;
     };
   }, [candidateName]);
+
+  const acknowledgements: Acknowledgement[] = [
+    { checked: acceptPrivacy, setChecked: setAcceptPrivacy, label: 'I have read and accept the Privacy Policy.' },
+    { checked: acceptTerms, setChecked: setAcceptTerms, label: 'I accept the Terms of Use and candidate account conditions.' },
+    {
+      checked: acceptExaminationPolicy,
+      setChecked: setAcceptExaminationPolicy,
+      label: 'I accept the Examination & Assessment Policy and Candidate Code of Conduct.',
+    },
+  ];
 
   const submit = async () => {
     try {
@@ -146,15 +175,11 @@ export default function MandatoryCandidateOnboarding({
 
         <div className="space-y-7 p-5 md:p-9">
           <div className="grid gap-3 md:grid-cols-3">
-            {[
-              [ShieldCheck, 'Identity accuracy', 'Used on examination and credential records'],
-              [LockKeyhole, 'Private and protected', 'Profile access remains role-controlled'],
-              [FileCheck2, 'Policy acceptance', 'Required before secured candidate services'],
-            ].map(([Icon, title, description]) => (
-              <div key={String(title)} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            {featureCards.map(({ Icon, title, description }) => (
+              <div key={title} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <Icon className="h-5 w-5 text-emerald-700" />
-                <p className="mt-3 text-sm font-black text-slate-900">{String(title)}</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">{String(description)}</p>
+                <p className="mt-3 text-sm font-black text-slate-900">{title}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
               </div>
             ))}
           </div>
@@ -194,14 +219,10 @@ export default function MandatoryCandidateOnboarding({
 
           <section className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-5">
             <h2 className="text-sm font-black text-slate-900">Required acknowledgements</h2>
-            {[
-              [acceptPrivacy, setAcceptPrivacy, 'I have read and accept the Privacy Policy.'],
-              [acceptTerms, setAcceptTerms, 'I accept the Terms of Use and candidate account conditions.'],
-              [acceptExaminationPolicy, setAcceptExaminationPolicy, 'I accept the Examination & Assessment Policy and Candidate Code of Conduct.'],
-            ].map(([checked, setter, label]) => (
-              <label key={String(label)} className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold leading-6 text-slate-700">
-                <input type="checkbox" className="mt-1 h-4 w-4 accent-emerald-600" checked={Boolean(checked)} onChange={(event) => (setter as (value: boolean) => void)(event.target.checked)} />
-                <span>{String(label)}</span>
+            {acknowledgements.map(({ checked, setChecked, label }) => (
+              <label key={label} className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold leading-6 text-slate-700">
+                <input type="checkbox" className="mt-1 h-4 w-4 accent-emerald-600" checked={checked} onChange={(event) => setChecked(event.target.checked)} />
+                <span>{label}</span>
               </label>
             ))}
           </section>
