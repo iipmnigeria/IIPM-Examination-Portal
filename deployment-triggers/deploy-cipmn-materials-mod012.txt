@@ -1,0 +1,8 @@
+Deploy the approved CIPMN paid preparation-material catalogue, Module 012 title correction and procurement/contract-management question bank.
+
+Expected migration versions:
+- 202607291340
+- 202607291350
+- 202607291406
+
+The production workflow must fail closed if any other migration is pending.
