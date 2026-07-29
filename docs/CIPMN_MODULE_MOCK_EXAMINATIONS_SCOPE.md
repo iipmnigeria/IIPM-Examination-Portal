@@ -62,6 +62,8 @@ Each module has a reserved `video` material record and an administrator-only sou
 
 Module 012 is approved as `Project Procurement and Contract Management`. The examination title, PDF study-material label and reserved video lesson label use this title while retaining the existing deterministic examination identifier and payment controls.
 
+The former international programmes and portfolios question bank is retired by a corrective migration. Module 012 now contains 75 scenario-based questions generated from 15 procurement and contract-management domains: needs assessment, market analysis, planning and approvals, PPA 2007/BPP/CNO compliance, procurement methods, tender documents, bid evaluation and value for money, due diligence, contract types, core clauses, performance monitoring, payment certification, variations and claims, dispute resolution, and ethics/closeout.
+
 ## Data and security design
 
 The examination catalogue and question banks are seeded through Supabase migrations. Candidate-facing question records remain separate from `question_answer_keys`, preserving the portal's server-authoritative grading and answer-key protection.
@@ -81,6 +83,14 @@ The phase validation workflow resets an isolated Supabase environment and verifi
 - case/application framing for every question
 - NGN 25,000 pricing for every module
 - 120-minute duration and 70% pass mark
+
+The Module 012 corrective migration additionally verifies:
+
+- the approved procurement and contract-management title
+- 75 active Module 012 questions
+- 300 active options and 75 protected answer keys
+- procurement or contract-management markers across the active scenarios
+- payment protection, one-attempt control and randomisation remain enabled
 
 The preparation-material migration additionally verifies:
 
