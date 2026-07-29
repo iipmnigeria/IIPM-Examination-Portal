@@ -1,0 +1,153 @@
+name: Build AgileCert Manual Namecheap Package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-package:
+    name: Build downloadable Namecheap package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out current AgileCert source
+        uses: actions/checkout@v6
+        with:
+          ref: supabase-integration
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Build GitHub Pages-equivalent frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+
+          npm install --include=dev --include=optional --no-audit --no-fund
+          npm run lint
+          NODE_ENV=production npx vite build
+
+          test -s dist/index.html
+          test -d dist/assets
+          grep -q 'AgileCert Global' dist/index.html
+          ! grep -q '/src/main.tsx' dist/index.html
+
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
+          test -s "$js_file"
+          bundle_sha="$(sha256sum "$js_file" | awk '{print $1}')"
+
+          rm -f dist/server.cjs dist/server.cjs.map
+          touch dist/.nojekyll
+
+          cat > dist/deployment.json <<JSON
+          {
+            "branch": "supabase-integration",
+            "commit": "$source_sha",
+            "bundle": "$bundle_sha",
+            "target": "agilecert.iipmi.org",
+            "buildMode": "manual-namecheap-package"
+          }
+          JSON
+
+      - name: Create Namecheap startup file
+        shell: bash
+        run: |
+          cat > app.js <<'JS'
+          import express from 'express';
+          import path from 'path';
+          import { fileURLToPath } from 'url';
+
+          const app = express();
+          const port = Number(process.env.PORT || 3000);
+          const fileName = fileURLToPath(import.meta.url);
+          const directory = path.dirname(fileName);
+          const distPath = path.join(directory, 'dist');
+          const assetsPath = path.join(distPath, 'assets');
+
+          app.disable('x-powered-by');
+
+          app.get('/healthz', (_request, response) => {
+            response.set('Cache-Control', 'no-store');
+            response.json({ ok: true, service: 'agilecert' });
+          });
+
+          app.get('/deployment.json', (_request, response) => {
+            response.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            response.sendFile(path.join(distPath, 'deployment.json'));
+          });
+
+          app.use('/assets', express.static(assetsPath, {
+            etag: true,
+            immutable: true,
+            maxAge: '1y',
+          }));
+
+          app.use(express.static(distPath, {
+            etag: true,
+            index: false,
+            maxAge: 0,
+            setHeaders(response, servedPath) {
+              if (servedPath.endsWith('.html')) {
+                response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+              }
+            },
+          }));
+
+          app.get('*', (_request, response) => {
+            response.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            response.sendFile(path.join(distPath, 'index.html'));
+          });
+
+          app.listen(port, '0.0.0.0', () => {
+            console.log(`AgileCert static server listening on port ${port}`);
+          });
+          JS
+
+      - name: Prepare manual upload folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p manual-namecheap-upload
+          mv dist manual-namecheap-upload/dist
+          cp app.js package.json package-lock.json manual-namecheap-upload/
+
+          cat > manual-namecheap-upload/UPLOAD-INSTRUCTIONS.txt <<'TXT'
+          AGILECERT MANUAL NAMECHEAP REPLACEMENT
+
+          1. In cPanel > Setup Node.js App, STOP the agilecert.iipmi.org application.
+          2. In File Manager, open the exact Application Root shown by cPanel.
+          3. Download a backup of the existing root, then remove the old dist folder and old app.js.
+          4. Upload all contents of this package into that Application Root so it contains:
+               app.js
+               package.json
+               package-lock.json
+               dist/
+          5. In Setup Node.js App, confirm:
+               Node.js: 22
+               Application mode: Production
+               Startup file: app.js
+          6. Run NPM Install from cPanel, then START/RESTART the application.
+          7. Confirm /deployment.json and /healthz before opening the home page.
+
+          Do not upload the raw repository source and do not place the package one directory above or below the configured Application Root.
+          TXT
+
+          find manual-namecheap-upload -maxdepth 2 -type f | sort
+
+      - name: Upload downloadable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: agilecert-namecheap-manual-${{ env.SOURCE_SHA }}
+          path: manual-namecheap-upload
+          retention-days: 7
+          if-no-files-found: error
