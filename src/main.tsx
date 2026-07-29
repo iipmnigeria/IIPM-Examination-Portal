@@ -12,6 +12,7 @@ import AdminFinanceSponsorshipLauncher from './components/AdminFinanceSponsorshi
 import AdminIdentityAssuranceLauncher from './components/AdminIdentityAssuranceLauncher';
 import AdminIdentityProctoringLauncher from './components/AdminIdentityProctoringLauncher';
 import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
+import AdminPrimaryToolsMenu from './components/AdminPrimaryToolsMenu';
 import AgileCertPolicyExperience from './components/AgileCertPolicyExperience';
 import AiCertificationAdviser from './components/AiCertificationAdviser';
 import AiCvEnhancementLauncher from './components/AiCvEnhancementLauncher';
@@ -162,6 +163,7 @@ createRoot(rootElement).render(
     <SupabaseSessionBoundary>
       <App />
       <CandidatePrimaryToolsMenu />
+      <AdminPrimaryToolsMenu />
       <AgileCertPolicyExperience />
       <CandidateCommerceOverlay />
       <PaymentReturnHandler />
