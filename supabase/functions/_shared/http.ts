@@ -1,5 +1,6 @@
 const allowedOrigins = new Set([
   'https://iipmnigeria.github.io',
+  'https://agilecert.iipmi.org',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ]);
