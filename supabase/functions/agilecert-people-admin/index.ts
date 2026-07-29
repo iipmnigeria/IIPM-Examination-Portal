@@ -45,48 +45,62 @@ Deno.serve(async (request: Request) => {
     if (!allowedRoles.has(role)) return jsonResponse(request, { error: 'Select candidate, auditor or exam administrator.' }, 400);
 
     const portalUrl = (Deno.env.get('IIPM_PORTAL_URL') || 'https://iipmnigeria.github.io/IIPM-Examination-Portal/').trim();
-    const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: { full_name: fullName, invited_role: role },
-      redirectTo: portalUrl,
-    });
-    if (inviteError) throw new Error(inviteError.message);
-    const invitedUser = invited.user;
-    if (!invitedUser?.id) throw new Error('Supabase did not return the invited account identifier.');
+    let invitedUserId = '';
 
-    const { error: profileError } = await admin
-      .from('profiles')
-      .update({ full_name: fullName, email, role, is_active: true, updated_at: new Date().toISOString() })
-      .eq('id', invitedUser.id);
-    if (profileError) throw new Error(profileError.message);
+    try {
+      const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
+        data: { full_name: fullName, invited_role: role },
+        redirectTo: portalUrl,
+      });
+      if (inviteError) throw new Error(inviteError.message);
+      const invitedUser = invited.user;
+      if (!invitedUser?.id) throw new Error('Supabase did not return the invited account identifier.');
+      invitedUserId = invitedUser.id;
 
-    if (role === 'candidate') {
-      const { error: candidateProfileError } = await admin
-        .from('agilecert_candidate_profiles')
-        .upsert({
-          user_id: invitedUser.id,
-          legal_name: fullName,
-          profile_update_required: true,
-          onboarding_completed_at: null,
-        }, { onConflict: 'user_id' });
-      if (candidateProfileError) throw new Error(candidateProfileError.message);
+      const { error: profileError } = await admin
+        .from('profiles')
+        .update({ full_name: fullName, email, role, is_active: true, updated_at: new Date().toISOString() })
+        .eq('id', invitedUser.id);
+      if (profileError) throw new Error(profileError.message);
+
+      if (role === 'candidate') {
+        const { error: candidateProfileError } = await admin
+          .from('agilecert_candidate_profiles')
+          .upsert({
+            user_id: invitedUser.id,
+            legal_name: fullName,
+            profile_update_required: true,
+            onboarding_completed_at: null,
+          }, { onConflict: 'user_id' });
+        if (candidateProfileError) throw new Error(candidateProfileError.message);
+      }
+
+      const { error: auditError } = await admin.from('audit_logs').insert({
+        actor_id: actor.id,
+        action: 'invite_portal_account',
+        entity_type: 'profile',
+        entity_id: invitedUser.id,
+        metadata: { email, role, invitation: true },
+      });
+      if (auditError) throw new Error(`Invitation audit logging failed: ${auditError.message}`);
+
+      return jsonResponse(request, {
+        success: true,
+        id: invitedUser.id,
+        email,
+        fullName,
+        role,
+        invitationSent: true,
+      });
+    } catch (setupError) {
+      if (invitedUserId) {
+        const { error: cleanupError } = await admin.auth.admin.deleteUser(invitedUserId);
+        if (cleanupError) {
+          console.error('agilecert-people-admin invitation rollback failed:', cleanupError);
+        }
+      }
+      throw setupError;
     }
-
-    await admin.from('audit_logs').insert({
-      actor_id: actor.id,
-      action: 'invite_portal_account',
-      entity_type: 'profile',
-      entity_id: invitedUser.id,
-      metadata: { email, role, invitation: true },
-    });
-
-    return jsonResponse(request, {
-      success: true,
-      id: invitedUser.id,
-      email,
-      fullName,
-      role,
-      invitationSent: true,
-    });
   } catch (error) {
     console.error('agilecert-people-admin failed:', error);
     const message = error instanceof Error ? error.message : 'People administration failed.';
