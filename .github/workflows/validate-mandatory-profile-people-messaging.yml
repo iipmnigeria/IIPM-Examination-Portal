@@ -17,6 +17,7 @@ on:
       - 'supabase/migrations/202607291231_profile_onboarding_status_hardening.sql'
       - 'supabase/migrations/202607291232_profile_gate_operational_scope.sql'
       - 'supabase/tests/mandatory_profile_people_messaging_smoke.sql'
+      - 'supabase/tests/admin_message_delivery_cutover_smoke.sql'
       - '.github/workflows/validate-mandatory-profile-people-messaging.yml'
   pull_request:
     branches: [supabase-integration]
@@ -34,6 +35,7 @@ on:
       - 'supabase/migrations/202607291231_profile_onboarding_status_hardening.sql'
       - 'supabase/migrations/202607291232_profile_gate_operational_scope.sql'
       - 'supabase/tests/mandatory_profile_people_messaging_smoke.sql'
+      - 'supabase/tests/admin_message_delivery_cutover_smoke.sql'
       - '.github/workflows/validate-mandatory-profile-people-messaging.yml'
   workflow_dispatch:
 
@@ -148,7 +150,7 @@ jobs:
           set -euo pipefail
           cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
           begin;
-          -- CI-only: test users are created by the lifecycle smoke script.
+          -- CI-only: test users are created by the lifecycle smoke scripts.
           commit;
           SQL
       - name: Start isolated Supabase services
@@ -173,6 +175,18 @@ jobs:
             2>&1 | tee people-messaging-behaviour.log
           grep -q 'profile_complete_after_admin_reset' people-messaging-behaviour.log
           grep -q 'administrator_messages' people-messaging-behaviour.log
+      - name: Exercise administrator message delivery cutover
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/admin_message_delivery_cutover_smoke.sql \
+            2>&1 | tee admin-message-cutover.log
+          grep -q 'admin_message' admin-message-cutover.log
+          grep -q 'Controlled delivery cutover validation' admin-message-cutover.log
       - name: Verify schema authority and triggers
         shell: bash
         env:
@@ -220,6 +234,7 @@ jobs:
             people-supabase-start.log
             people-db-reset.log
             people-messaging-behaviour.log
+            admin-message-cutover.log
             people-messaging-schema.log
       - name: Stop isolated Supabase services
         if: always()
