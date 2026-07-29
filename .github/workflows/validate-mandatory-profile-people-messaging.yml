@@ -16,8 +16,10 @@ on:
       - 'supabase/migrations/202607291230_mandatory_profile_people_messaging.sql'
       - 'supabase/migrations/202607291231_profile_onboarding_status_hardening.sql'
       - 'supabase/migrations/202607291232_profile_gate_operational_scope.sql'
+      - 'supabase/migrations/202607291233_people_admin_role_safety.sql'
       - 'supabase/tests/mandatory_profile_people_messaging_smoke.sql'
       - 'supabase/tests/admin_message_delivery_cutover_smoke.sql'
+      - 'supabase/tests/people_admin_role_safety_smoke.sql'
       - '.github/workflows/validate-mandatory-profile-people-messaging.yml'
   pull_request:
     branches: [supabase-integration]
@@ -34,8 +36,10 @@ on:
       - 'supabase/migrations/202607291230_mandatory_profile_people_messaging.sql'
       - 'supabase/migrations/202607291231_profile_onboarding_status_hardening.sql'
       - 'supabase/migrations/202607291232_profile_gate_operational_scope.sql'
+      - 'supabase/migrations/202607291233_people_admin_role_safety.sql'
       - 'supabase/tests/mandatory_profile_people_messaging_smoke.sql'
       - 'supabase/tests/admin_message_delivery_cutover_smoke.sql'
+      - 'supabase/tests/people_admin_role_safety_smoke.sql'
       - '.github/workflows/validate-mandatory-profile-people-messaging.yml'
   workflow_dispatch:
 
@@ -128,6 +132,8 @@ jobs:
           set -euo pipefail
           grep -q "actorProfile.role !== 'super_admin'" supabase/functions/agilecert-people-admin/index.ts
           grep -q 'inviteUserByEmail' supabase/functions/agilecert-people-admin/index.ts
+          grep -q 'deleteUser' supabase/functions/agilecert-people-admin/index.ts
+          grep -q 'Invitation audit logging failed' supabase/functions/agilecert-people-admin/index.ts
           grep -q "row.message_type === 'admin_message'" supabase/functions/agilecert-communications/index.ts
           grep -q 'Idempotency-Key' supabase/functions/agilecert-communications/index.ts
           ! grep -R -q 'PAYSTACK_SECRET_KEY' supabase/functions/agilecert-people-admin
@@ -175,6 +181,17 @@ jobs:
             2>&1 | tee people-messaging-behaviour.log
           grep -q 'profile_complete_after_admin_reset' people-messaging-behaviour.log
           grep -q 'administrator_messages' people-messaging-behaviour.log
+      - name: Exercise People administration role safety
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/people_admin_role_safety_smoke.sql \
+            2>&1 | tee people-admin-role-safety.log
+          grep -q 'people_admin_role_safety_passed' people-admin-role-safety.log
       - name: Exercise administrator message delivery cutover
         shell: bash
         env:
@@ -210,7 +227,8 @@ jobs:
             'complete_my_agilecert_candidate_onboarding',
             'get_agilecert_people_directory',
             'update_agilecert_person_admin',
-            'queue_agilecert_admin_message'
+            'queue_agilecert_admin_message',
+            'prevent_profile_privilege_escalation'
           )
           order by proname;
           select tgname
@@ -221,6 +239,7 @@ jobs:
           SQL
           grep -q 'profile_update_required' people-messaging-schema.log
           grep -q 'queue_agilecert_admin_message' people-messaging-schema.log
+          grep -q 'prevent_profile_privilege_escalation' people-messaging-schema.log
           grep -q 'agilecert_exam_order_profile_gate' people-messaging-schema.log
           grep -q 'agilecert_exam_session_profile_gate' people-messaging-schema.log
       - name: Upload validation evidence
@@ -234,6 +253,7 @@ jobs:
             people-supabase-start.log
             people-db-reset.log
             people-messaging-behaviour.log
+            people-admin-role-safety.log
             admin-message-cutover.log
             people-messaging-schema.log
       - name: Stop isolated Supabase services
