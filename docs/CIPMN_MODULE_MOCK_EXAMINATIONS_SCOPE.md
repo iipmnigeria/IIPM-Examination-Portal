@@ -32,7 +32,7 @@ The mock examinations support professional preparation. Passing a mock examinati
 9. CIPMN-MOD-009 - Agile Delivery
 10. CIPMN-MOD-010 - Project Leadership and Building High-Performing Teams
 11. CIPMN-MOD-011 - Understanding DUCAP Methodology
-12. CIPMN-MOD-012 - Managing Successful International Programs and Portfolios
+12. CIPMN-MOD-012 - Project Procurement and Contract Management
 
 ## Paid preparation-material catalogue
 
@@ -58,9 +58,9 @@ The ESG reference is mapped to all twelve CIPMN examinations and therefore becom
 
 Each module has a reserved `video` material record and an administrator-only source-manifest row with `delivery_mode = embedded_video`. The provider can later be set to Google Drive, YouTube, Vimeo or another approved host without changing the examination-to-material mapping or payment entitlement model.
 
-### Source-title reconciliation note
+### Module 012 alignment
 
-The supplied file numbered `CIPMN_MOD012` is titled `Project Procurement and Contract Management`, while the current examination catalogue names Module 012 `Managing Successful International Programs and Portfolios`. The migration matches the PDF to Module 012 by the authoritative module code and records the source filename unchanged for administrator review. The curriculum title should be reconciled before the material is published.
+Module 012 is approved as `Project Procurement and Contract Management`. The examination title, PDF study-material label and reserved video lesson label use this title while retaining the existing deterministic examination identifier and payment controls.
 
 ## Data and security design
 
