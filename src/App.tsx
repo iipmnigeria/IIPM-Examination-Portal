@@ -160,23 +160,6 @@ export default function App() {
     }
   };
 
-  const handleOverrideStatus = (
-    attemptId: string,
-    newStatus: 'submitted' | 'flagged' | 'terminated',
-  ) => {
-    setAttempts((previous) =>
-      previous.map((attempt) =>
-        attempt.id === attemptId
-          ? {
-              ...attempt,
-              status: newStatus,
-              suspiciousScore: newStatus === 'submitted' ? 15 : 75,
-            }
-          : attempt,
-      ),
-    );
-  };
-
   const handleViewAttemptDetails = (_attempt: Attempt) => {
     if (userRole === 'admin') setView('admin');
   };
@@ -379,7 +362,7 @@ export default function App() {
               <AdminPortal
                 attempts={attempts}
                 onBackToDashboard={() => setView('dashboard')}
-                onOverrideStatus={handleOverrideStatus}
+                onRefresh={fetchPortalData}
               />
             </motion.div>
           )}
