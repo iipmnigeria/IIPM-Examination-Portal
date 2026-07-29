@@ -39,6 +39,7 @@ jobs:
           NAMECHEAP_USER: ${{ secrets.NAMECHEAP_USER }}
           NAMECHEAP_APP_PATH: ${{ secrets.NAMECHEAP_APP_PATH }}
           NAMECHEAP_SSH_PRIVATE_KEY: ${{ secrets.NAMECHEAP_SSH_PRIVATE_KEY }}
+          NAMECHEAP_SSH_KEY_PASSPHRASE: ${{ secrets.NAMECHEAP_SSH_KEY_PASSPHRASE }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
@@ -49,6 +50,7 @@ jobs:
             NAMECHEAP_USER \
             NAMECHEAP_APP_PATH \
             NAMECHEAP_SSH_PRIVATE_KEY \
+            NAMECHEAP_SSH_KEY_PASSPHRASE \
             VITE_SUPABASE_URL \
             VITE_SUPABASE_ANON_KEY
           do
@@ -118,12 +120,23 @@ jobs:
           NAMECHEAP_HOST: ${{ secrets.NAMECHEAP_HOST }}
           NAMECHEAP_PORT: ${{ secrets.NAMECHEAP_PORT }}
           NAMECHEAP_SSH_PRIVATE_KEY: ${{ secrets.NAMECHEAP_SSH_PRIVATE_KEY }}
+          NAMECHEAP_SSH_KEY_PASSPHRASE: ${{ secrets.NAMECHEAP_SSH_KEY_PASSPHRASE }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.ssh"
           chmod 700 "$HOME/.ssh"
           printf '%s\n' "$NAMECHEAP_SSH_PRIVATE_KEY" > "$HOME/.ssh/namecheap_agilecert"
           chmod 600 "$HOME/.ssh/namecheap_agilecert"
+
+          # Decrypt only the temporary runner copy so scp/ssh can run non-interactively.
+          # The private key remains encrypted in GitHub Secrets and the runner is ephemeral.
+          ssh-keygen \
+            -p \
+            -P "$NAMECHEAP_SSH_KEY_PASSPHRASE" \
+            -N "" \
+            -f "$HOME/.ssh/namecheap_agilecert" \
+            >/dev/null
+
           ssh-keyscan -p "$NAMECHEAP_PORT" -H "$NAMECHEAP_HOST" >> "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
