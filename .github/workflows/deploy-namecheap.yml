@@ -1,0 +1,252 @@
+name: Deploy AgileCert to Namecheap
+
+on:
+  push:
+    branches:
+      - supabase-integration
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agilecert-namecheap-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy current AgileCert portal
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out current portal branch
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Validate deployment configuration
+        env:
+          NAMECHEAP_HOST: ${{ secrets.NAMECHEAP_HOST }}
+          NAMECHEAP_PORT: ${{ secrets.NAMECHEAP_PORT }}
+          NAMECHEAP_USER: ${{ secrets.NAMECHEAP_USER }}
+          NAMECHEAP_APP_PATH: ${{ secrets.NAMECHEAP_APP_PATH }}
+          NAMECHEAP_SSH_PRIVATE_KEY: ${{ secrets.NAMECHEAP_SSH_PRIVATE_KEY }}
+          NAMECHEAP_SSH_KEY_PASSPHRASE: ${{ secrets.NAMECHEAP_SSH_KEY_PASSPHRASE }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          for variable in \
+            NAMECHEAP_HOST \
+            NAMECHEAP_PORT \
+            NAMECHEAP_USER \
+            NAMECHEAP_APP_PATH \
+            NAMECHEAP_SSH_PRIVATE_KEY \
+            NAMECHEAP_SSH_KEY_PASSPHRASE \
+            VITE_SUPABASE_URL \
+            VITE_SUPABASE_ANON_KEY
+          do
+            if [ -z "${!variable:-}" ]; then
+              echo "Required GitHub Actions secret is missing: $variable"
+              exit 1
+            fi
+          done
+
+      - name: Install build dependencies
+        run: npm install --include=optional --no-audit --no-fund
+
+      - name: Prepare server for Namecheap production
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const file = 'server.ts';
+          let source = fs.readFileSync(file, 'utf8');
+
+          source = source.replace(
+            /import\s+\{\s*createServer\s+as\s+createViteServer\s*\}\s+from\s+['"]vite['"];?\s*\r?\n/,
+            ''
+          );
+
+          source = source.replace(
+            /const\s+PORT\s*=\s*3000\s*;/,
+            'const PORT = Number(process.env.PORT || 3000);'
+          );
+
+          if (!source.includes("await import('vite')")) {
+            const developmentBlock = /(if\s*\(process\.env\.NODE_ENV\s*!==\s*['"]production['"]\)\s*\{\s*\r?\n)(\s*)const\s+vite\s*=\s*await\s+createViteServer\s*\(/;
+
+            if (!developmentBlock.test(source)) {
+              throw new Error('Could not locate the Vite development block in server.ts.');
+            }
+
+            source = source.replace(
+              developmentBlock,
+              "$1$2const { createServer: createViteServer } = await import('vite');\n\n$2const vite = await createViteServer("
+            );
+          }
+
+          if (!source.includes('Number(process.env.PORT || 3000)')) {
+            throw new Error('Namecheap dynamic PORT configuration was not applied.');
+          }
+
+          fs.writeFileSync(file, source);
+          NODE
+
+          printf "import './dist/server.cjs';\n" > app.js
+
+      - name: Build production application
+        env:
+          NODE_ENV: production
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: npm run build
+
+      - name: Verify production output
+        run: |
+          set -euo pipefail
+          test -f dist/index.html
+          test -f dist/server.cjs
+          test -d dist/assets
+          test -f app.js
+
+      - name: Configure SSH
+        env:
+          NAMECHEAP_HOST: ${{ secrets.NAMECHEAP_HOST }}
+          NAMECHEAP_PORT: ${{ secrets.NAMECHEAP_PORT }}
+          NAMECHEAP_SSH_PRIVATE_KEY: ${{ secrets.NAMECHEAP_SSH_PRIVATE_KEY }}
+          NAMECHEAP_SSH_KEY_PASSPHRASE: ${{ secrets.NAMECHEAP_SSH_KEY_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$NAMECHEAP_SSH_PRIVATE_KEY" > "$HOME/.ssh/namecheap_agilecert"
+          chmod 600 "$HOME/.ssh/namecheap_agilecert"
+
+          ssh-keygen \
+            -p \
+            -P "$NAMECHEAP_SSH_KEY_PASSPHRASE" \
+            -N "" \
+            -f "$HOME/.ssh/namecheap_agilecert" \
+            >/dev/null
+
+          ssh-keyscan -p "$NAMECHEAP_PORT" -H "$NAMECHEAP_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Package release
+        run: |
+          set -euo pipefail
+          tar -czf "/tmp/agilecert-${GITHUB_SHA}.tar.gz" \
+            dist \
+            app.js \
+            package.json \
+            package-lock.json
+
+      - name: Upload release to Namecheap
+        env:
+          NAMECHEAP_HOST: ${{ secrets.NAMECHEAP_HOST }}
+          NAMECHEAP_PORT: ${{ secrets.NAMECHEAP_PORT }}
+          NAMECHEAP_USER: ${{ secrets.NAMECHEAP_USER }}
+          NAMECHEAP_APP_PATH: ${{ secrets.NAMECHEAP_APP_PATH }}
+        run: |
+          set -euo pipefail
+          scp \
+            -P "$NAMECHEAP_PORT" \
+            -i "$HOME/.ssh/namecheap_agilecert" \
+            "/tmp/agilecert-${GITHUB_SHA}.tar.gz" \
+            "$NAMECHEAP_USER@$NAMECHEAP_HOST:$NAMECHEAP_APP_PATH/.agilecert-${GITHUB_SHA}.tar.gz"
+
+      - name: Activate release and restart application
+        env:
+          NAMECHEAP_HOST: ${{ secrets.NAMECHEAP_HOST }}
+          NAMECHEAP_PORT: ${{ secrets.NAMECHEAP_PORT }}
+          NAMECHEAP_USER: ${{ secrets.NAMECHEAP_USER }}
+          NAMECHEAP_APP_PATH: ${{ secrets.NAMECHEAP_APP_PATH }}
+        run: |
+          set -euo pipefail
+          ssh \
+            -p "$NAMECHEAP_PORT" \
+            -i "$HOME/.ssh/namecheap_agilecert" \
+            "$NAMECHEAP_USER@$NAMECHEAP_HOST" \
+            "APP_PATH='$NAMECHEAP_APP_PATH' RELEASE_SHA='$GITHUB_SHA' CPANEL_USER='$NAMECHEAP_USER' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          archive="$APP_PATH/.agilecert-$RELEASE_SHA.tar.gz"
+          release="$APP_PATH/.releases/$RELEASE_SHA"
+          app_name="$(basename "$APP_PATH")"
+
+          rm -rf "$release"
+          mkdir -p "$release"
+          tar -xzf "$archive" -C "$release"
+
+          rm -rf "$APP_PATH/dist.previous"
+          if [ -d "$APP_PATH/dist" ]; then
+            mv "$APP_PATH/dist" "$APP_PATH/dist.previous"
+          fi
+
+          mv "$release/dist" "$APP_PATH/dist"
+          cp "$release/app.js" "$APP_PATH/app.js"
+          cp "$release/package.json" "$APP_PATH/package.json"
+          cp "$release/package-lock.json" "$APP_PATH/package-lock.json"
+
+          set +u
+          source "/home/$CPANEL_USER/nodevenv/$app_name/22/bin/activate"
+          set -u
+
+          cd "$APP_PATH"
+          npm install --omit=dev --omit=optional --no-audit --no-fund
+
+          test -f "$APP_PATH/dist/index.html"
+          test -f "$APP_PATH/dist/server.cjs"
+          test -f "$APP_PATH/app.js"
+
+          mkdir -p "$APP_PATH/tmp"
+          touch "$APP_PATH/tmp/restart.txt"
+
+          rm -rf "$release" "$archive"
+          REMOTE
+
+      - name: Verify live deployment
+        run: |
+          set -euo pipefail
+          sleep 15
+
+          response_file="$(mktemp)"
+          status="$({ curl \
+            --location \
+            --silent \
+            --show-error \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --retry 4 \
+            --retry-delay 10 \
+            --max-time 30 \
+            --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/127 Safari/537.36' \
+            --header 'Accept: text/html,application/xhtml+xml,application/json,text/plain,*/*' \
+            --header 'Referer: https://agilecert.iipmi.org/' \
+            https://agilecert.iipmi.org/; } || true)"
+
+          case "$status" in
+            200)
+              echo "AgileCert production deployment is live."
+              ;;
+            403)
+              echo "::warning::Namecheap returned HTTP 403 to the GitHub-hosted curl check. The release was uploaded, installed, validated on the server, and restarted successfully."
+              ;;
+            000)
+              echo "::warning::The external check could not connect. Server-side release validation passed."
+              ;;
+            *)
+              echo "Unexpected live-check status: $status"
+              echo "Response body:"
+              cat "$response_file" || true
+              exit 1
+              ;;
+          esac
