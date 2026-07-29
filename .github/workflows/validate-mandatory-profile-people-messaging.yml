@@ -1,0 +1,191 @@
+name: Validate Mandatory Profile and People Messaging
+
+on:
+  push:
+    branches: [feature/mandatory-profile-people-messaging]
+    paths:
+      - 'src/components/MandatoryCandidateOnboarding.tsx'
+      - 'src/components/CandidateOnboardingBoundary.tsx'
+      - 'src/components/AdminPeopleMessagingLauncher.tsx'
+      - 'src/services/candidateProfileService.ts'
+      - 'src/services/peopleAdminService.ts'
+      - 'src/main.tsx'
+      - 'supabase/config.toml'
+      - 'supabase/functions/agilecert-people-admin/index.ts'
+      - 'supabase/functions/agilecert-communications/index.ts'
+      - 'supabase/migrations/202607291230_mandatory_profile_people_messaging.sql'
+      - 'supabase/migrations/202607291231_profile_onboarding_status_hardening.sql'
+      - 'supabase/tests/mandatory_profile_people_messaging_smoke.sql'
+      - '.github/workflows/validate-mandatory-profile-people-messaging.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/components/MandatoryCandidateOnboarding.tsx'
+      - 'src/components/CandidateOnboardingBoundary.tsx'
+      - 'src/components/AdminPeopleMessagingLauncher.tsx'
+      - 'src/services/candidateProfileService.ts'
+      - 'src/services/peopleAdminService.ts'
+      - 'src/main.tsx'
+      - 'supabase/config.toml'
+      - 'supabase/functions/agilecert-people-admin/index.ts'
+      - 'supabase/functions/agilecert-communications/index.ts'
+      - 'supabase/migrations/202607291230_mandatory_profile_people_messaging.sql'
+      - 'supabase/migrations/202607291231_profile_onboarding_status_hardening.sql'
+      - 'supabase/tests/mandatory_profile_people_messaging_smoke.sql'
+      - '.github/workflows/validate-mandatory-profile-people-messaging.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mandatory-profile-people-messaging-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Validate onboarding and People Messaging frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate TypeScript
+        run: npm run lint
+      - name: Build production portal
+        run: npm run build
+      - name: Verify release controls in bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'CandidateOnboardingBoundary' src/main.tsx
+          grep -q 'AdminPeopleMessagingLauncher' src/main.tsx
+          grep -q 'Complete profile and open workspace' src/components/MandatoryCandidateOnboarding.tsx
+          grep -q 'People Directory & Messaging' src/components/AdminPeopleMessagingLauncher.tsx
+          grep -q 'queue_agilecert_admin_message' src/services/peopleAdminService.ts
+          grep -q 'complete_my_agilecert_candidate_onboarding' src/services/candidateProfileService.ts
+          ! grep -R -q 'SUPABASE_SERVICE_ROLE_KEY' src
+          ! grep -R -q 'RESEND_API_KEY' src
+
+  edge-functions:
+    name: Validate account invitation and email provider boundaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check People Administration
+        run: deno check --node-modules-dir=auto supabase/functions/agilecert-people-admin/index.ts
+      - name: Type-check communications renderer
+        run: deno check --node-modules-dir=auto supabase/functions/agilecert-communications/index.ts
+      - name: Verify protected authority and renderer
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "actorProfile.role !== 'super_admin'" supabase/functions/agilecert-people-admin/index.ts
+          grep -q 'inviteUserByEmail' supabase/functions/agilecert-people-admin/index.ts
+          grep -q "row.message_type === 'admin_message'" supabase/functions/agilecert-communications/index.ts
+          grep -q 'Idempotency-Key' supabase/functions/agilecert-communications/index.ts
+          ! grep -R -q 'PAYSTACK_SECRET_KEY' supabase/functions/agilecert-people-admin
+          ! grep -R -q 'question_answer_keys' supabase/functions/agilecert-people-admin
+
+  database:
+    name: Reset complete schema and test onboarding lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: test users are created by the lifecycle smoke script.
+          commit;
+          SQL
+      - name: Start isolated Supabase services
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee people-supabase-start.log
+      - name: Apply complete repository migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee people-db-reset.log
+      - name: Exercise mandatory onboarding and administrator messaging
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/mandatory_profile_people_messaging_smoke.sql \
+            2>&1 | tee people-messaging-behaviour.log
+          grep -q 'profile_complete_after_admin_reset' people-messaging-behaviour.log
+          grep -q 'administrator_messages' people-messaging-behaviour.log
+      - name: Verify schema authority and triggers
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -v ON_ERROR_STOP=1 <<'SQL' | tee people-messaging-schema.log
+          select column_name
+          from information_schema.columns
+          where table_schema = 'public'
+            and table_name = 'agilecert_candidate_profiles'
+            and column_name in (
+              'profile_update_required', 'privacy_accepted_at', 'terms_accepted_at',
+              'examination_policy_accepted_at', 'onboarding_completed_at', 'onboarding_version'
+            )
+          order by column_name;
+          select proname, proconfig
+          from pg_proc
+          where proname in (
+            'get_my_agilecert_onboarding_status',
+            'complete_my_agilecert_candidate_onboarding',
+            'get_agilecert_people_directory',
+            'update_agilecert_person_admin',
+            'queue_agilecert_admin_message'
+          )
+          order by proname;
+          select tgname
+          from pg_trigger
+          where tgname in ('agilecert_exam_order_profile_gate', 'agilecert_exam_session_profile_gate')
+            and not tgisinternal
+          order by tgname;
+          SQL
+          grep -q 'profile_update_required' people-messaging-schema.log
+          grep -q 'queue_agilecert_admin_message' people-messaging-schema.log
+          grep -q 'agilecert_exam_order_profile_gate' people-messaging-schema.log
+          grep -q 'agilecert_exam_session_profile_gate' people-messaging-schema.log
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mandatory-profile-people-messaging-validation
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            people-supabase-start.log
+            people-db-reset.log
+            people-messaging-behaviour.log
+            people-messaging-schema.log
+      - name: Stop isolated Supabase services
+        if: always()
+        run: supabase stop --no-backup || true
