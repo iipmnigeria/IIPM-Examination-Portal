@@ -35,7 +35,7 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Validate deployment configuration
+      - name: Validate Namecheap deployment configuration
         env:
           NAMECHEAP_HOST: ${{ secrets.NAMECHEAP_HOST }}
           NAMECHEAP_PORT: ${{ secrets.NAMECHEAP_PORT }}
@@ -43,8 +43,6 @@ jobs:
           NAMECHEAP_APP_PATH: ${{ secrets.NAMECHEAP_APP_PATH }}
           NAMECHEAP_SSH_PRIVATE_KEY: ${{ secrets.NAMECHEAP_SSH_PRIVATE_KEY }}
           NAMECHEAP_SSH_KEY_PASSPHRASE: ${{ secrets.NAMECHEAP_SSH_KEY_PASSPHRASE }}
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           set -euo pipefail
           for variable in \
@@ -53,9 +51,7 @@ jobs:
             NAMECHEAP_USER \
             NAMECHEAP_APP_PATH \
             NAMECHEAP_SSH_PRIVATE_KEY \
-            NAMECHEAP_SSH_KEY_PASSPHRASE \
-            VITE_SUPABASE_URL \
-            VITE_SUPABASE_ANON_KEY
+            NAMECHEAP_SSH_KEY_PASSPHRASE
           do
             if [ -z "${!variable:-}" ]; then
               echo "Required GitHub Actions secret is missing: $variable"
@@ -63,10 +59,7 @@ jobs:
             fi
           done
 
-      - name: Install, validate and build current frontend
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      - name: Build the same frontend published by GitHub Pages
         run: |
           set -euo pipefail
           source_sha="$(git rev-parse HEAD)"
@@ -74,7 +67,7 @@ jobs:
 
           npm install --include=dev --include=optional --no-audit --no-fund
           npm run lint
-          NODE_ENV=production npm run build
+          NODE_ENV=production npx vite build
 
           test -s dist/index.html
           test -d dist/assets
@@ -87,6 +80,9 @@ jobs:
           test -s "$js_file"
           grep -q 'AI Certification Adviser' "$js_file"
 
+          bundle_sha="$(sha256sum "$js_file" | awk '{print $1}')"
+          echo "BUNDLE_SHA=$bundle_sha" >> "$GITHUB_ENV"
+
           rm -f dist/server.cjs dist/server.cjs.map
           touch dist/.nojekyll
 
@@ -94,7 +90,9 @@ jobs:
           {
             "branch": "supabase-integration",
             "commit": "$source_sha",
-            "target": "agilecert.iipmi.org"
+            "bundle": "$bundle_sha",
+            "target": "agilecert.iipmi.org",
+            "buildMode": "github-pages-equivalent"
           }
           JSON
 
@@ -110,20 +108,39 @@ jobs:
           const fileName = fileURLToPath(import.meta.url);
           const directory = path.dirname(fileName);
           const distPath = path.join(directory, 'dist');
+          const assetsPath = path.join(distPath, 'assets');
 
           app.disable('x-powered-by');
 
           app.get('/healthz', (_request, response) => {
+            response.set('Cache-Control', 'no-store');
             response.json({ ok: true, service: 'agilecert' });
           });
 
+          app.get('/deployment.json', (_request, response) => {
+            response.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            response.sendFile(path.join(distPath, 'deployment.json'));
+          });
+
+          app.use('/assets', express.static(assetsPath, {
+            etag: true,
+            immutable: true,
+            maxAge: '1y',
+          }));
+
           app.use(express.static(distPath, {
             etag: true,
-            maxAge: '1h',
-            index: 'index.html',
+            index: false,
+            maxAge: 0,
+            setHeaders(response, servedPath) {
+              if (servedPath.endsWith('.html')) {
+                response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+              }
+            },
           }));
 
           app.get('*', (_request, response) => {
+            response.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
             response.sendFile(path.join(distPath, 'index.html'));
           });
 
@@ -248,12 +265,12 @@ jobs:
             --max-time 30 \
             --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/127 Safari/537.36' \
             --header 'Accept: text/html,application/xhtml+xml,*/*' \
-            https://agilecert.iipmi.org/; } || true)"
+            "https://agilecert.iipmi.org/?deployment=${SOURCE_SHA}"; } || true)"
 
           case "$status" in
             200)
               grep -q 'AgileCert Global' "$response_file"
-              echo "AgileCert production deployment is live from commit $SOURCE_SHA."
+              echo "AgileCert production deployment is live from commit $SOURCE_SHA with bundle $BUNDLE_SHA."
               ;;
             403)
               echo "::warning::Namecheap returned HTTP 403 to GitHub's external check. Server-side deployment and restart completed for commit $SOURCE_SHA."
