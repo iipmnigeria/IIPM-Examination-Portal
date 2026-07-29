@@ -34,9 +34,39 @@ The mock examinations support professional preparation. Passing a mock examinati
 11. CIPMN-MOD-011 - Understanding DUCAP Methodology
 12. CIPMN-MOD-012 - Managing Successful International Programs and Portfolios
 
+## Paid preparation-material catalogue
+
+Each CIPMN module now has a deterministic preparation-material mapping containing:
+
+- one required PDF study-material record at position 1
+- one optional embedded-video placeholder at position 2
+- the shared `ESG in Project Management Practice` reference at position 3
+
+The PDF source manifest records the approved Google Drive file ID, original file name, file size and intended private Supabase storage path. These source details are administrator-only and are never returned by the candidate preparation-material RPC.
+
+All newly mapped materials start in `draft` status. A PDF becomes candidate-visible only after an examination administrator:
+
+1. imports the source file into the private `agilecert-preparation-materials` bucket;
+2. creates and publishes a material version; and
+3. publishes the logical material record.
+
+The existing entitlement triggers then make the resource available only where the candidate has a verified paid or waived order, or an authorised administrator assignment, for that exact examination. Paying for one CIPMN module does not unlock another module's PDF or video.
+
+The ESG reference is mapped to all twelve CIPMN examinations and therefore becomes available within each module only when that module's own entitlement is valid.
+
+### Video provision
+
+Each module has a reserved `video` material record and an administrator-only source-manifest row with `delivery_mode = embedded_video`. The provider can later be set to Google Drive, YouTube, Vimeo or another approved host without changing the examination-to-material mapping or payment entitlement model.
+
+### Source-title reconciliation note
+
+The supplied file numbered `CIPMN_MOD012` is titled `Project Procurement and Contract Management`, while the current examination catalogue names Module 012 `Managing Successful International Programs and Portfolios`. The migration matches the PDF to Module 012 by the authoritative module code and records the source filename unchanged for administrator review. The curriculum title should be reconciled before the material is published.
+
 ## Data and security design
 
 The examination catalogue and question banks are seeded through Supabase migrations. Candidate-facing question records remain separate from `question_answer_keys`, preserving the portal's server-authoritative grading and answer-key protection.
+
+Preparation files remain protected by the existing private-storage delivery path. Candidate clients do not receive Google Drive file IDs, storage bucket names or object paths. Every download is re-authorised against the candidate's current examination assignment and verified payment or waiver before the Edge Function streams the private file.
 
 ## Validation gate
 
@@ -51,6 +81,13 @@ The phase validation workflow resets an isolated Supabase environment and verifi
 - case/application framing for every question
 - NGN 25,000 pricing for every module
 - 120-minute duration and 70% pass mark
+
+The preparation-material migration additionally verifies:
+
+- 12 required module PDF mappings
+- 12 module video placeholders
+- the ESG reference mapped to all 12 module examinations
+- no published CIPMN material version without a matching private storage object
 
 The examination portal build and the complete database integrity test passed successfully before the programme coupon was activated. A corrective migration sets and verifies the approved 70% pass mark across all twelve module examinations.
 
