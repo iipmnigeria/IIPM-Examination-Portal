@@ -1,4 +1,4 @@
-name: Deploy AgileCert to Namecheap
+name: Deploy Current AgileCert to Namecheap
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -20,18 +21,19 @@ jobs:
   deploy:
     name: Build and deploy current AgileCert portal
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Check out current portal branch
         uses: actions/checkout@v6
         with:
           ref: supabase-integration
+          fetch-depth: 0
 
-      - name: Set up Node.js
+      - name: Set up Node.js 24
         uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Validate deployment configuration
         env:
@@ -61,63 +63,78 @@ jobs:
             fi
           done
 
-      - name: Install build dependencies
-        run: npm install --include=optional --no-audit --no-fund
-
-      - name: Prepare server for Namecheap production
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const file = 'server.ts';
-          let source = fs.readFileSync(file, 'utf8');
-
-          source = source.replace(
-            /import\s+\{\s*createServer\s+as\s+createViteServer\s*\}\s+from\s+['"]vite['"];?\s*\r?\n/,
-            ''
-          );
-
-          source = source.replace(
-            /const\s+PORT\s*=\s*3000\s*;/,
-            'const PORT = Number(process.env.PORT || 3000);'
-          );
-
-          if (!source.includes("await import('vite')")) {
-            const developmentBlock = /(if\s*\(process\.env\.NODE_ENV\s*!==\s*['"]production['"]\)\s*\{\s*\r?\n)(\s*)const\s+vite\s*=\s*await\s+createViteServer\s*\(/;
-
-            if (!developmentBlock.test(source)) {
-              throw new Error('Could not locate the Vite development block in server.ts.');
-            }
-
-            source = source.replace(
-              developmentBlock,
-              "$1$2const { createServer: createViteServer } = await import('vite');\n\n$2const vite = await createViteServer("
-            );
-          }
-
-          if (!source.includes('Number(process.env.PORT || 3000)')) {
-            throw new Error('Namecheap dynamic PORT configuration was not applied.');
-          }
-
-          fs.writeFileSync(file, source);
-          NODE
-
-          printf "import './dist/server.cjs';\n" > app.js
-
-      - name: Build production application
+      - name: Install, validate and build current frontend
         env:
           NODE_ENV: production
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-        run: npm run build
-
-      - name: Verify production output
         run: |
           set -euo pipefail
-          test -f dist/index.html
-          test -f dist/server.cjs
+          source_sha="$(git rev-parse HEAD)"
+          echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+
+          test -s dist/index.html
           test -d dist/assets
-          test -f app.js
-          test -f package-lock.json
+          grep -q 'AgileCert Global' dist/index.html
+          ! grep -q '/src/main.tsx' dist/index.html
+
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
+          test -s "$js_file"
+          grep -q 'AI Certification Adviser' "$js_file"
+
+          rm -f dist/server.cjs dist/server.cjs.map
+          touch dist/.nojekyll
+
+          cat > dist/deployment.json <<JSON
+          {
+            "branch": "supabase-integration",
+            "commit": "$source_sha",
+            "target": "agilecert.iipmi.org"
+          }
+          JSON
+
+      - name: Create minimal Namecheap static server
+        run: |
+          cat > app.js <<'JS'
+          import express from 'express';
+          import path from 'path';
+          import { fileURLToPath } from 'url';
+
+          const app = express();
+          const port = Number(process.env.PORT || 3000);
+          const fileName = fileURLToPath(import.meta.url);
+          const directory = path.dirname(fileName);
+          const distPath = path.join(directory, 'dist');
+
+          app.disable('x-powered-by');
+
+          app.get('/healthz', (_request, response) => {
+            response.json({ ok: true, service: 'agilecert' });
+          });
+
+          app.use(express.static(distPath, {
+            etag: true,
+            maxAge: '1h',
+            index: 'index.html',
+          }));
+
+          app.get('*', (_request, response) => {
+            response.sendFile(path.join(distPath, 'index.html'));
+          });
+
+          app.listen(port, '0.0.0.0', () => {
+            console.log(`AgileCert static server listening on port ${port}`);
+          });
+          JS
+
+          test -s app.js
+          test -s package-lock.json
 
       - name: Configure SSH
         env:
@@ -145,7 +162,7 @@ jobs:
       - name: Package release
         run: |
           set -euo pipefail
-          tar -czf "/tmp/agilecert-${GITHUB_SHA}.tar.gz" \
+          tar -czf "/tmp/agilecert-${SOURCE_SHA}.tar.gz" \
             dist \
             app.js \
             package.json \
@@ -162,8 +179,8 @@ jobs:
           scp \
             -P "$NAMECHEAP_PORT" \
             -i "$HOME/.ssh/namecheap_agilecert" \
-            "/tmp/agilecert-${GITHUB_SHA}.tar.gz" \
-            "$NAMECHEAP_USER@$NAMECHEAP_HOST:$NAMECHEAP_APP_PATH/.agilecert-${GITHUB_SHA}.tar.gz"
+            "/tmp/agilecert-${SOURCE_SHA}.tar.gz" \
+            "$NAMECHEAP_USER@$NAMECHEAP_HOST:$NAMECHEAP_APP_PATH/.agilecert-${SOURCE_SHA}.tar.gz"
 
       - name: Activate release and restart application
         env:
@@ -177,7 +194,7 @@ jobs:
             -p "$NAMECHEAP_PORT" \
             -i "$HOME/.ssh/namecheap_agilecert" \
             "$NAMECHEAP_USER@$NAMECHEAP_HOST" \
-            "APP_PATH='$NAMECHEAP_APP_PATH' RELEASE_SHA='$GITHUB_SHA' CPANEL_USER='$NAMECHEAP_USER' bash -s" <<'REMOTE'
+            "APP_PATH='$NAMECHEAP_APP_PATH' RELEASE_SHA='$SOURCE_SHA' CPANEL_USER='$NAMECHEAP_USER' bash -s" <<'REMOTE'
           set -euo pipefail
 
           archive="$APP_PATH/.agilecert-$RELEASE_SHA.tar.gz"
@@ -205,9 +222,9 @@ jobs:
           cd "$APP_PATH"
           npm install --omit=dev --omit=optional --no-audit --no-fund
 
-          test -f "$APP_PATH/dist/index.html"
-          test -f "$APP_PATH/dist/server.cjs"
-          test -f "$APP_PATH/app.js"
+          test -s "$APP_PATH/dist/index.html"
+          test -s "$APP_PATH/dist/deployment.json"
+          test -s "$APP_PATH/app.js"
 
           mkdir -p "$APP_PATH/tmp"
           touch "$APP_PATH/tmp/restart.txt"
@@ -218,7 +235,7 @@ jobs:
       - name: Verify live deployment
         run: |
           set -euo pipefail
-          sleep 15
+          sleep 20
 
           response_file="$(mktemp)"
           status="$({ curl \
@@ -231,23 +248,24 @@ jobs:
             --retry-delay 10 \
             --max-time 30 \
             --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/127 Safari/537.36' \
-            --header 'Accept: text/html,application/xhtml+xml,application/json,text/plain,*/*' \
-            --header 'Referer: https://agilecert.iipmi.org/' \
+            --header 'Accept: text/html,application/xhtml+xml,*/*' \
             https://agilecert.iipmi.org/; } || true)"
 
           case "$status" in
             200)
-              echo "AgileCert production deployment is live."
+              grep -q 'AgileCert Global' "$response_file"
+              echo "AgileCert production deployment is live from commit $SOURCE_SHA."
               ;;
             403)
-              echo "::warning::Namecheap returned HTTP 403 to the GitHub-hosted curl check. The release was uploaded, installed, validated on the server, and restarted successfully."
+              echo "::warning::Namecheap returned HTTP 403 to GitHub's external check. Server-side deployment and restart completed for commit $SOURCE_SHA."
               ;;
-            000)
-              echo "::warning::The external check could not connect. Server-side release validation passed."
+            000|502|503)
+              echo "The application did not become healthy after restart. HTTP status: $status"
+              cat "$response_file" || true
+              exit 1
               ;;
             *)
               echo "Unexpected live-check status: $status"
-              echo "Response body:"
               cat "$response_file" || true
               exit 1
               ;;
