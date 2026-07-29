@@ -15,6 +15,7 @@ on:
       - 'supabase/functions/agilecert-communications/index.ts'
       - 'supabase/migrations/202607291230_mandatory_profile_people_messaging.sql'
       - 'supabase/migrations/202607291231_profile_onboarding_status_hardening.sql'
+      - 'supabase/migrations/202607291232_profile_gate_operational_scope.sql'
       - 'supabase/tests/mandatory_profile_people_messaging_smoke.sql'
       - '.github/workflows/validate-mandatory-profile-people-messaging.yml'
   pull_request:
@@ -31,6 +32,7 @@ on:
       - 'supabase/functions/agilecert-communications/index.ts'
       - 'supabase/migrations/202607291230_mandatory_profile_people_messaging.sql'
       - 'supabase/migrations/202607291231_profile_onboarding_status_hardening.sql'
+      - 'supabase/migrations/202607291232_profile_gate_operational_scope.sql'
       - 'supabase/tests/mandatory_profile_people_messaging_smoke.sql'
       - '.github/workflows/validate-mandatory-profile-people-messaging.yml'
   workflow_dispatch:
