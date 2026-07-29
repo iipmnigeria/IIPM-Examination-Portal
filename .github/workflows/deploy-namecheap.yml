@@ -196,9 +196,14 @@ jobs:
           cp "$release/package.json" "$APP_PATH/package.json"
           cp "$release/package-lock.json" "$APP_PATH/package-lock.json"
 
+          # CloudLinux's cPanel activation script references variables that may be unset.
+          # Disable nounset only while sourcing it, then restore strict mode.
+          set +u
           source "/home/$CPANEL_USER/nodevenv/$app_name/22/bin/activate"
+          set -u
+
           cd "$APP_PATH"
-          npm install --omit=dev --include=optional --no-audit --no-fund
+          npm install --omit=dev --omit=optional --no-audit --no-fund
 
           mkdir -p "$APP_PATH/tmp"
           touch "$APP_PATH/tmp/restart.txt"
