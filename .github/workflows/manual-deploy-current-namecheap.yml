@@ -1,0 +1,12 @@
+name: Manual Deploy Current AgileCert to Namecheap
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-current-portal:
+    uses: iipmnigeria/IIPM-Examination-Portal/.github/workflows/deploy-namecheap.yml@supabase-integration
+    secrets: inherit
