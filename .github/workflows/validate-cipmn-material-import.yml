@@ -1,0 +1,54 @@
+name: Validate CIPMN Material Import
+
+on:
+  pull_request:
+    paths:
+      - 'public/cipmn-material-import.html'
+      - 'public/cipmn-material-import.js'
+      - 'public/cipmn-material-manifest.json'
+      - '.github/workflows/validate-cipmn-material-import.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'public/cipmn-material-import.html'
+      - 'public/cipmn-material-import.js'
+      - 'public/cipmn-material-manifest.json'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Validate JavaScript and manifest
+        run: |
+          node --check public/cipmn-material-import.js
+          node - <<'NODE'
+          const fs = require('fs');
+          const manifest = JSON.parse(fs.readFileSync('public/cipmn-material-manifest.json', 'utf8'));
+          if (!Array.isArray(manifest) || manifest.length !== 13) throw new Error('Expected 13 materials.');
+          const files = new Set();
+          const checksums = new Set();
+          for (const item of manifest) {
+            if (!item.code || !item.file || !item.path || !/^[a-f0-9]{64}$/.test(item.sha)) throw new Error(`Invalid material: ${JSON.stringify(item)}`);
+            if (files.has(item.file) || checksums.has(item.sha)) throw new Error(`Duplicate material: ${item.code}`);
+            files.add(item.file); checksums.add(item.sha);
+          }
+          if (manifest.filter(item => item.exam).length !== 12) throw new Error('Expected 12 examination-specific materials.');
+          if (manifest.filter(item => !item.exam).length !== 1) throw new Error('Expected one shared ESG material.');
+          NODE
+          grep -q 'cipmn-material-import.js' public/cipmn-material-import.html
+          grep -q 'noindex,nofollow,noarchive' public/cipmn-material-import.html
+      - name: Build portal
+        run: |
+          npm ci
+          npm run lint
+          npm run build
