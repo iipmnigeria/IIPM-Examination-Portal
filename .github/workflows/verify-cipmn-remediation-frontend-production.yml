@@ -1,0 +1,274 @@
+name: Verify CIPMN Remediation Frontend Production
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/verify-cipmn-remediation-frontend.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: verify-cipmn-remediation-frontend-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify exact CIPMN remediation frontend is live
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      EXPECTED_COMMIT: 'f8a38e57302f16e4b5b33b9f8c8c6a9dfac26a4c'
+      PAGES_URL: 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+      NAMECHEAP_URL: 'https://agilecert.iipmi.org/'
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout exact merged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build and fingerprint approved frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          npm install --include=dev --include=optional --no-audit --no-fund
+          npm run lint
+          NODE_ENV=production npx vite build
+
+          test -s dist/index.html
+          ! grep -q '/src/main.tsx' dist/index.html
+          asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          js_file="dist/${asset#./}"
+          test -s "$js_file"
+
+          grep -q 'CIPMN Answer Review' "$js_file"
+          grep -q 'Correct answers and explanations are released only after the third completed attempt' "$js_file"
+          grep -q 'agilecert-cipmn-remediation-open' "$js_file"
+          grep -q 'get_my_cipmn_attempt_review' "$js_file"
+
+          sha256sum "$js_file" | awk '{print $1}' > cipmn-remediation-expected.sha256
+          printf '%s\n' "$asset" > cipmn-remediation-expected-asset.txt
+          printf '%s\n' "$EXPECTED_COMMIT" > cipmn-remediation-expected-commit.txt
+
+      - name: Wait for exact GitHub Pages bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(cat cipmn-remediation-expected.sha256)"
+          success=0
+
+          for attempt in $(seq 1 90); do
+            status="$(curl -L -sS -o pages-live-index.html -w '%{http_code}' \
+              "${PAGES_URL}?cipmn-remediation=${GITHUB_RUN_ID}-${attempt}" || true)"
+            echo "Pages attempt $attempt: HTTP $status"
+
+            if [ "$status" = '200' ] && ! grep -q '/src/main.tsx' pages-live-index.html; then
+              asset="$(grep -Eo 'src="[^"]+\.js"' pages-live-index.html | head -n 1 | cut -d'"' -f2)"
+              if [ -n "$asset" ]; then
+                asset_url="$(python3 - "$PAGES_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+                )"
+                if curl -L --fail --silent --show-error \
+                  "${asset_url}?cipmn-remediation=${GITHUB_RUN_ID}-${attempt}" \
+                  -o pages-live-app.js; then
+                  actual="$(sha256sum pages-live-app.js | awk '{print $1}')"
+                  echo "Expected bundle: $expected"
+                  echo "Pages bundle:    $actual"
+                  if [ "$actual" = "$expected" ]; then
+                    grep -q 'CIPMN Answer Review' pages-live-app.js
+                    grep -q 'Correct answers and explanations are released only after the third completed attempt' pages-live-app.js
+                    grep -q 'agilecert-cipmn-remediation-open' pages-live-app.js
+                    grep -q 'get_my_cipmn_attempt_review' pages-live-app.js
+                    printf '%s\n' "$asset" > pages-live-asset.txt
+                    printf '%s\n' "$actual" > pages-live.sha256
+                    success=1
+                    break
+                  fi
+                fi
+              fi
+            fi
+            sleep 10
+          done
+
+          test "$success" -eq 1
+
+      - name: Require successful Namecheap deployment for exact commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=''
+          conclusion=''
+
+          for attempt in $(seq 1 75); do
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?event=push&branch=supabase-integration&per_page=100" \
+              > cipmn-remediation-push-runs.json
+
+            run_id="$(jq -r --arg sha "$EXPECTED_COMMIT" \
+              '.workflow_runs[] | select(.head_sha == $sha and .name == "Deploy Current AgileCert to Namecheap") | .id' \
+              cipmn-remediation-push-runs.json | head -n 1)"
+
+            if [ -n "$run_id" ] && [ "$run_id" != 'null' ]; then
+              status="$(jq -r --argjson id "$run_id" \
+                '.workflow_runs[] | select(.id == $id) | .status' cipmn-remediation-push-runs.json)"
+              conclusion="$(jq -r --argjson id "$run_id" \
+                '.workflow_runs[] | select(.id == $id) | .conclusion // ""' cipmn-remediation-push-runs.json)"
+              echo "Namecheap run $run_id: status=$status conclusion=$conclusion"
+              if [ "$status" = 'completed' ]; then
+                break
+              fi
+            else
+              echo "Waiting for Namecheap deployment run for $EXPECTED_COMMIT"
+            fi
+            sleep 10
+          done
+
+          test -n "$run_id"
+          test "$conclusion" = 'success'
+          printf '%s\n' "$run_id" > namecheap-deployment-run-id.txt
+
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" \
+            > namecheap-deployment-jobs.json
+          jq -e '.jobs | length >= 1' namecheap-deployment-jobs.json >/dev/null
+          jq -e 'all(.jobs[]; .conclusion == "success")' namecheap-deployment-jobs.json >/dev/null
+
+      - name: Verify Namecheap live release when externally accessible
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(cat cipmn-remediation-expected.sha256)"
+          verified=0
+          access_status='000'
+
+          for attempt in $(seq 1 18); do
+            access_status="$(curl -L -sS -o namecheap-live-index.html -w '%{http_code}' \
+              --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36' \
+              "${NAMECHEAP_URL}?cipmn-remediation=${GITHUB_RUN_ID}-${attempt}" || true)"
+            echo "Namecheap live attempt $attempt: HTTP $access_status"
+
+            if [ "$access_status" = '200' ] && ! grep -q '/src/main.tsx' namecheap-live-index.html; then
+              asset="$(grep -Eo 'src="[^"]+\.js"' namecheap-live-index.html | head -n 1 | cut -d'"' -f2)"
+              if [ -n "$asset" ]; then
+                asset_url="$(python3 - "$NAMECHEAP_URL" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+                )"
+                if curl -L --fail --silent --show-error \
+                  --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36' \
+                  "${asset_url}?cipmn-remediation=${GITHUB_RUN_ID}-${attempt}" \
+                  -o namecheap-live-app.js; then
+                  actual="$(sha256sum namecheap-live-app.js | awk '{print $1}')"
+                  if [ "$actual" = "$expected" ]; then
+                    grep -q 'CIPMN Answer Review' namecheap-live-app.js
+                    grep -q 'agilecert-cipmn-remediation-open' namecheap-live-app.js
+                    grep -q 'get_my_cipmn_attempt_review' namecheap-live-app.js
+                    printf '%s\n' "$asset" > namecheap-live-asset.txt
+                    printf '%s\n' "$actual" > namecheap-live.sha256
+                    verified=1
+                    break
+                  fi
+                fi
+              fi
+            elif [ "$access_status" = '403' ]; then
+              echo '::warning::Namecheap WAF blocked the GitHub-hosted live asset check; the exact-commit deployment workflow and all server-side deployment jobs passed.'
+              break
+            fi
+            sleep 10
+          done
+
+          if [ "$verified" -ne 1 ] && [ "$access_status" != '403' ]; then
+            echo 'Namecheap was not externally verifiable and did not return the known WAF response.' >&2
+            exit 1
+          fi
+
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          status = os.environ.get('access_status', '')
+          report = {
+              'sourceCommit': os.environ['EXPECTED_COMMIT'],
+              'deploymentRunId': Path('namecheap-deployment-run-id.txt').read_text().strip(),
+              'workflowSucceeded': True,
+              'externalBundleVerified': Path('namecheap-live.sha256').exists(),
+              'knownWafFallbackUsed': not Path('namecheap-live.sha256').exists(),
+          }
+          Path('namecheap-production-verification.json').write_text(
+              json.dumps(report, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(report, indent=2))
+          PY
+
+      - name: Record production frontend verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = {
+              'sourceCommit': os.environ['EXPECTED_COMMIT'],
+              'pagesUrl': os.environ['PAGES_URL'],
+              'pagesBundleSha256': Path('pages-live.sha256').read_text().strip(),
+              'pagesExactBundleVerified': True,
+              'namecheapUrl': os.environ['NAMECHEAP_URL'],
+              'namecheapDeploymentRunId': Path('namecheap-deployment-run-id.txt').read_text().strip(),
+              'namecheapWorkflowSucceeded': True,
+              'namecheapExactBundleExternallyVerified': Path('namecheap-live.sha256').exists(),
+              'featureMarkers': [
+                  'CIPMN Answer Review',
+                  'third-attempt protected release notice',
+                  'agilecert-cipmn-remediation-open',
+                  'get_my_cipmn_attempt_review',
+              ],
+          }
+          Path('cipmn-remediation-frontend-production-safe.json').write_text(
+              json.dumps(evidence, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload frontend production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-remediation-frontend-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cipmn-remediation-expected.sha256
+            cipmn-remediation-expected-asset.txt
+            cipmn-remediation-expected-commit.txt
+            pages-live-index.html
+            pages-live-app.js
+            pages-live-asset.txt
+            pages-live.sha256
+            cipmn-remediation-push-runs.json
+            namecheap-deployment-run-id.txt
+            namecheap-deployment-jobs.json
+            namecheap-live-index.html
+            namecheap-live-app.js
+            namecheap-live-asset.txt
+            namecheap-live.sha256
+            namecheap-production-verification.json
+            cipmn-remediation-frontend-production-safe.json
