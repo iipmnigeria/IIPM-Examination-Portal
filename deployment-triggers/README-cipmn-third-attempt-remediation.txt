@@ -1,0 +1,1 @@
+Permanent registration marker for the controlled CIPMN third-attempt remediation production workflow. The actual deployment trigger is created in a separate pull request to main, must remain unmerged, and is closed after the exact approved migrations and rolled-back live candidate lifecycle test succeed.
