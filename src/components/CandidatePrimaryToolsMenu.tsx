@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   BellRing,
+  BookOpenCheck,
   ChevronDown,
   Gift,
   ShoppingBag,
@@ -133,6 +134,11 @@ export default function CandidatePrimaryToolsMenu() {
     setIsOpen(false);
   };
 
+  const openCipmnRemediation = () => {
+    window.dispatchEvent(new CustomEvent('agilecert-cipmn-remediation-open'));
+    setIsOpen(false);
+  };
+
   const openAiCvStudio = () => {
     window.dispatchEvent(new CustomEvent('agilecert-ai-cv-open'));
     setIsOpen(false);
@@ -230,6 +236,23 @@ export default function CandidatePrimaryToolsMenu() {
               <span className="block text-xs font-black">Identity Assurance</span>
               <span className="mt-1 block text-[11px] leading-5 text-slate-400">
                 Submit approved professional evidence for confidential review
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={openCipmnRemediation}
+            className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"
+          >
+            <span className="rounded-lg bg-teal-400/10 p-2 text-teal-300">
+              <BookOpenCheck className="h-4 w-4" />
+            </span>
+            <span>
+              <span className="block text-xs font-black">CIPMN Answer Review</span>
+              <span className="mt-1 block text-[11px] leading-5 text-slate-400">
+                Review failed answers and explanations after the third attempt
               </span>
             </span>
           </button>
