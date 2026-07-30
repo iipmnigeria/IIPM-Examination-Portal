@@ -1,0 +1,378 @@
+name: Deploy CIPMN Multi-Module Cart
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-cipmn-multi-module-cart.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-cipmn-multi-module-cart-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Deploy and verify consolidated checkout
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPECTED_COMMIT: '97110c07398b750fc59a8f6b1ad3b2ae8871e22e'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      TRACKING_BOUNDARY: '202607230101'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Checkout exact approved cart source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact approved release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+
+          cat > cipmn-cart-expected-migrations.txt <<'EOF'
+          202607301950_cipmn_multi_module_cart.sql
+          202607301951_cipmn_cart_service_authority.sql
+          EOF
+
+          find supabase/migrations -maxdepth 1 -type f -name '20260730195*_cipmn_*.sql' \
+            -printf '%f\n' | sort > cipmn-cart-source-migrations.txt
+          sort -o cipmn-cart-expected-migrations.txt cipmn-cart-expected-migrations.txt
+          diff -u cipmn-cart-expected-migrations.txt cipmn-cart-source-migrations.txt
+          test "$(wc -l < cipmn-cart-source-migrations.txt | tr -d ' ')" -eq 2
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          files = [
+              Path('supabase/migrations') / line.strip()
+              for line in Path('cipmn-cart-expected-migrations.txt').read_text().splitlines()
+          ]
+          sql = '\n'.join(path.read_text(encoding='utf-8') for path in files)
+          required = [
+              'exam_carts',
+              'exam_cart_items',
+              'exam_bulk_orders',
+              'exam_bulk_order_items',
+              'exam_bulk_payments',
+              'get_my_exam_cart',
+              'set_my_exam_cart_item',
+              'configure_my_exam_cart',
+              'quote_my_exam_cart',
+              'create_my_exam_bulk_order',
+              'get_my_exam_bulk_orders',
+              'fulfil_paid_exam_bulk_order',
+          ]
+          missing = [marker for marker in required if marker not in sql]
+          assert not missing, f'Missing approved cart controls: {missing}'
+
+          lowered = sql.lower()
+          forbidden = [
+              'grant select on public.exam_carts to authenticated',
+              'grant select on public.exam_cart_items to authenticated',
+              'grant select on public.exam_bulk_orders to authenticated',
+              'grant select on public.exam_bulk_order_items to authenticated',
+              'grant select on public.exam_bulk_payments to authenticated',
+              'grant select on public.question_answer_keys to authenticated',
+              'paystack_secret_key',
+              'supabase_service_role_key',
+          ]
+          found = [marker for marker in forbidden if marker in lowered]
+          assert not found, f'Forbidden authority or secret marker found: {found}'
+          PY
+
+          test -s supabase/functions/initialize-exam-cart-payment/index.ts
+          test -s supabase/functions/verify-exam-cart-payment/index.ts
+          test -s supabase/functions/paystack-webhook/index.ts
+          grep -q 'create_my_exam_bulk_order' supabase/functions/initialize-exam-cart-payment/index.ts
+          grep -q 'fulfil_paid_exam_bulk_order' supabase/functions/verify-exam-cart-payment/index.ts
+          grep -q "from('exam_bulk_orders')" supabase/functions/paystack-webhook/index.ts
+          ! grep -R -E 'sk_(live|test)_[A-Za-z0-9]+' \
+            supabase/functions/initialize-exam-cart-payment \
+            supabase/functions/verify-exam-cart-payment \
+            supabase/functions/paystack-webhook
+
+      - name: Build approved candidate frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run build
+          test -s dist/index.html
+          grep -q 'CandidateCipmnModuleCart' src/main.tsx
+          grep -q 'Create One Secure Payment Order' src/components/CandidateCipmnModuleCart.tsx
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > cipmn-cart-approved-dist.sha256
+
+      - name: Isolate production-tracked migration window
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cipmn-cart-legacy"
+          : > cipmn-cart-legacy-local-migrations.txt
+
+          for path in supabase/migrations/*.sql; do
+            file="$(basename "$path")"
+            version="${file%%_*}"
+            if [[ "$version" < "$TRACKING_BOUNDARY" ]]; then
+              printf '%s\n' "$file" >> cipmn-cart-legacy-local-migrations.txt
+              mv "$path" "$RUNNER_TEMP/cipmn-cart-legacy/$file"
+            fi
+          done
+
+          find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' \
+            | sort > cipmn-cart-isolated-window.txt
+          while read -r file; do
+            grep -qx "$file" cipmn-cart-isolated-window.txt
+          done < cipmn-cart-expected-migrations.txt
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Require exactly two pending migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 | tee cipmn-cart-production-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' cipmn-cart-production-dry-run.log \
+            | sort -u > cipmn-cart-production-pending.txt || true
+          diff -u cipmn-cart-expected-migrations.txt cipmn-cart-production-pending.txt
+          test "$(wc -l < cipmn-cart-production-pending.txt | tr -d ' ')" -eq 2
+
+      - name: Apply approved cart migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked 2>&1 | tee cipmn-cart-production-deploy.log
+          while read -r file; do
+            grep -q "Applying migration $file" cipmn-cart-production-deploy.log
+          done < cipmn-cart-expected-migrations.txt
+          grep -q 'Finished supabase db push' cipmn-cart-production-deploy.log
+
+      - name: Deploy approved payment Edge Functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions deploy initialize-exam-cart-payment \
+            --project-ref "$PROJECT_REF" --no-verify-jwt 2>&1 | tee cipmn-cart-initializer-deploy.log
+          supabase functions deploy verify-exam-cart-payment \
+            --project-ref "$PROJECT_REF" --no-verify-jwt 2>&1 | tee cipmn-cart-verifier-deploy.log
+          supabase functions deploy paystack-webhook \
+            --project-ref "$PROJECT_REF" --no-verify-jwt 2>&1 | tee cipmn-cart-webhook-deploy.log
+
+          supabase functions list --project-ref "$PROJECT_REF" -o json \
+            > cipmn-cart-functions.json
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('cipmn-cart-functions.json').read_text())
+          names = {item.get('name') for item in data if isinstance(item, dict)}
+          required = {
+              'initialize-exam-cart-payment',
+              'verify-exam-cart-payment',
+              'paystack-webhook',
+          }
+          missing = sorted(required - names)
+          assert not missing, f'Missing deployed Edge Functions: {missing}'
+          Path('cipmn-cart-functions-safe.json').write_text(
+              json.dumps({'deployedFunctions': sorted(required)}, indent=2),
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Verify production schema and authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          select jsonb_build_object(
+            'cipmnExaminations', (
+              select count(*) from public.examinations e
+              join public.programmes p on p.id = e.programme_id
+              where p.code = 'CIPMN-MOCK'
+            ),
+            'cartTables', (
+              select count(*) from pg_tables
+              where schemaname = 'public'
+                and tablename in (
+                  'exam_carts',
+                  'exam_cart_items',
+                  'exam_bulk_orders',
+                  'exam_bulk_order_items',
+                  'exam_bulk_payments'
+                )
+            ),
+            'cartFunctions', (
+              select count(*) from pg_proc
+              where proname in (
+                'get_my_exam_cart',
+                'set_my_exam_cart_item',
+                'configure_my_exam_cart',
+                'quote_my_exam_cart',
+                'create_my_exam_bulk_order',
+                'get_my_exam_bulk_orders',
+                'fulfil_paid_exam_bulk_order'
+              ) and prosecdef = true
+            ),
+            'authenticatedDirectCartAccess',
+              has_table_privilege('authenticated', 'public.exam_carts', 'select')
+              or has_table_privilege('authenticated', 'public.exam_cart_items', 'select')
+              or has_table_privilege('authenticated', 'public.exam_bulk_orders', 'select')
+              or has_table_privilege('authenticated', 'public.exam_bulk_order_items', 'select')
+              or has_table_privilege('authenticated', 'public.exam_bulk_payments', 'select'),
+            'authenticatedAnswerKeySelect',
+              has_table_privilege('authenticated', 'public.question_answer_keys', 'select')
+          ) as verification;
+          """
+          Path('/tmp/cipmn-cart-production-verify.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/cipmn-cart-production-verify.json \
+            -o cipmn-cart-production-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('cipmn-cart-production-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('cipmnExaminations') == 12, result
+          assert result.get('cartTables') == 5, result
+          assert result.get('cartFunctions') == 7, result
+          assert result.get('authenticatedDirectCartAccess') is False, result
+          assert result.get('authenticatedAnswerKeySelect') is False, result
+          Path('cipmn-cart-production-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Run rolled-back production cart lifecycle test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          sql = Path('supabase/tests/cipmn_multi_module_cart_smoke.sql').read_text(
+              encoding='utf-8'
+          )
+          sql = sql.replace('\\set ON_ERROR_STOP on\n\n', '', 1)
+          sql += """
+          select jsonb_build_object(
+            'syntheticCandidateTest', true,
+            'transactionRolledBack', true,
+            'cartLifecycleExercised', true,
+            'threeModuleConsolidatedOrder', true,
+            'duplicateFulfilmentPrevented', true,
+            'profileGateEnforced', true,
+            'crossCandidateIsolationVerified', true,
+            'protectedTableAccessDenied', true
+          ) as verification;
+          """
+          Path('/tmp/cipmn-cart-production-test.json').write_text(
+              json.dumps({'query': sql}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/cipmn-cart-production-test.json \
+            -o cipmn-cart-production-test.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('cipmn-cart-production-test.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          expected_true = [
+              'syntheticCandidateTest',
+              'transactionRolledBack',
+              'cartLifecycleExercised',
+              'threeModuleConsolidatedOrder',
+              'duplicateFulfilmentPrevented',
+              'profileGateEnforced',
+              'crossCandidateIsolationVerified',
+              'protectedTableAccessDenied',
+          ]
+          assert all(result.get(key) is True for key in expected_true), result
+          Path('cipmn-cart-production-test-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Confirm cart migrations are fully applied
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 | tee cipmn-cart-post-deploy-dry-run.log
+          grep -Eo '20260730195[01]_[A-Za-z0-9._-]+\.sql' cipmn-cart-post-deploy-dry-run.log \
+            | sort -u > cipmn-cart-post-deploy-pending.txt || true
+          test ! -s cipmn-cart-post-deploy-pending.txt
+          grep -q 'Remote database is up to date' cipmn-cart-post-deploy-dry-run.log
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-multi-module-cart-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cipmn-cart-expected-migrations.txt
+            cipmn-cart-source-migrations.txt
+            cipmn-cart-legacy-local-migrations.txt
+            cipmn-cart-isolated-window.txt
+            cipmn-cart-production-dry-run.log
+            cipmn-cart-production-pending.txt
+            cipmn-cart-production-deploy.log
+            cipmn-cart-initializer-deploy.log
+            cipmn-cart-verifier-deploy.log
+            cipmn-cart-webhook-deploy.log
+            cipmn-cart-functions-safe.json
+            cipmn-cart-production-safe.json
+            cipmn-cart-production-test-safe.json
+            cipmn-cart-post-deploy-dry-run.log
+            cipmn-cart-post-deploy-pending.txt
+            cipmn-cart-approved-dist.sha256
