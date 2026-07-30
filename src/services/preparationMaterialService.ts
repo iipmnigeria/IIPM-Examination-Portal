@@ -20,6 +20,8 @@ export type PreparationMaterialType =
   | 'reference'
   | 'other';
 
+export type PreparationMaterialDeliveryMode = 'secure_download' | 'embedded_video';
+
 export interface CandidatePreparationMaterial {
   materialId: string;
   examinationId: string;
@@ -28,6 +30,8 @@ export interface CandidatePreparationMaterial {
   title: string;
   description: string;
   materialType: PreparationMaterialType;
+  deliveryMode?: PreparationMaterialDeliveryMode;
+  streamingProvider?: 'google_drive' | 'youtube' | 'vimeo' | 'other' | null;
   versionNumber: number;
   versionLabel: string;
   fileName: string;
@@ -45,6 +49,23 @@ export interface MaterialDownloadReceipt {
   fileName: string;
   auditId?: string | null;
 }
+
+export interface VideoPlaybackReceipt {
+  embedUrl: string;
+  provider: 'google_drive' | 'youtube' | 'vimeo' | 'other';
+  title: string;
+  auditId?: string | null;
+}
+
+type VideoPlaybackAuthorization = {
+  authorized?: boolean;
+  auditId?: string | null;
+  provider?: VideoPlaybackReceipt['provider'];
+  title?: string;
+  embedUrl?: string;
+  message?: string;
+  reason?: string;
+};
 
 export async function getMyPreparationMaterials(): Promise<CandidatePreparationMaterial[]> {
   const { data, error } = await supabase.rpc('get_my_agilecert_preparation_materials');
@@ -126,5 +147,46 @@ export async function downloadPreparationMaterial(
   return {
     fileName,
     auditId: response.headers.get('x-agilecert-download-audit'),
+  };
+}
+
+export async function authorizePreparationVideoPlayback(
+  material: Pick<CandidatePreparationMaterial, 'materialId' | 'examinationId' | 'title'>,
+): Promise<VideoPlaybackReceipt> {
+  const { data, error } = await supabase.rpc('authorize_my_agilecert_video_playback', {
+    p_examination_id: material.examinationId,
+    p_material_id: material.materialId,
+    p_user_agent: typeof navigator === 'undefined' ? null : navigator.userAgent,
+  });
+
+  if (error) {
+    throw new Error(`Unable to authorise video playback: ${error.message}`);
+  }
+
+  const authorization = (data || {}) as VideoPlaybackAuthorization;
+  if (!authorization.authorized) {
+    throw new Error(
+      authorization.message || 'Verified payment or an administrator assignment is required to watch this video.',
+    );
+  }
+
+  if (!authorization.embedUrl || !authorization.provider) {
+    throw new Error('The authorised video source was incomplete. Please contact an examination administrator.');
+  }
+
+  const embedUrl = new URL(authorization.embedUrl);
+  if (
+    embedUrl.protocol !== 'https:'
+    || embedUrl.hostname !== 'drive.google.com'
+    || !/^\/file\/d\/[A-Za-z0-9_-]{10,200}\/preview$/.test(embedUrl.pathname)
+  ) {
+    throw new Error('The authorised video source was not recognised.');
+  }
+
+  return {
+    embedUrl: embedUrl.toString(),
+    provider: authorization.provider,
+    title: authorization.title || material.title,
+    auditId: authorization.auditId || null,
   };
 }
