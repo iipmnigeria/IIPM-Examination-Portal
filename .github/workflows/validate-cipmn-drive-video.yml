@@ -1,0 +1,119 @@
+name: Validate CIPMN Google Drive Video MVP
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - 'src/components/CandidatePreparationMaterialsPanel.tsx'
+      - 'src/services/preparationMaterialService.ts'
+      - 'supabase/migrations/202607301945_cipmn_google_drive_video_playback.sql'
+      - 'supabase/migrations/202607301946_cipmn_material_access_email_instructions.sql'
+      - '.github/workflows/validate-cipmn-drive-video.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: |
+          npm install --no-audit --no-fund
+          python -m pip install --quiet pglast
+
+      - name: Type-check changed video files
+        run: >-
+          npx tsc --noEmit --skipLibCheck --jsx react-jsx --target ES2022
+          --module ESNext --moduleResolution Bundler --allowSyntheticDefaultImports
+          --esModuleInterop src/vite-env.d.ts
+          src/services/preparationMaterialService.ts
+          src/components/CandidatePreparationMaterialsPanel.tsx
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Validate Drive video catalogue, SQL syntax and security markers
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          from pglast import parse_sql
+
+          playback = Path('supabase/migrations/202607301945_cipmn_google_drive_video_playback.sql').read_text()
+          email = Path('supabase/migrations/202607301946_cipmn_material_access_email_instructions.sql').read_text()
+          service = Path('src/services/preparationMaterialService.ts').read_text()
+          panel = Path('src/components/CandidatePreparationMaterialsPanel.tsx').read_text()
+
+          parse_sql(playback)
+          parse_sql(email)
+
+          expected = {
+              'CIPMN-MOD-001': '10_V8XlrI4vMtOKvu8Cizsumv_lDYpWl2',
+              'CIPMN-MOD-002': '1gFFOPq18GXkuqRxPd2DydDChDptq-t72',
+              'CIPMN-MOD-003': '1yriTGTDfW7kqpkVlt6GwCfqFqsz97Htw',
+              'CIPMN-MOD-004': '1-LDGOkWlejcH7Z71ihHT-e-UDxHsgADF',
+              'CIPMN-MOD-005': '1Xgb509wfKZG0ZGLuQeg53Eyu3qWOWMWJ',
+              'CIPMN-MOD-006': '17_MmHbNonTpyzyGetkGWOdpT8eNfc-Bj',
+              'CIPMN-MOD-007': '10IO1aklIof50F7mLnY-yIPB5t5nTeBpn',
+              'CIPMN-MOD-008': '1ETD5E_9VZGKQRLv0p_-hN18X-nC_TfE4',
+              'CIPMN-MOD-009': '1EfwGTkLsFTgGwfQ7r4n48RfGUH3DXrPv',
+              'CIPMN-MOD-010': '1iulZPymLPhJF4o8vnpdCXI1zZTg0wH68',
+              'CIPMN-MOD-011': '1iuAs1RE4ze0N4PjhcwE4XLSHF2PAtGkc',
+              'CIPMN-MOD-012': '1q2oXggWFQwGeTdsFWJvVUR3Rqz7iyfcQ',
+          }
+
+          missing = [(code, drive_id) for code, drive_id in expected.items()
+                     if code not in playback or drive_id not in playback]
+          assert not missing, f'Missing approved video mappings: {missing}'
+          assert len(set(expected.values())) == 12, 'Drive IDs must be unique.'
+
+          quoted_drive_ids = re.findall(r"'([A-Za-z0-9_-]{20,})'", playback)
+          mapped_ids = [value for value in quoted_drive_ids if value in expected.values()]
+          assert len(mapped_ids) == 12, f'Expected exactly 12 approved Drive IDs, found {len(mapped_ids)}.'
+
+          required_playback_markers = [
+              'authorize_my_agilecert_video_playback',
+              'agilecert_material_playback_audits',
+              "delivery_mode = 'embedded_video'",
+              "source_provider = 'google_drive'",
+              "import_status = 'not_required'",
+              "'/preview'",
+              'refresh_agilecert_material_entitlements',
+              'get_my_agilecert_preparation_materials',
+          ]
+          for marker in required_playback_markers:
+              assert marker in playback, f'Missing playback security marker: {marker}'
+
+          assert 'source_reference' not in service, 'The browser service must not receive administrator source references.'
+          assert 'authorize_my_agilecert_video_playback' in service
+          assert "embedUrl.hostname !== 'drive.google.com'" in service
+          assert 'Watch video lesson' in panel
+          assert '<iframe' in panel
+          assert 'allowFullScreen' in panel
+
+          required_email_phrases = [
+              'Select Materials from the top menu',
+              'Download the module PDF and ESG reference',
+              'Watch video lesson',
+              "'exam-material-ready:'",
+              "'admin_message'",
+          ]
+          for phrase in required_email_phrases:
+              assert phrase in email, f'Missing payment-email instruction: {phrase}'
+
+          assert playback.rstrip().endswith('commit;')
+          assert email.rstrip().endswith('commit;')
+          print('Validated 12 Google Drive videos, SQL syntax, payment gates, player markers and email instructions.')
