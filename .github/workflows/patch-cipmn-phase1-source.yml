@@ -1,0 +1,44 @@
+name: Apply CIPMN Phase 1 source correction
+
+on:
+  push:
+    branches: [feature/cipmn-third-attempt-remediation]
+    paths:
+      - '.github/workflows/patch-cipmn-phase1-source.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/cipmn-third-attempt-remediation
+          fetch-depth: 0
+      - name: Correct composite-row selections
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('supabase/migrations/202607301730_cipmn_third_attempt_remediation.sql')
+          text = path.read_text()
+          source = "select e.*, p.code\n  into v_exam, v_programme_code"
+          replacement = "select e, p.code\n  into v_exam, v_programme_code"
+          count = text.count(source)
+          if count != 2:
+              raise SystemExit(f'Expected two composite selection sites, found {count}.')
+          path.write_text(text.replace(source, replacement))
+
+          workflow = Path('.github/workflows/patch-cipmn-phase1-source.yml')
+          workflow.unlink()
+      - name: Commit corrected source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Correct CIPMN remediation composite row selection'
+          git push origin HEAD:feature/cipmn-third-attempt-remediation
