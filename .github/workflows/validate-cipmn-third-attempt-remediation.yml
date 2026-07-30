@@ -1,0 +1,186 @@
+name: Validate CIPMN Third-Attempt Remediation
+
+on:
+  push:
+    branches: [feature/cipmn-third-attempt-remediation]
+    paths:
+      - 'src/components/CandidateCipmnRemediationWorkspace.tsx'
+      - 'src/components/CandidatePrimaryToolsMenu.tsx'
+      - 'src/services/cipmnRemediationService.ts'
+      - 'src/main.tsx'
+      - 'supabase/migrations/202607301730_cipmn_third_attempt_remediation.sql'
+      - 'supabase/migrations/202607301731_cipmn_review_snapshot_decoupling.sql'
+      - 'supabase/migrations/202607301732_cipmn_review_composite_row_fix.sql'
+      - 'supabase/tests/cipmn_third_attempt_remediation_smoke.sql'
+      - '.github/workflows/validate-cipmn-third-attempt-remediation.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/components/CandidateCipmnRemediationWorkspace.tsx'
+      - 'src/components/CandidatePrimaryToolsMenu.tsx'
+      - 'src/services/cipmnRemediationService.ts'
+      - 'src/main.tsx'
+      - 'supabase/migrations/202607301730_cipmn_third_attempt_remediation.sql'
+      - 'supabase/migrations/202607301731_cipmn_review_snapshot_decoupling.sql'
+      - 'supabase/migrations/202607301732_cipmn_review_composite_row_fix.sql'
+      - 'supabase/tests/cipmn_third_attempt_remediation_smoke.sql'
+      - '.github/workflows/validate-cipmn-third-attempt-remediation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cipmn-third-attempt-remediation-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Validate candidate remediation frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check feature TypeScript against production baseline
+        shell: bash
+        run: |
+          set -o pipefail
+          npx tsc --noEmit --pretty false 2>&1 | tee typescript.log || true
+          grep 'error TS' typescript.log > typescript-errors.log || true
+
+          grep -Ev 'src/components/(AdminCertificateCommerceLauncher|AdminCertificateCompletionPanel|AdminCertificateManagementPanel|AdminCredentialLifecycleLauncher|AdminIdentityProctoringLauncher|AdminPortal|CandidateCertificateCommerce|CandidateCertificateWorkspace|CandidateCredentialWallet|CandidateSponsoredAccessWorkspace)\.tsx' \
+            typescript-errors.log > unexpected-typescript-errors.log || true
+
+          if grep -E 'src/(components/(CandidateCipmnRemediationWorkspace|CandidatePrimaryToolsMenu)|services/cipmnRemediationService|main)\.tsx?' typescript-errors.log; then
+            echo 'The CIPMN remediation feature contains TypeScript errors.' >&2
+            exit 1
+          fi
+
+          if [ -s unexpected-typescript-errors.log ]; then
+            echo 'Unexpected TypeScript errors were introduced:' >&2
+            cat unexpected-typescript-errors.log >&2
+            exit 1
+          fi
+      - name: Build production portal
+        run: npm run build
+      - name: Verify release controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'CandidateCipmnRemediationWorkspace' src/main.tsx
+          grep -q 'agilecert-cipmn-remediation-open' src/components/CandidatePrimaryToolsMenu.tsx
+          grep -q 'get_my_cipmn_attempt_review' src/services/cipmnRemediationService.ts
+          grep -q 'Correct answers and explanations are released only after the third completed attempt' src/components/CandidateCipmnRemediationWorkspace.tsx
+          ! grep -R -q 'question_answer_keys' src
+      - name: Upload frontend evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-third-attempt-remediation-frontend
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            typescript.log
+            typescript-errors.log
+            unexpected-typescript-errors.log
+
+  database:
+    name: Reset schema and test protected third-attempt lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: test identities are created by the remediation smoke test.
+          commit;
+          SQL
+      - name: Start isolated Supabase services
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee cipmn-supabase-start.log
+      - name: Apply complete repository migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee cipmn-db-reset.log
+      - name: Exercise third-attempt review and remediation email
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/cipmn_third_attempt_remediation_smoke.sql \
+            2>&1 | tee cipmn-remediation-behaviour.log
+          grep -q 'third_attempt_reviews' cipmn-remediation-behaviour.log
+          grep -q 'failed_answer_items' cipmn-remediation-behaviour.log
+          grep -q 'remediation_emails' cipmn-remediation-behaviour.log
+          grep -q 'cipmn_three_attempt_examinations' cipmn-remediation-behaviour.log
+      - name: Verify protected schema and authority
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -v ON_ERROR_STOP=1 <<'SQL' | tee cipmn-remediation-schema.log
+          select e.max_attempts, count(*)
+          from public.examinations e
+          join public.programmes p on p.id = e.programme_id
+          where p.code = 'CIPMN-MOCK'
+          group by e.max_attempts;
+
+          select proname, prosecdef, proconfig
+          from pg_proc
+          where proname in (
+            'agilecert_cipmn_attempt_number',
+            'agilecert_cipmn_review_is_releasable',
+            'agilecert_prepare_cipmn_third_attempt_review',
+            'get_my_cipmn_remediation_attempts',
+            'get_my_cipmn_attempt_review'
+          )
+          order by proname;
+
+          select tgname
+          from pg_trigger
+          where tgname in (
+            'agilecert_prepare_cipmn_third_attempt_review_insert_trigger',
+            'agilecert_prepare_cipmn_third_attempt_review_status_trigger'
+          ) and not tgisinternal
+          order by tgname;
+          SQL
+          grep -q 'agilecert_prepare_cipmn_third_attempt_review_insert_trigger' cipmn-remediation-schema.log
+          grep -q 'get_my_cipmn_attempt_review' cipmn-remediation-schema.log
+          grep -Eq '3[[:space:]]*\|[[:space:]]*12' cipmn-remediation-schema.log
+      - name: Upload database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-third-attempt-remediation-database
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            cipmn-supabase-start.log
+            cipmn-db-reset.log
+            cipmn-remediation-behaviour.log
+            cipmn-remediation-schema.log
+      - name: Stop isolated Supabase services
+        if: always()
+        run: supabase stop --no-backup || true
