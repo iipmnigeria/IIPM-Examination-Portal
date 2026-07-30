@@ -1,1 +1,0 @@
-Permanent registration marker for the one-time CIPMN remediation frontend production verification workflow. The actual verification trigger is opened separately against main, must remain unmerged, and is closed after the exact merged bundle is verified on GitHub Pages and the exact-commit Namecheap deployment has succeeded.
