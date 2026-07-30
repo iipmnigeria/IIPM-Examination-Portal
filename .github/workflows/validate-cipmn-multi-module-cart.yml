@@ -1,0 +1,226 @@
+name: Validate CIPMN Multi-Module Cart
+
+on:
+  push:
+    branches: [feature/cipmn-multi-module-cart]
+    paths:
+      - 'src/components/CandidateCipmnModuleCart.tsx'
+      - 'src/components/PaymentReturnHandler.tsx'
+      - 'src/services/cartCommerceService.ts'
+      - 'src/main.tsx'
+      - 'supabase/config.toml'
+      - 'supabase/functions/initialize-exam-cart-payment/index.ts'
+      - 'supabase/functions/verify-exam-cart-payment/index.ts'
+      - 'supabase/functions/paystack-webhook/index.ts'
+      - 'supabase/migrations/202607301950_cipmn_multi_module_cart.sql'
+      - 'supabase/migrations/202607301951_cipmn_cart_service_authority.sql'
+      - 'supabase/tests/cipmn_multi_module_cart_smoke.sql'
+      - '.github/workflows/validate-cipmn-multi-module-cart.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/components/CandidateCipmnModuleCart.tsx'
+      - 'src/components/PaymentReturnHandler.tsx'
+      - 'src/services/cartCommerceService.ts'
+      - 'src/main.tsx'
+      - 'supabase/config.toml'
+      - 'supabase/functions/initialize-exam-cart-payment/index.ts'
+      - 'supabase/functions/verify-exam-cart-payment/index.ts'
+      - 'supabase/functions/paystack-webhook/index.ts'
+      - 'supabase/migrations/202607301950_cipmn_multi_module_cart.sql'
+      - 'supabase/migrations/202607301951_cipmn_cart_service_authority.sql'
+      - 'supabase/tests/cipmn_multi_module_cart_smoke.sql'
+      - '.github/workflows/validate-cipmn-multi-module-cart.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cipmn-multi-module-cart-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Validate candidate cart frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check feature TypeScript against production baseline
+        shell: bash
+        run: |
+          set -o pipefail
+          npx tsc --noEmit --pretty false 2>&1 | tee typescript.log || true
+          grep 'error TS' typescript.log > typescript-errors.log || true
+
+          grep -Ev 'src/components/(AdminCertificateCommerceLauncher|AdminCertificateCompletionPanel|AdminCertificateManagementPanel|AdminCredentialLifecycleLauncher|AdminIdentityProctoringLauncher|AdminPortal|CandidateCertificateCommerce|CandidateCertificateWorkspace|CandidateCredentialWallet|CandidateSponsoredAccessWorkspace)\.tsx' \
+            typescript-errors.log > unexpected-typescript-errors.log || true
+
+          if grep -E 'src/(components/(CandidateCipmnModuleCart|PaymentReturnHandler)|services/cartCommerceService|main)\.tsx?' typescript-errors.log; then
+            echo 'The CIPMN multi-module cart contains TypeScript errors.' >&2
+            exit 1
+          fi
+
+          if [ -s unexpected-typescript-errors.log ]; then
+            echo 'Unexpected TypeScript errors were introduced:' >&2
+            cat unexpected-typescript-errors.log >&2
+            exit 1
+          fi
+      - name: Build production portal
+        run: npm run build
+      - name: Verify compiled cart controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'CandidateCipmnModuleCart' src/main.tsx
+          grep -q 'Create One Secure Payment Order' src/components/CandidateCipmnModuleCart.tsx
+          grep -q 'initialize-exam-cart-payment' src/services/cartCommerceService.ts
+          grep -q 'verify-exam-cart-payment' src/services/cartCommerceService.ts
+          grep -q 'IIPM-BULK-' src/components/PaymentReturnHandler.tsx
+          ! grep -R -q 'question_answer_keys' src/components/CandidateCipmnModuleCart.tsx src/services/cartCommerceService.ts
+      - name: Upload frontend evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-multi-module-cart-frontend
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            typescript.log
+            typescript-errors.log
+            unexpected-typescript-errors.log
+
+  edge-functions:
+    name: Validate consolidated Paystack Edge Functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check payment functions
+        run: |
+          deno check supabase/functions/initialize-exam-cart-payment/index.ts
+          deno check supabase/functions/verify-exam-cart-payment/index.ts
+          deno check supabase/functions/paystack-webhook/index.ts
+      - name: Verify payment authority boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'create_my_exam_bulk_order' supabase/functions/initialize-exam-cart-payment/index.ts
+          grep -q 'fulfil_paid_exam_bulk_order' supabase/functions/verify-exam-cart-payment/index.ts
+          grep -q "from('exam_bulk_orders')" supabase/functions/paystack-webhook/index.ts
+          grep -q 'requestedAmount !== Number(order.payable_amount_minor)' supabase/functions/verify-exam-cart-payment/index.ts
+          ! grep -R -E 'PAYSTACK_SECRET_KEY[[:space:]]*[:=][[:space:]]*["'\''][^$]' \
+            supabase/functions/initialize-exam-cart-payment \
+            supabase/functions/verify-exam-cart-payment \
+            supabase/functions/paystack-webhook
+
+  database:
+    name: Reset schema and test consolidated checkout lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: test identities are created by the cart smoke test.
+          commit;
+          SQL
+      - name: Start isolated Supabase services
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee cipmn-cart-supabase-start.log
+      - name: Apply complete repository migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee cipmn-cart-db-reset.log
+      - name: Exercise persistent cart and one-payment fulfilment
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/cipmn_multi_module_cart_smoke.sql \
+            2>&1 | tee cipmn-cart-behaviour.log
+          grep -q 'fulfilled_bulk_orders' cipmn-cart-behaviour.log
+          grep -q 'fulfilled_bulk_items' cipmn-cart-behaviour.log
+          grep -q 'consolidated_payments' cipmn-cart-behaviour.log
+          grep -q 'assigned_modules' cipmn-cart-behaviour.log
+          grep -q 'redeemed_coupon_items' cipmn-cart-behaviour.log
+      - name: Verify protected schema and functions
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -v ON_ERROR_STOP=1 <<'SQL' | tee cipmn-cart-schema.log
+          select tablename
+          from pg_tables
+          where schemaname = 'public'
+            and tablename in (
+              'exam_carts',
+              'exam_cart_items',
+              'exam_bulk_orders',
+              'exam_bulk_order_items',
+              'exam_bulk_payments'
+            )
+          order by tablename;
+
+          select proname, prosecdef, proconfig
+          from pg_proc
+          where proname in (
+            'get_my_exam_cart',
+            'set_my_exam_cart_item',
+            'configure_my_exam_cart',
+            'quote_my_exam_cart',
+            'create_my_exam_bulk_order',
+            'get_my_exam_bulk_orders',
+            'fulfil_paid_exam_bulk_order'
+          )
+          order by proname;
+
+          select count(*) as cipmn_module_examinations
+          from public.examinations e
+          join public.programmes p on p.id = e.programme_id
+          where p.code = 'CIPMN-MOCK';
+          SQL
+          grep -q 'exam_bulk_orders' cipmn-cart-schema.log
+          grep -q 'fulfil_paid_exam_bulk_order' cipmn-cart-schema.log
+          grep -Eq '12[[:space:]]*$' cipmn-cart-schema.log
+      - name: Upload database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-multi-module-cart-database
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            cipmn-cart-supabase-start.log
+            cipmn-cart-db-reset.log
+            cipmn-cart-behaviour.log
+            cipmn-cart-schema.log
+      - name: Stop isolated Supabase services
+        if: always()
+        run: supabase stop --no-backup || true
