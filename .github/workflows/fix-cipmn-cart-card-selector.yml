@@ -5,6 +5,11 @@ on:
     branches: [feature/cipmn-cart-card-buttons-auto-quote]
     paths:
       - '.github/workflows/fix-cipmn-cart-card-selector.yml'
+  pull_request:
+    branches: [supabase-integration]
+    types: [synchronize]
+    paths:
+      - '.github/workflows/fix-cipmn-cart-card-selector.yml'
 
 permissions:
   contents: write
@@ -12,6 +17,7 @@ permissions:
 jobs:
   fix:
     name: Patch, build and commit stable card selector
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
