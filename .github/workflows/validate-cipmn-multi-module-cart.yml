@@ -119,7 +119,7 @@ jobs:
           grep -q 'fulfil_paid_exam_bulk_order' supabase/functions/verify-exam-cart-payment/index.ts
           grep -q "from('exam_bulk_orders')" supabase/functions/paystack-webhook/index.ts
           grep -q 'requestedAmount !== Number(order.payable_amount_minor)' supabase/functions/verify-exam-cart-payment/index.ts
-          ! grep -R -E 'PAYSTACK_SECRET_KEY[[:space:]]*[:=][[:space:]]*["'\''][^$]' \
+          ! grep -R -E 'sk_(live|test)_[A-Za-z0-9]+' \
             supabase/functions/initialize-exam-cart-payment \
             supabase/functions/verify-exam-cart-payment \
             supabase/functions/paystack-webhook
