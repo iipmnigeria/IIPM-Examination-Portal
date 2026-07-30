@@ -1,0 +1,6 @@
+Read-only verification trigger for the live CIPMN Google Drive video-player release.
+
+Expected application source: ee31bf826546d14aa523176fe3b45aa5397e927e
+Expected production migrations: 202607301945 and 202607301946
+
+This verifier must not modify the database, application source or GitHub Pages deployment.
