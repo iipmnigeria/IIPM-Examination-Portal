@@ -5,6 +5,11 @@ on:
     branches: [feature/cipmn-cart-card-buttons-auto-quote]
     paths:
       - '.github/workflows/apply-cipmn-cart-card-auto-quote.yml'
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, reopened]
+    paths:
+      - '.github/workflows/apply-cipmn-cart-card-auto-quote.yml'
 
 permissions:
   contents: write
@@ -16,6 +21,7 @@ concurrency:
 jobs:
   apply:
     name: Reconstruct, validate and commit cart UX
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
