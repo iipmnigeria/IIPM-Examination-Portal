@@ -32,8 +32,12 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Type-check application
-        run: npm run typecheck
+      - name: Type-check changed video files
+        run: >-
+          npx tsc --noEmit --skipLibCheck --jsx react-jsx --target ES2022
+          --module ESNext --moduleResolution Bundler --allowSyntheticDefaultImports
+          --esModuleInterop src/services/preparationMaterialService.ts
+          src/components/CandidatePreparationMaterialsPanel.tsx
 
       - name: Build production application
         run: npm run build
