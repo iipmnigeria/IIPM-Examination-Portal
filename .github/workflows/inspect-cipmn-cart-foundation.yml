@@ -5,6 +5,10 @@ on:
     branches: [feature/cipmn-multi-module-cart]
     paths:
       - '.github/workflows/inspect-cipmn-cart-foundation.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - '.github/workflows/inspect-cipmn-cart-foundation.yml'
   workflow_dispatch:
 
 permissions:
