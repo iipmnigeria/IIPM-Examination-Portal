@@ -1,0 +1,443 @@
+name: Deploy CIPMN Google Drive Video MVP v2
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-cipmn-drive-video-production.txt'
+      - '.github/workflows/deploy-cipmn-drive-video-production-v2.yml'
+
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy-cipmn-drive-video-production-v2
+  cancel-in-progress: false
+
+env:
+  EXPECTED_COMMIT: 'ee31bf826546d14aa523176fe3b45aa5397e927e'
+  PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+  TRACKING_BOUNDARY: '202607230101'
+
+jobs:
+  release:
+    name: Apply database and build exact frontend
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Check out exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - name: Set up pinned Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate exact release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+
+          cat > cipmn-video-expected-migrations.txt <<'EOF'
+          202607301945_cipmn_google_drive_video_playback.sql
+          202607301946_cipmn_material_access_email_instructions.sql
+          EOF
+
+          cat > cipmn-video-known-legacy-versions.txt <<'EOF'
+          202607200001
+          202607200002
+          202607200003
+          202607200004
+          202607200005
+          202607200006
+          202607200007
+          202607210008
+          202607210009
+          202607210010
+          202607210011
+          202607210012
+          202607210013
+          202607220014
+          202607220015
+          EOF
+
+          test "$(wc -l < cipmn-video-expected-migrations.txt | tr -d ' ')" -eq 2
+          test "$(wc -l < cipmn-video-known-legacy-versions.txt | tr -d ' ')" -eq 15
+          while IFS= read -r migration; do
+            test -s "supabase/migrations/$migration"
+          done < cipmn-video-expected-migrations.txt
+
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          playback = Path('supabase/migrations/202607301945_cipmn_google_drive_video_playback.sql').read_text()
+          email = Path('supabase/migrations/202607301946_cipmn_material_access_email_instructions.sql').read_text()
+          approved = {
+              'CIPMN-MOD-001': '10_V8XlrI4vMtOKvu8Cizsumv_lDYpWl2',
+              'CIPMN-MOD-002': '1gFFOPq18GXkuqRxPd2DydDChDptq-t72',
+              'CIPMN-MOD-003': '1yriTGTDfW7kqpkVlt6GwCfqFqsz97Htw',
+              'CIPMN-MOD-004': '1-LDGOkWlejcH7Z71ihHT-e-UDxHsgADF',
+              'CIPMN-MOD-005': '1Xgb509wfKZG0ZGLuQeg53Eyu3qWOWMWJ',
+              'CIPMN-MOD-006': '17_MmHbNonTpyzyGetkGWOdpT8eNfc-Bj',
+              'CIPMN-MOD-007': '10IO1aklIof50F7mLnY-yIPB5t5nTeBpn',
+              'CIPMN-MOD-008': '1ETD5E_9VZGKQRLv0p_-hN18X-nC_TfE4',
+              'CIPMN-MOD-009': '1EfwGTkLsFTgGwfQ7r4n48RfGUH3DXrPv',
+              'CIPMN-MOD-010': '1iulZPymLPhJF4o8vnpdCXI1zZTg0wH68',
+              'CIPMN-MOD-011': '1iuAs1RE4ze0N4PjhcwE4XLSHF2PAtGkc',
+              'CIPMN-MOD-012': '1q2oXggWFQwGeTdsFWJvVUR3Rqz7iyfcQ',
+          }
+          assert all(code in playback and drive_id in playback for code, drive_id in approved.items())
+          assert len(set(approved.values())) == 12
+          assert len([value for value in re.findall(r"'([A-Za-z0-9_-]{20,})'", playback) if value in approved.values()]) == 12
+          required = [
+              'authorize_my_agilecert_video_playback',
+              'agilecert_material_playback_audits',
+              'get_my_agilecert_preparation_materials',
+              'refresh_agilecert_material_entitlements',
+              "delivery_mode = 'embedded_video'",
+              "source_provider = 'google_drive'",
+              "import_status = 'not_required'",
+              'queue_cipmn_material_access_email',
+              'Select Materials from the top menu',
+              'Watch video lesson',
+          ]
+          combined = playback + '\n' + email
+          missing = [marker for marker in required if marker not in combined]
+          assert not missing, missing
+          PY
+
+      - name: Prepare controlled migration history window
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cipmn-video-pretracking"
+          : > cipmn-video-removed-pretracking-migrations.txt
+
+          for path in supabase/migrations/*.sql; do
+            file="$(basename "$path")"
+            version="${file%%_*}"
+            if [[ "$version" < "$TRACKING_BOUNDARY" ]]; then
+              printf '%s\n' "$file" >> cipmn-video-removed-pretracking-migrations.txt
+              mv "$path" "$RUNNER_TEMP/cipmn-video-pretracking/$file"
+            fi
+          done
+
+          while IFS= read -r version; do
+            printf '%s\n' '-- Temporary no-op marker for an already-applied production migration version.' \
+              > "supabase/migrations/${version}_production_history_placeholder.sql"
+          done < cipmn-video-known-legacy-versions.txt
+
+          find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' \
+            | sort > cipmn-video-controlled-window.txt
+          while IFS= read -r migration; do
+            grep -qx "$migration" cipmn-video-controlled-window.txt
+          done < cipmn-video-expected-migrations.txt
+          while IFS= read -r version; do
+            grep -qx "${version}_production_history_placeholder.sql" cipmn-video-controlled-window.txt
+          done < cipmn-video-known-legacy-versions.txt
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Preview only approved pending migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          supabase db push --linked --dry-run 2>&1 | tee cipmn-video-production-dry-run.log
+          dry_run_status=${PIPESTATUS[0]}
+          set -e
+          test "$dry_run_status" -eq 0
+
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          expected = {
+              line.split('_', 1)[0]
+              for line in Path('cipmn-video-expected-migrations.txt').read_text().splitlines()
+              if line.strip()
+          }
+          local = {path.name.split('_', 1)[0] for path in Path('supabase/migrations').glob('*.sql')}
+          text = Path('cipmn-video-production-dry-run.log').read_text(errors='ignore')
+          pending = sorted(set(re.findall(r'20[0-9]{10}', text)) & local)
+          unexpected = sorted(set(pending) - expected)
+          if unexpected:
+              raise SystemExit(f'Unexpected pending production migrations: {unexpected}')
+          Path('cipmn-video-pending-versions.txt').write_text('\n'.join(pending) + ('\n' if pending else ''))
+          print({'approved': sorted(expected), 'pending': pending})
+          PY
+
+      - name: Apply approved pending migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -s cipmn-video-pending-versions.txt ]]; then
+            printf 'y\n' | supabase db push --linked 2>&1 | tee cipmn-video-production-deploy.log
+          else
+            echo 'Both approved CIPMN video migrations are already applied.' | tee cipmn-video-production-deploy.log
+          fi
+
+      - name: Verify production migration history
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase migration list --linked 2>&1 | tee cipmn-video-production-history.log
+          python3 <<'PY'
+          from pathlib import Path
+          text = Path('cipmn-video-production-history.log').read_text(errors='ignore')
+          rows = []
+          for line in text.splitlines():
+              if '|' in line:
+                  parts = [part.strip() for part in line.split('|')]
+                  if len(parts) >= 3:
+                      rows.append(parts)
+          for version in ('202607301945', '202607301946'):
+              if not any(row[0] == version and row[1] == version for row in rows):
+                  raise SystemExit(f'Migration {version} is not recorded locally and remotely.')
+          PY
+
+      - name: Verify live payment-gated video controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          query = r"""
+          with cipmn_exams as (
+            select e.id from public.examinations e
+            join public.programmes p on p.id = e.programme_id
+            where p.code = 'CIPMN-MOCK'
+          ), cipmn_videos as (
+            select m.id from public.agilecert_preparation_materials m
+            where m.material_type = 'video'
+              and m.title like 'CIPMN-MOD-% Video Lesson - %'
+          ), entitled_pdf as (
+            select distinct entitlement.candidate_id, entitlement.examination_id
+            from public.agilecert_material_entitlements entitlement
+            join public.agilecert_preparation_materials material on material.id = entitlement.material_id
+            join cipmn_exams examination on examination.id = entitlement.examination_id
+            where entitlement.status = 'active' and material.material_type = 'study_guide'
+          )
+          select jsonb_build_object(
+            'cipmnExaminationCount', (select count(*) from cipmn_exams),
+            'validatedVideoManifestCount', (
+              select count(*) from public.agilecert_material_source_manifests manifest
+              join cipmn_videos video on video.id = manifest.material_id
+              where manifest.delivery_mode = 'embedded_video'
+                and manifest.source_provider = 'google_drive'
+                and manifest.import_status = 'not_required'
+                and manifest.source_reference ~ '^[A-Za-z0-9_-]{10,200}$'
+            ),
+            'distinctVideoSourceCount', (
+              select count(distinct manifest.source_reference)
+              from public.agilecert_material_source_manifests manifest
+              join cipmn_videos video on video.id = manifest.material_id
+              where manifest.delivery_mode = 'embedded_video'
+                and manifest.source_provider = 'google_drive'
+                and manifest.import_status = 'not_required'
+            ),
+            'publishedVideoCount', (
+              select count(*) from public.agilecert_preparation_materials material
+              join cipmn_videos video on video.id = material.id
+              where material.status = 'published'
+            ),
+            'activeVideoMappingCount', (
+              select count(*) from public.agilecert_exam_materials mapping
+              join cipmn_exams examination on examination.id = mapping.examination_id
+              join cipmn_videos video on video.id = mapping.material_id
+              where mapping.position = 2 and mapping.is_active = true
+            ),
+            'missingReconciledVideoEntitlementCount', (
+              select count(*) from entitled_pdf pdf
+              where not exists (
+                select 1 from public.agilecert_material_entitlements video_entitlement
+                join cipmn_videos video on video.id = video_entitlement.material_id
+                where video_entitlement.candidate_id = pdf.candidate_id
+                  and video_entitlement.examination_id = pdf.examination_id
+                  and video_entitlement.status = 'active'
+              )
+            ),
+            'playbackAuditRlsEnabled', (
+              select relrowsecurity from pg_class
+              where oid = 'public.agilecert_material_playback_audits'::regclass
+            ),
+            'securityDefinerFunctionCount', (
+              select count(*) from pg_proc
+              where proname in (
+                'authorize_my_agilecert_video_playback',
+                'get_my_agilecert_preparation_materials',
+                'refresh_agilecert_material_entitlements',
+                'queue_cipmn_material_access_email'
+              ) and prosecdef = true
+            ),
+            'authenticatedPlaybackExecute',
+              has_function_privilege('authenticated', 'public.authorize_my_agilecert_video_playback(uuid,uuid,text)', 'execute'),
+            'anonymousPlaybackExecute',
+              has_function_privilege('anon', 'public.authorize_my_agilecert_video_playback(uuid,uuid,text)', 'execute'),
+            'materialAccessEmailTriggerCount', (
+              select count(*) from pg_trigger
+              where tgname = 'agilecert_cipmn_material_access_email_after_order' and not tgisinternal
+            ),
+            'duplicateMaterialEmailEventKeys', (
+              select count(*) from (
+                select event_key from public.agilecert_communication_outbox
+                where event_key like 'exam-material-ready:%'
+                group by event_key having count(*) > 1
+              ) duplicates
+            ),
+            'manifestRlsEnabled', (
+              select relrowsecurity from pg_class
+              where oid = 'public.agilecert_material_source_manifests'::regclass
+            )
+          ) as verification;
+          """
+          Path('/tmp/cipmn-video-query.json').write_text(json.dumps({'query': query}), encoding='utf-8')
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/cipmn-video-query.json \
+            -o cipmn-video-production-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('cipmn-video-production-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          expected = {
+              'cipmnExaminationCount': 12,
+              'validatedVideoManifestCount': 12,
+              'distinctVideoSourceCount': 12,
+              'publishedVideoCount': 12,
+              'activeVideoMappingCount': 12,
+              'missingReconciledVideoEntitlementCount': 0,
+              'playbackAuditRlsEnabled': True,
+              'securityDefinerFunctionCount': 4,
+              'authenticatedPlaybackExecute': True,
+              'anonymousPlaybackExecute': False,
+              'materialAccessEmailTriggerCount': 1,
+              'duplicateMaterialEmailEventKeys': 0,
+              'manifestRlsEnabled': True,
+          }
+          for key, value in expected.items():
+              assert result.get(key) == value, (key, result.get(key), value, result)
+          Path('cipmn-video-production-safe.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Confirm no migrations remain pending
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db push --linked --dry-run 2>&1 | tee cipmn-video-post-deploy-dry-run.log
+          grep -q 'Remote database is up to date' cipmn-video-post-deploy-dry-run.log
+
+      - name: Build exact approved frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npx vite build
+          grep -Rqs 'Watch video lesson' dist
+          grep -Rqs 'authorize_my_agilecert_video_playback' dist
+          grep -Rqs 'drive.google.com' dist
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-drive-video-production-evidence-v2
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cipmn-video-expected-migrations.txt
+            cipmn-video-known-legacy-versions.txt
+            cipmn-video-removed-pretracking-migrations.txt
+            cipmn-video-controlled-window.txt
+            cipmn-video-production-dry-run.log
+            cipmn-video-pending-versions.txt
+            cipmn-video-production-deploy.log
+            cipmn-video-production-history.log
+            cipmn-video-production-safe.json
+            cipmn-video-post-deploy-dry-run.log
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload exact Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy and verify exact Pages bundle
+    runs-on: ubuntu-latest
+    needs: release
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Verify live player bundle
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          python3 <<'PY'
+          import os
+          import re
+          import time
+          import urllib.request
+          from urllib.parse import urljoin
+
+          base = os.environ['PAGE_URL'].rstrip('/') + '/'
+          last_error = None
+          for _ in range(18):
+              try:
+                  html = urllib.request.urlopen(urljoin(base, 'index.html'), timeout=20).read().decode('utf-8', 'ignore')
+                  assets = re.findall(r'(?:src|href)="([^"]+\.(?:js|css))"', html)
+                  bundle = ''.join(
+                      urllib.request.urlopen(urljoin(base, asset), timeout=30).read().decode('utf-8', 'ignore')
+                      for asset in assets
+                  )
+                  assert 'Watch video lesson' in bundle
+                  assert 'authorize_my_agilecert_video_playback' in bundle
+                  print('Exact CIPMN video-player bundle is live.')
+                  raise SystemExit(0)
+              except Exception as exc:
+                  last_error = exc
+                  time.sleep(10)
+          raise SystemExit(f'Live Pages verification failed: {last_error}')
+          PY
