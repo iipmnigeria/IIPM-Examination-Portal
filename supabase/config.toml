@@ -6,6 +6,12 @@ verify_jwt = false
 [functions.verify-exam-payment]
 verify_jwt = false
 
+[functions.initialize-exam-cart-payment]
+verify_jwt = false
+
+[functions.verify-exam-cart-payment]
+verify_jwt = false
+
 [functions.paystack-webhook]
 verify_jwt = false
 

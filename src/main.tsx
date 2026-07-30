@@ -19,6 +19,7 @@ import AiCertificationAdviser from './components/AiCertificationAdviser';
 import AiCvEnhancementLauncher from './components/AiCvEnhancementLauncher';
 import CandidateCertificateCommerce from './components/CandidateCertificateCommerce';
 import CandidateCertificateWorkspace from './components/CandidateCertificateWorkspace';
+import CandidateCipmnModuleCart from './components/CandidateCipmnModuleCart';
 import CandidateCipmnRemediationWorkspace from './components/CandidateCipmnRemediationWorkspace';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
 import CandidateCommunicationPreferences from './components/CandidateCommunicationPreferences';
@@ -167,6 +168,7 @@ createRoot(rootElement).render(
       <CandidateOnboardingBoundary>
         <App />
         <CandidatePrimaryToolsMenu />
+        <CandidateCipmnModuleCart />
         <AdminPrimaryToolsMenu />
         <AgileCertPolicyExperience />
         <CandidateCommerceOverlay />
