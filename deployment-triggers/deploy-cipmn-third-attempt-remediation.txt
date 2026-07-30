@@ -1,1 +1,1 @@
-Trigger the controlled deployment of source commit c82672cd096ecdeba37e3b073e173c46be0b865d and exactly these migrations: 202607301730, 202607301731 and 202607301732. This trigger pull request must not be merged.
+Trigger the controlled deployment of source commit c82672cd096ecdeba37e3b073e173c46be0b865d and exactly these migrations: 202607301730, 202607301731 and 202607301732. Retry after preserving the complete production migration history. This trigger pull request must not be merged.
