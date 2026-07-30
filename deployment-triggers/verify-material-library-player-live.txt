@@ -1,0 +1,3 @@
+Read-only verification for the materials search, examination tags, centred player and sandboxed Google Drive playback release.
+
+This verifier changes no application source, database, video mapping, payment authority or production configuration.
