@@ -102,31 +102,11 @@ begin
     )
   )
   on conflict (event_key) do update
-  set message_type = case
-        when public.agilecert_communication_outbox.status in ('queued', 'failed')
-          then 'admin_message'
-        else public.agilecert_communication_outbox.message_type
-      end,
-      category = case
-        when public.agilecert_communication_outbox.status in ('queued', 'failed')
-          then 'operational'
-        else public.agilecert_communication_outbox.category
-      end,
-      subject = case
-        when public.agilecert_communication_outbox.status in ('queued', 'failed')
-          then excluded.subject
-        else public.agilecert_communication_outbox.subject
-      end,
-      payload = case
-        when public.agilecert_communication_outbox.status in ('queued', 'failed')
-          then excluded.payload
-        else public.agilecert_communication_outbox.payload
-      end,
-      due_at = case
-        when public.agilecert_communication_outbox.status in ('queued', 'failed')
-          then least(public.agilecert_communication_outbox.due_at, excluded.due_at)
-        else public.agilecert_communication_outbox.due_at
-      end,
+  set message_type = 'admin_message',
+      category = 'operational',
+      subject = excluded.subject,
+      payload = excluded.payload,
+      due_at = least(public.agilecert_communication_outbox.due_at, excluded.due_at),
       next_attempt_at = case
         when public.agilecert_communication_outbox.status = 'failed' then now()
         else public.agilecert_communication_outbox.next_attempt_at
@@ -144,7 +124,14 @@ begin
         else public.agilecert_communication_outbox.status
       end,
       updated_at = now()
+  where public.agilecert_communication_outbox.status in ('queued', 'failed')
   returning id into v_outbox_id;
+
+  -- A conflict against an already sent/delivered record intentionally returns no
+  -- row because the WHERE clause prevents mutation. Do not create a duplicate event.
+  if v_outbox_id is null then
+    return;
+  end if;
 
   insert into public.agilecert_communication_events(
     outbox_id,
