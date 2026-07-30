@@ -10,6 +10,7 @@ on:
       - 'src/main.tsx'
       - 'supabase/migrations/202607301730_cipmn_third_attempt_remediation.sql'
       - 'supabase/migrations/202607301731_cipmn_review_snapshot_decoupling.sql'
+      - 'supabase/migrations/202607301732_cipmn_review_composite_row_fix.sql'
       - 'supabase/tests/cipmn_third_attempt_remediation_smoke.sql'
       - '.github/workflows/validate-cipmn-third-attempt-remediation.yml'
   pull_request:
@@ -21,6 +22,7 @@ on:
       - 'src/main.tsx'
       - 'supabase/migrations/202607301730_cipmn_third_attempt_remediation.sql'
       - 'supabase/migrations/202607301731_cipmn_review_snapshot_decoupling.sql'
+      - 'supabase/migrations/202607301732_cipmn_review_composite_row_fix.sql'
       - 'supabase/tests/cipmn_third_attempt_remediation_smoke.sql'
       - '.github/workflows/validate-cipmn-third-attempt-remediation.yml'
   workflow_dispatch:
@@ -166,7 +168,7 @@ jobs:
           SQL
           grep -q 'agilecert_prepare_cipmn_third_attempt_review_insert_trigger' cipmn-remediation-schema.log
           grep -q 'get_my_cipmn_attempt_review' cipmn-remediation-schema.log
-          grep -Eq '3[[:space:]]+12' cipmn-remediation-schema.log
+          grep -Eq '3[[:space:]]*\|[[:space:]]*12' cipmn-remediation-schema.log
       - name: Upload database evidence
         if: always()
         uses: actions/upload-artifact@v4
