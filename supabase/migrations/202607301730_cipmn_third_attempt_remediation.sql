@@ -1,28 +1,23 @@
 begin;
 
 -- Phase 1: CIPMN third-attempt remediation.
--- Correct answers remain protected until the candidate's third completed attempt.
--- The detailed answer review stays inside the authenticated portal; email contains
--- only learning explanations and a secure portal call-to-action.
+-- One paid or authorised module access now permits three attempts. Correct answers
+-- remain server-protected until the third completed attempt and integrity clearance.
 
 update public.examinations e
-set max_attempts = 3,
-    updated_at = now()
+set max_attempts = 3, updated_at = now()
 from public.programmes p
 where p.id = e.programme_id
   and p.code = 'CIPMN-MOCK'
   and e.max_attempts <> 3;
 
--- Existing paid/waived access is expanded to the approved three-attempt policy.
--- Revoked and expired access is never reopened.
 update public.exam_assignments a
-set max_attempts_override = case
-      when a.max_attempts_override is null or a.max_attempts_override < 3 then 3
-      else a.max_attempts_override
-    end,
+set max_attempts_override = greatest(coalesce(a.max_attempts_override, 3), 3),
     status = case
       when a.status = 'completed'
-       and (select count(*) from public.attempts at where at.examination_id = a.examination_id and at.candidate_id = a.candidate_id) < 3
+       and (select count(*) from public.attempts attempted
+            where attempted.examination_id = a.examination_id
+              and attempted.candidate_id = a.candidate_id) < 3
       then 'assigned'
       else a.status
     end,
@@ -32,7 +27,10 @@ join public.programmes p on p.id = e.programme_id
 where e.id = a.examination_id
   and p.code = 'CIPMN-MOCK'
   and a.status in ('assigned', 'completed')
-  and (a.max_attempts_override is null or a.max_attempts_override < 3 or a.status = 'completed');
+  and (
+    coalesce(a.max_attempts_override, 0) < 3
+    or a.status = 'completed'
+  );
 
 create table if not exists public.agilecert_cipmn_attempt_reviews (
   id uuid primary key default extensions.gen_random_uuid(),
@@ -69,8 +67,6 @@ create table if not exists public.agilecert_cipmn_attempt_review_items (
 
 create index if not exists agilecert_cipmn_attempt_reviews_candidate_idx
   on public.agilecert_cipmn_attempt_reviews(candidate_id, created_at desc);
-create index if not exists agilecert_cipmn_attempt_reviews_exam_idx
-  on public.agilecert_cipmn_attempt_reviews(examination_id, created_at desc);
 create index if not exists agilecert_cipmn_attempt_review_items_review_idx
   on public.agilecert_cipmn_attempt_review_items(review_id, question_number);
 
@@ -79,21 +75,58 @@ alter table public.agilecert_cipmn_attempt_review_items enable row level securit
 revoke all on table public.agilecert_cipmn_attempt_reviews from public, anon, authenticated;
 revoke all on table public.agilecert_cipmn_attempt_review_items from public, anon, authenticated;
 
--- Add the operational remediation message to the existing controlled outbox.
-alter table public.agilecert_communication_outbox
-  drop constraint if exists agilecert_communication_outbox_message_type_check;
-alter table public.agilecert_communication_outbox
-  add constraint agilecert_communication_outbox_message_type_check
-  check (message_type in (
-    'preparation_material_ready', 'certificate_offer_immediate', 'certificate_offer_day_2',
-    'certificate_offer_day_5', 'certificate_offer_day_7', 'certificate_purchase_confirmation',
-    'credential_ready', 'course_recommendation', 'admin_message',
-    'cipmn_third_attempt_remediation'
-  ));
+create or replace function public.agilecert_cipmn_attempt_number(p_attempt_id uuid)
+returns integer
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with target as (
+    select candidate_id, examination_id
+    from public.attempts
+    where id = p_attempt_id
+  ), ranked as (
+    select a.id,
+      row_number() over (
+        partition by a.candidate_id, a.examination_id
+        order by a.submitted_at, a.created_at, a.id
+      )::integer as attempt_number
+    from public.attempts a
+    join target t
+      on t.candidate_id = a.candidate_id
+     and t.examination_id = a.examination_id
+  )
+  select attempt_number from ranked where id = p_attempt_id
+$$;
 
-create or replace function public.agilecert_prepare_cipmn_third_attempt_review(
-  p_attempt_id uuid
-)
+create or replace function public.agilecert_cipmn_review_is_releasable(p_attempt_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce((
+    select
+      p.code = 'CIPMN-MOCK'
+      and a.status in ('submitted', 'reviewed')
+      and public.agilecert_cipmn_attempt_number(a.id) = 3
+      and not exists (
+        select 1
+        from public.agilecert_misconduct_cases c
+        where c.attempt_id = a.id
+          and c.result_hold = true
+          and c.status <> 'closed'
+      )
+    from public.attempts a
+    join public.examinations e on e.id = a.examination_id
+    join public.programmes p on p.id = e.programme_id
+    where a.id = p_attempt_id
+  ), false)
+$$;
+
+create or replace function public.agilecert_prepare_cipmn_third_attempt_review(p_attempt_id uuid)
 returns void
 language plpgsql
 security definer
@@ -103,42 +136,32 @@ declare
   v_attempt public.attempts%rowtype;
   v_exam public.examinations%rowtype;
   v_programme_code text;
-  v_attempt_number integer;
   v_review_id uuid;
   v_question_count integer := 0;
   v_incorrect_count integer := 0;
   v_email text;
   v_email_hash text;
-  v_operational_messages boolean := true;
-  v_result_held boolean := false;
   v_outbox_id uuid;
+  v_highlights text;
 begin
-  select * into v_attempt
-  from public.attempts
-  where id = p_attempt_id;
+  select a into v_attempt
+  from public.attempts a
+  where a.id = p_attempt_id;
   if not found then return; end if;
 
-  select e.*, p.code
-  into v_exam, v_programme_code
+  select e into v_exam
   from public.examinations e
-  join public.programmes p on p.id = e.programme_id
   where e.id = v_attempt.examination_id;
-  if not found or v_programme_code <> 'CIPMN-MOCK' then return; end if;
+  if not found then return; end if;
 
-  select ranked.attempt_number into v_attempt_number
-  from (
-    select a.id,
-      row_number() over (
-        partition by a.candidate_id, a.examination_id
-        order by a.submitted_at, a.created_at, a.id
-      )::integer as attempt_number
-    from public.attempts a
-    where a.candidate_id = v_attempt.candidate_id
-      and a.examination_id = v_attempt.examination_id
-  ) ranked
-  where ranked.id = v_attempt.id;
+  select p.code into v_programme_code
+  from public.programmes p
+  where p.id = v_exam.programme_id;
 
-  if coalesce(v_attempt_number, 0) <> 3 then return; end if;
+  if v_programme_code <> 'CIPMN-MOCK'
+     or public.agilecert_cipmn_attempt_number(v_attempt.id) <> 3 then
+    return;
+  end if;
 
   insert into public.agilecert_cipmn_attempt_reviews(
     attempt_id, examination_id, candidate_id, attempt_number
@@ -148,8 +171,8 @@ begin
   on conflict (attempt_id) do update set updated_at = now()
   returning id into v_review_id;
 
-  -- Snapshot only failed/unanswered questions. The snapshot prevents a later
-  -- question-bank revision from changing a candidate's historical review.
+  -- Snapshot only incorrect or unanswered questions. This prevents a later
+  -- question-bank revision from changing a historical candidate review.
   insert into public.agilecert_cipmn_attempt_review_items(
     review_id, question_id, question_number, question_text,
     selected_option_id, selected_option_position, selected_option_text,
@@ -160,23 +183,26 @@ begin
     q.id,
     q.position,
     q.question_text,
-    ca.selected_option_id,
+    answer.selected_option_id,
     selected_option.position,
     selected_option.option_text,
     answer_key.correct_option_id,
     correct_option.position,
     correct_option.option_text,
-    coalesce(nullif(trim(answer_key.explanation), ''),
-      'Review the relevant module concept and compare the selected response with the professionally appropriate action.')
+    coalesce(
+      nullif(trim(answer_key.explanation), ''),
+      'Review the relevant module concept and compare the selected response with the professionally appropriate action.'
+    )
   from public.questions q
   join public.question_answer_keys answer_key on answer_key.question_id = q.id
   join public.question_options correct_option on correct_option.id = answer_key.correct_option_id
-  left join public.candidate_answers ca
-    on ca.session_id = v_attempt.session_id and ca.question_id = q.id
-  left join public.question_options selected_option on selected_option.id = ca.selected_option_id
+  left join public.candidate_answers answer
+    on answer.session_id = v_attempt.session_id
+   and answer.question_id = q.id
+  left join public.question_options selected_option on selected_option.id = answer.selected_option_id
   where q.examination_id = v_attempt.examination_id
     and q.is_active = true
-    and ca.selected_option_id is distinct from answer_key.correct_option_id
+    and answer.selected_option_id is distinct from answer_key.correct_option_id
   on conflict (review_id, question_id) do nothing;
 
   select count(*) into v_question_count
@@ -188,29 +214,20 @@ begin
   where item.review_id = v_review_id;
 
   update public.agilecert_cipmn_attempt_reviews
-  set question_count = v_question_count,
+  set question_count = case when question_count = 0 then v_question_count else question_count end,
       incorrect_count = v_incorrect_count,
       updated_at = now()
   where id = v_review_id;
 
-  select exists (
-    select 1
-    from public.agilecert_misconduct_cases c
-    where c.attempt_id = v_attempt.id
-      and c.result_hold = true
-      and c.status <> 'closed'
-  ) into v_result_held;
-
-  -- A held, flagged or terminated result must not release protected answers or email.
-  if v_attempt.status not in ('submitted', 'reviewed') or v_result_held then
+  if not public.agilecert_cipmn_review_is_releasable(v_attempt.id) then
     update public.agilecert_communication_outbox
     set status = 'cancelled',
         cancelled_at = now(),
         failure_code = 'cipmn_integrity_hold',
-        failure_message = 'The detailed remediation review is withheld pending examination-integrity clearance.',
+        failure_message = 'The remediation review is withheld pending examination-integrity clearance.',
         updated_at = now()
     where event_key = 'cipmn-third-attempt-remediation:' || v_attempt.id::text
-      and status in ('queued', 'failed', 'processing');
+      and status in ('queued', 'processing', 'failed');
     return;
   end if;
 
@@ -224,10 +241,24 @@ begin
   values (v_attempt.candidate_id)
   on conflict (candidate_id) do nothing;
 
-  select pref.operational_messages into v_operational_messages
-  from public.agilecert_communication_preferences pref
-  where pref.candidate_id = v_attempt.candidate_id;
-  if not coalesce(v_operational_messages, true) then return; end if;
+  if not coalesce((
+    select pref.operational_messages
+    from public.agilecert_communication_preferences pref
+    where pref.candidate_id = v_attempt.candidate_id
+  ), true) then
+    return;
+  end if;
+
+  select string_agg(format('%s. %s', learning.ordinality, learning.explanation), E'\n')
+  into v_highlights
+  from (
+    select item.explanation,
+      row_number() over (order by item.question_number)::integer as ordinality
+    from public.agilecert_cipmn_attempt_review_items item
+    where item.review_id = v_review_id
+    order by item.question_number
+    limit 6
+  ) learning;
 
   insert into public.agilecert_communication_outbox(
     candidate_id, recipient_email, recipient_email_hash, message_type, category,
@@ -236,34 +267,38 @@ begin
     v_attempt.candidate_id,
     v_email,
     v_email_hash,
-    'cipmn_third_attempt_remediation',
+    'admin_message',
     'operational',
     'cipmn-third-attempt-remediation:' || v_attempt.id::text,
     now(),
     jsonb_build_object(
+      'recipientName', coalesce((select p.full_name from public.profiles p where p.id = v_attempt.candidate_id), 'Candidate'),
+      'senderName', 'AgileCert Examination Support',
+      'subject', 'Your CIPMN third-attempt remediation review is ready',
+      'body', concat(
+        'You have completed attempt 3 of ', v_exam.title, '.', E'\n\n',
+        'Score: ', trim(to_char(v_attempt.percentage, 'FM999990.00')), '%.', E'\n',
+        'Responses requiring review: ', v_incorrect_count, ' of ', v_question_count, '.', E'\n\n',
+        case
+          when coalesce(v_highlights, '') = '' then
+            'No incorrect responses were recorded. Your secure review remains available in the portal for confirmation.'
+          else
+            'Key learning explanations from the responses you missed:' || E'\n' || v_highlights
+        end,
+        E'\n\n',
+        'Sign in to AgileCert Global to view the protected question-by-question review, including your selected answer, the correct answer and the full explanation. For examination security, the detailed answer key is not reproduced in email.'
+      ),
       'attemptId', v_attempt.id,
       'examinationId', v_attempt.examination_id,
-      'examinationTitle', v_exam.title,
       'attemptNumber', 3,
-      'score', v_attempt.percentage,
-      'passMark', v_exam.pass_mark,
-      'questionCount', v_question_count,
       'incorrectCount', v_incorrect_count,
-      'reviewHighlights', coalesce((
-        select jsonb_agg(highlight.explanation order by highlight.question_number)
-        from (
-          select item.question_number, left(item.explanation, 700) as explanation
-          from public.agilecert_cipmn_attempt_review_items item
-          where item.review_id = v_review_id
-          order by item.question_number
-          limit 6
-        ) highlight
-      ), '[]'::jsonb)
+      'questionCount', v_question_count
     )
   )
   on conflict (event_key) do update set
     recipient_email = excluded.recipient_email,
     recipient_email_hash = excluded.recipient_email_hash,
+    payload = excluded.payload,
     due_at = case
       when public.agilecert_communication_outbox.status = 'cancelled'
        and public.agilecert_communication_outbox.failure_code = 'cipmn_integrity_hold'
@@ -288,7 +323,6 @@ begin
       when public.agilecert_communication_outbox.failure_code = 'cipmn_integrity_hold' then null
       else public.agilecert_communication_outbox.failure_message
     end,
-    payload = excluded.payload,
     updated_at = now()
   returning id into v_outbox_id;
 
@@ -359,36 +393,30 @@ begin
     raise exception 'An active candidate account is required.';
   end if;
 
-  -- Lazily creates a review for a historical third attempt if required.
   for v_attempt_id in
-    select ranked.id
-    from (
-      select a.id,
-        row_number() over (
-          partition by a.candidate_id, a.examination_id
-          order by a.submitted_at, a.created_at, a.id
-        )::integer as attempt_number
-      from public.attempts a
-      join public.examinations e on e.id = a.examination_id
-      join public.programmes p on p.id = e.programme_id
-      where a.candidate_id = v_candidate_id and p.code = 'CIPMN-MOCK'
-    ) ranked
-    where ranked.attempt_number = 3
+    select a.id
+    from public.attempts a
+    join public.examinations e on e.id = a.examination_id
+    join public.programmes p on p.id = e.programme_id
+    where a.candidate_id = v_candidate_id
+      and p.code = 'CIPMN-MOCK'
+      and public.agilecert_cipmn_attempt_number(a.id) = 3
   loop
     perform public.agilecert_prepare_cipmn_third_attempt_review(v_attempt_id);
   end loop;
 
   with ranked as (
     select
-      a.*,
+      a.id,
+      a.examination_id,
+      a.percentage,
+      a.status,
+      a.submitted_at,
       e.title as examination_title,
       e.pass_mark,
       e.max_attempts as examination_max_attempts,
       s.assignment_id,
-      row_number() over (
-        partition by a.candidate_id, a.examination_id
-        order by a.submitted_at, a.created_at, a.id
-      )::integer as attempt_number
+      public.agilecert_cipmn_attempt_number(a.id) as attempt_number
     from public.attempts a
     join public.examinations e on e.id = a.examination_id
     join public.programmes p on p.id = e.programme_id
@@ -406,15 +434,7 @@ begin
       'passMark', ranked.pass_mark,
       'status', ranked.status,
       'submittedAt', ranked.submitted_at,
-      'reviewAvailable', (
-        ranked.attempt_number = 3
-        and ranked.status in ('submitted', 'reviewed')
-        and review.id is not null
-        and not exists (
-          select 1 from public.agilecert_misconduct_cases c
-          where c.attempt_id = ranked.id and c.result_hold = true and c.status <> 'closed'
-        )
-      ),
+      'reviewAvailable', public.agilecert_cipmn_review_is_releasable(ranked.id) and review.id is not null,
       'incorrectCount', case when ranked.attempt_number = 3 then review.incorrect_count else null end,
       'questionCount', case when ranked.attempt_number = 3 then review.question_count else null end,
       'reviewEmailStatus', outbox.status
@@ -430,9 +450,7 @@ begin
 end;
 $$;
 
-create or replace function public.get_my_cipmn_attempt_review(
-  p_attempt_id uuid
-)
+create or replace function public.get_my_cipmn_attempt_review(p_attempt_id uuid)
 returns jsonb
 language plpgsql
 security definer
@@ -443,9 +461,7 @@ declare
   v_attempt public.attempts%rowtype;
   v_exam public.examinations%rowtype;
   v_programme_code text;
-  v_attempt_number integer;
   v_review public.agilecert_cipmn_attempt_reviews%rowtype;
-  v_result_held boolean := false;
   v_payload jsonb;
 begin
   if v_candidate_id is null or not exists (
@@ -455,51 +471,33 @@ begin
     raise exception 'An active candidate account is required.';
   end if;
 
-  select * into v_attempt
-  from public.attempts
-  where id = p_attempt_id and candidate_id = v_candidate_id;
+  select a into v_attempt
+  from public.attempts a
+  where a.id = p_attempt_id and a.candidate_id = v_candidate_id;
   if not found then raise exception 'The selected attempt was not found.'; end if;
 
-  select e.*, p.code into v_exam, v_programme_code
+  select e into v_exam
   from public.examinations e
-  join public.programmes p on p.id = e.programme_id
   where e.id = v_attempt.examination_id;
+  select p.code into v_programme_code
+  from public.programmes p
+  where p.id = v_exam.programme_id;
+
   if v_programme_code <> 'CIPMN-MOCK' then
     raise exception 'Detailed remediation is available only for approved CIPMN module examinations.';
   end if;
-
-  select ranked.attempt_number into v_attempt_number
-  from (
-    select a.id,
-      row_number() over (
-        partition by a.candidate_id, a.examination_id
-        order by a.submitted_at, a.created_at, a.id
-      )::integer as attempt_number
-    from public.attempts a
-    where a.candidate_id = v_candidate_id and a.examination_id = v_attempt.examination_id
-  ) ranked
-  where ranked.id = v_attempt.id;
-
-  if coalesce(v_attempt_number, 0) < 3 then
-    raise exception 'Correct-answer remediation unlocks only after the third completed attempt.';
-  end if;
-  if v_attempt_number <> 3 then
-    raise exception 'The protected remediation record belongs to the third attempt.';
+  if public.agilecert_cipmn_attempt_number(v_attempt.id) <> 3 then
+    raise exception 'Correct-answer remediation unlocks only for the third completed attempt.';
   end if;
 
   perform public.agilecert_prepare_cipmn_third_attempt_review(v_attempt.id);
-
-  select exists (
-    select 1 from public.agilecert_misconduct_cases c
-    where c.attempt_id = v_attempt.id and c.result_hold = true and c.status <> 'closed'
-  ) into v_result_held;
-  if v_attempt.status not in ('submitted', 'reviewed') or v_result_held then
+  if not public.agilecert_cipmn_review_is_releasable(v_attempt.id) then
     raise exception 'The detailed remediation review is withheld pending examination-integrity clearance.';
   end if;
 
-  select * into v_review
-  from public.agilecert_cipmn_attempt_reviews
-  where attempt_id = v_attempt.id and candidate_id = v_candidate_id
+  select review into v_review
+  from public.agilecert_cipmn_attempt_reviews review
+  where review.attempt_id = v_attempt.id and review.candidate_id = v_candidate_id
   for update;
   if not found then raise exception 'The third-attempt remediation review is not yet available.'; end if;
 
@@ -540,7 +538,10 @@ begin
 
   insert into public.audit_logs(actor_id, action, entity_type, entity_id, metadata)
   values (
-    v_candidate_id, 'open_cipmn_third_attempt_review', 'attempt', v_attempt.id::text,
+    v_candidate_id,
+    'open_cipmn_third_attempt_review',
+    'attempt',
+    v_attempt.id::text,
     jsonb_build_object('incorrectCount', v_review.incorrect_count, 'openCount', v_review.open_count)
   );
 
@@ -548,14 +549,12 @@ begin
 end;
 $$;
 
-revoke all on function public.agilecert_prepare_cipmn_third_attempt_review(uuid)
-  from public, anon, authenticated;
-revoke all on function public.agilecert_prepare_cipmn_third_attempt_review_trigger()
-  from public, anon, authenticated;
-revoke all on function public.get_my_cipmn_remediation_attempts()
-  from public, anon, authenticated;
-revoke all on function public.get_my_cipmn_attempt_review(uuid)
-  from public, anon, authenticated;
+revoke all on function public.agilecert_cipmn_attempt_number(uuid) from public, anon, authenticated;
+revoke all on function public.agilecert_cipmn_review_is_releasable(uuid) from public, anon, authenticated;
+revoke all on function public.agilecert_prepare_cipmn_third_attempt_review(uuid) from public, anon, authenticated;
+revoke all on function public.agilecert_prepare_cipmn_third_attempt_review_trigger() from public, anon, authenticated;
+revoke all on function public.get_my_cipmn_remediation_attempts() from public, anon, authenticated;
+revoke all on function public.get_my_cipmn_attempt_review(uuid) from public, anon, authenticated;
 grant execute on function public.get_my_cipmn_remediation_attempts() to authenticated;
 grant execute on function public.get_my_cipmn_attempt_review(uuid) to authenticated;
 
