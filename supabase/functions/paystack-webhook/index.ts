@@ -31,6 +31,16 @@ type ExamOrder = {
   fulfilled_at: string | null;
 };
 
+type BulkOrder = {
+  id: string;
+  reference: string;
+  candidate_id: string;
+  currency: string;
+  payable_amount_minor: number;
+  status: string;
+  fulfilled_at: string | null;
+};
+
 const legacyWebhookUrl = (
   Deno.env.get('LEGACY_PAYSTACK_WEBHOOK_URL') ||
   'https://iipmi.org/wc-api/Tbz_WC_Paystack_Webhook/'
@@ -104,6 +114,85 @@ Deno.serve(async (request: Request) => {
     }
 
     const admin = adminClient();
+
+    const { data: bulkOrderData, error: bulkOrderError } = await admin
+      .from('exam_bulk_orders')
+      .select('id, reference, candidate_id, currency, payable_amount_minor, status, fulfilled_at')
+      .eq('reference', reference)
+      .maybeSingle();
+
+    if (bulkOrderError) throw new Error(bulkOrderError.message);
+
+    if (bulkOrderData) {
+      const bulkOrder = bulkOrderData as BulkOrder;
+
+      if (bulkOrder.status === 'fulfilled' && bulkOrder.fulfilled_at) {
+        return jsonResponse(request, {
+          received: true,
+          alreadyFulfilled: true,
+          bulkOrderId: bulkOrder.id,
+        });
+      }
+
+      if (!['pending', 'paid', 'partially_fulfilled'].includes(bulkOrder.status)) {
+        return jsonResponse(request, {
+          received: true,
+          ignored: true,
+          reason: `bulk_order_status_${bulkOrder.status}`,
+        });
+      }
+
+      const transaction = await verifyPaystackTransaction(reference);
+      const transactionReference = String(transaction.reference || '');
+      const transactionCurrency = String(transaction.currency || '').toUpperCase();
+      const requestedAmount = paystackRequestedAmount(transaction);
+      const transactionStatus = String(transaction.status || '').toLowerCase();
+      const transactionEmail = String(transaction.customer?.email || '').toLowerCase();
+
+      if (transactionStatus !== 'success') {
+        throw new Error(`Paystack verification returned status ${transactionStatus || 'unknown'}.`);
+      }
+      if (transactionReference !== bulkOrder.reference) {
+        throw new Error('Webhook transaction reference does not match the consolidated order.');
+      }
+      if (transactionCurrency !== bulkOrder.currency.toUpperCase()) {
+        throw new Error('Webhook transaction currency does not match the consolidated order.');
+      }
+      if (requestedAmount !== Number(bulkOrder.payable_amount_minor)) {
+        throw new Error('Webhook transaction amount does not match the consolidated order.');
+      }
+
+      const { data: profile, error: profileError } = await admin
+        .from('profiles')
+        .select('email')
+        .eq('id', bulkOrder.candidate_id)
+        .single();
+
+      if (profileError) throw new Error(profileError.message);
+      const candidateEmail = String(profile.email || '').toLowerCase();
+      if (transactionEmail && candidateEmail && transactionEmail !== candidateEmail) {
+        throw new Error('Webhook transaction email does not match the consolidated-order candidate.');
+      }
+
+      const { data: fulfilment, error: fulfilmentError } = await admin.rpc(
+        'fulfil_paid_exam_bulk_order',
+        {
+          p_bulk_order_id: bulkOrder.id,
+          p_provider_transaction_id: String(transaction.id || event.data?.id || ''),
+          p_provider_payload: transaction,
+        },
+      );
+
+      if (fulfilmentError) throw new Error(fulfilmentError.message);
+
+      return jsonResponse(request, {
+        received: true,
+        fulfilled: true,
+        bulkOrderId: bulkOrder.id,
+        result: fulfilment,
+      });
+    }
+
     const { data: orderData, error: orderError } = await admin
       .from('exam_orders')
       .select('id, reference, candidate_id, examination_id, currency, payable_amount_minor, status, fulfilled_at')

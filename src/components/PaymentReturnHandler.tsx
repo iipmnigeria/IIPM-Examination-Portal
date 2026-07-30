@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Loader2, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { verifyExamCartPayment } from '../services/cartCommerceService';
 import { verifyExamPayment } from '../services/commerceService';
 
 type VerificationState = 'idle' | 'verifying' | 'success' | 'error';
@@ -23,6 +24,13 @@ function isPaymentReturn(): boolean {
   );
 }
 
+function isBulkReference(reference: string): boolean {
+  return (
+    reference.toUpperCase().startsWith('IIPM-BULK-') ||
+    sessionStorage.getItem('iipm_pending_payment_kind') === 'exam_bulk'
+  );
+}
+
 function clearPaymentParameters(): void {
   const url = new URL(window.location.href);
   url.searchParams.delete('payment');
@@ -30,6 +38,7 @@ function clearPaymentParameters(): void {
   url.searchParams.delete('trxref');
   window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
   sessionStorage.removeItem('iipm_pending_payment_reference');
+  sessionStorage.removeItem('iipm_pending_payment_kind');
 }
 
 export default function PaymentReturnHandler() {
@@ -37,6 +46,7 @@ export default function PaymentReturnHandler() {
   const [state, setState] = useState<VerificationState>(shouldVerify ? 'verifying' : 'idle');
   const [message, setMessage] = useState('Confirming your Paystack transaction…');
   const [reference] = useState(() => paymentReferenceFromBrowser());
+  const bulkPayment = useMemo(() => isBulkReference(reference), [reference]);
 
   const verify = async () => {
     if (!reference) {
@@ -47,16 +57,40 @@ export default function PaymentReturnHandler() {
 
     try {
       setState('verifying');
-      setMessage('Confirming your Paystack transaction and unlocking the examination…');
-      const result = await verifyExamPayment(reference);
+      setMessage(
+        bulkPayment
+          ? 'Confirming your Paystack transaction and unlocking all modules in the cart…'
+          : 'Confirming your Paystack transaction and unlocking the examination…',
+      );
 
-      if (!result.canLaunch) {
-        throw new Error('Payment was verified but examination access was not granted.');
+      if (bulkPayment) {
+        const result = await verifyExamCartPayment(reference);
+        if (!result.canLaunch) {
+          throw new Error('Payment was verified but no examination access was granted.');
+        }
+        if (result.requiresSupport || result.status === 'partially_fulfilled') {
+          throw new Error(
+            'Payment was verified and some modules were unlocked, but at least one module requires an automatic fulfilment retry. Contact IIPM support with this reference if it remains unavailable.',
+          );
+        }
+
+        setState('success');
+        setMessage(
+          `Payment verified. ${result.itemCount || result.items?.length || 0} selected module${
+            (result.itemCount || result.items?.length || 0) === 1 ? ' is' : 's are'
+          } now available.`,
+        );
+      } else {
+        const result = await verifyExamPayment(reference);
+        if (!result.canLaunch) {
+          throw new Error('Payment was verified but examination access was not granted.');
+        }
+        setState('success');
+        setMessage('Payment verified. Your examination is now unlocked.');
       }
 
-      setState('success');
-      setMessage('Payment verified. Your examination is now unlocked.');
       sessionStorage.removeItem('iipm_pending_payment_reference');
+      sessionStorage.removeItem('iipm_pending_payment_kind');
       window.dispatchEvent(new Event('iipm-commerce-refresh'));
     } catch (error: any) {
       setState('error');
@@ -70,17 +104,17 @@ export default function PaymentReturnHandler() {
   }, [shouldVerify, reference]);
 
   useEffect(() => {
-      if (state !== 'success') return;
+    if (state !== 'success') return;
 
-      const closeTimer = window.setTimeout(() => {
-        clearPaymentParameters();
-        setState('idle');
-      }, 1200);
+    const closeTimer = window.setTimeout(() => {
+      clearPaymentParameters();
+      setState('idle');
+    }, 1800);
 
-      return () => window.clearTimeout(closeTimer);
-    }, [state]);
+    return () => window.clearTimeout(closeTimer);
+  }, [state]);
 
-    if (state === 'idle') return null;
+  if (state === 'idle') return null;
 
   const close = () => {
     clearPaymentParameters();
@@ -113,7 +147,9 @@ export default function PaymentReturnHandler() {
               <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-emerald-400">
                 Secure Payment Verification
               </p>
-              <h2 className="text-lg font-extrabold">IIPM Examination Access</h2>
+              <h2 className="text-lg font-extrabold">
+                {bulkPayment ? 'IIPM Multi-Module Access' : 'IIPM Examination Access'}
+              </h2>
             </div>
           </div>
           {state !== 'verifying' && (
