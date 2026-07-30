@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
@@ -45,6 +45,11 @@ type CartCatalogueTest = Test & {
   defaultPrice?: CataloguePrice | null;
 };
 
+type CardPortalRoot = {
+  examinationId: string;
+  element: HTMLElement;
+};
+
 const formatMinor = (amountMinor: number, currency: string): string => {
   try {
     return new Intl.NumberFormat(undefined, {
@@ -60,9 +65,13 @@ const formatMinor = (amountMinor: number, currency: string): string => {
 
 const moduleCode = (title: string): string => title.match(/CIPMN-MOD-\d{3}/i)?.[0] || 'CIPMN';
 
+const isUnlocked = (test: CartCatalogueTest): boolean =>
+  Boolean(test.canLaunch || test.accessStatus === 'unlocked');
+
 export default function CandidateCipmnModuleCart() {
   const [isCandidate, setIsCandidate] = useState(false);
   const [menuRoot, setMenuRoot] = useState<HTMLElement | null>(null);
+  const [cardRoots, setCardRoots] = useState<CardPortalRoot[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [catalogue, setCatalogue] = useState<CartCatalogueTest[]>([]);
   const [cart, setCart] = useState<ExamCart | null>(null);
@@ -70,26 +79,46 @@ export default function CandidateCipmnModuleCart() {
   const [orders, setOrders] = useState<ExamBulkOrder[]>([]);
   const [currency, setCurrency] = useState('NGN');
   const [couponCode, setCouponCode] = useState('');
+  const [workspaceReady, setWorkspaceReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const panelRef = useRef<HTMLDivElement>(null);
+  const loadRequestRef = useRef(0);
+  const quoteRequestRef = useRef(0);
 
   const cipmnModules = useMemo(
-    () => catalogue.filter((test) => test.course === 'CIPMN-MOCK').sort((a, b) => a.title.localeCompare(b.title)),
+    () => catalogue
+      .filter((test) => test.course === 'CIPMN-MOCK')
+      .sort((a, b) => a.title.localeCompare(b.title)),
     [catalogue],
   );
+
+  const moduleById = useMemo(
+    () => new Map(cipmnModules.map((test) => [test.id, test])),
+    [cipmnModules],
+  );
+
   const selectedIds = useMemo(
     () => new Set((cart?.items || []).map((item) => item.examinationId)),
     [cart],
   );
+
   const selectedModules = useMemo(
     () => cipmnModules.filter((test) => selectedIds.has(test.id)),
     [cipmnModules, selectedIds],
   );
+
+  const cartItemKey = useMemo(
+    () => (cart?.items || [])
+      .map((item) => item.examinationId)
+      .sort()
+      .join('|'),
+    [cart],
+  );
+
   const currencies = useMemo(() => {
     const source = selectedModules.length > 0 ? selectedModules : cipmnModules;
     const values = new Set<string>();
@@ -98,10 +127,12 @@ export default function CandidateCipmnModuleCart() {
       if (test.defaultPrice?.currency) values.add(test.defaultPrice.currency);
     });
     if (values.size === 0) values.add('NGN');
-    return Array.from(values).sort((a, b) => (a === 'NGN' ? -1 : b === 'NGN' ? 1 : a.localeCompare(b)));
+    return Array.from(values).sort((a, b) => (
+      a === 'NGN' ? -1 : b === 'NGN' ? 1 : a.localeCompare(b)
+    ));
   }, [cipmnModules, selectedModules]);
 
-  const refreshAuthorisation = async () => {
+  const refreshAuthorisation = useCallback(async () => {
     try {
       const current = await getCurrentPortalUser();
       const candidate = current?.profile.role === 'candidate';
@@ -109,43 +140,82 @@ export default function CandidateCipmnModuleCart() {
       if (!candidate) {
         setIsOpen(false);
         setCart(null);
+        setQuote(null);
         setCatalogue([]);
+        setOrders([]);
+        setWorkspaceReady(false);
       }
     } catch {
       setIsCandidate(false);
       setIsOpen(false);
       setCart(null);
+      setQuote(null);
       setCatalogue([]);
+      setOrders([]);
+      setWorkspaceReady(false);
     }
-  };
+  }, []);
 
-  const loadWorkspace = async () => {
+  const loadWorkspace = useCallback(async (showLoading = true) => {
+    const requestId = ++loadRequestRef.current;
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       setError('');
       const [tests, currentCart, history] = await Promise.all([
         getAvailableTests() as Promise<CartCatalogueTest[]>,
         getMyExamCart(),
         getMyExamBulkOrders(),
       ]);
+      if (requestId !== loadRequestRef.current) return;
       setCatalogue(tests);
       setCart(currentCart);
       setCurrency(currentCart.currency || 'NGN');
       setCouponCode(currentCart.couponCode || '');
       setOrders(history);
+      setWorkspaceReady(true);
     } catch (loadError) {
+      if (requestId !== loadRequestRef.current) return;
       setError(loadError instanceof Error ? loadError.message : 'Unable to load the CIPMN module cart.');
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) setLoading(false);
     }
-  };
+  }, []);
+
+  const refreshQuote = useCallback(async () => {
+    if (!cart?.itemCount) {
+      quoteRequestRef.current += 1;
+      setQuote(null);
+      setQuoting(false);
+      return;
+    }
+
+    const requestId = ++quoteRequestRef.current;
+    try {
+      setQuoting(true);
+      setError('');
+      const result = await quoteMyExamCart({ currency, couponCode });
+      const refreshedCart = await getMyExamCart();
+      if (requestId !== quoteRequestRef.current) return;
+      setQuote(result);
+      setCart(refreshedCart);
+      if (result.status === 'existing_order') {
+        setMessage('Your existing secure bulk payment order is still active and has been restored.');
+      }
+    } catch (quoteError) {
+      if (requestId !== quoteRequestRef.current) return;
+      setQuote(null);
+      setError(quoteError instanceof Error ? quoteError.message : 'Unable to calculate the consolidated price.');
+    } finally {
+      if (requestId === quoteRequestRef.current) setQuoting(false);
+    }
+  }, [cart?.itemCount, couponCode, currency]);
 
   const openCart = () => {
     if (!isCandidate) return;
     setIsOpen(true);
     setMessage('');
     setError('');
-    void loadWorkspace();
+    void loadWorkspace(!workspaceReady);
   };
 
   const toggleModule = async (test: CartCatalogueTest, selected: boolean) => {
@@ -153,34 +223,20 @@ export default function CandidateCipmnModuleCart() {
       setUpdatingId(test.id);
       setError('');
       setMessage('');
-      setQuote(null);
       const updated = await setMyExamCartItem({ examinationId: test.id, selected });
       setCart(updated);
-      if (!selected) setMessage(`${moduleCode(test.title)} removed from the cart.`);
+      setMessage(`${moduleCode(test.title)} ${selected ? 'added to' : 'removed from'} the cart.`);
+      window.dispatchEvent(new CustomEvent('agilecert-cipmn-cart-updated', {
+        detail: {
+          examinationId: test.id,
+          selected,
+          itemCount: updated.itemCount,
+        },
+      }));
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : 'Unable to update the examination cart.');
     } finally {
       setUpdatingId(null);
-    }
-  };
-
-  const updateQuote = async () => {
-    try {
-      setQuoting(true);
-      setError('');
-      setMessage('');
-      const result = await quoteMyExamCart({ currency, couponCode });
-      setQuote(result);
-      const refreshedCart = await getMyExamCart();
-      setCart(refreshedCart);
-      if (result.status === 'existing_order') {
-        setMessage('Your existing secure bulk payment order is still active and has been restored.');
-      }
-    } catch (quoteError) {
-      setQuote(null);
-      setError(quoteError instanceof Error ? quoteError.message : 'Unable to calculate the consolidated price.');
-    } finally {
-      setQuoting(false);
     }
   };
 
@@ -201,7 +257,7 @@ export default function CandidateCipmnModuleCart() {
       if (order.status === 'fulfilled') {
         setMessage('All selected modules have been unlocked successfully.');
         setQuote(null);
-        await loadWorkspace();
+        await loadWorkspace(false);
         window.dispatchEvent(new Event('iipm-commerce-refresh'));
         return;
       }
@@ -220,35 +276,84 @@ export default function CandidateCipmnModuleCart() {
       window.setTimeout(() => void refreshAuthorisation(), 0);
     });
     return () => listener.subscription.unsubscribe();
-  }, []);
+  }, [refreshAuthorisation]);
+
+  useEffect(() => {
+    if (!isCandidate) return;
+    void loadWorkspace(false);
+  }, [isCandidate, loadWorkspace]);
+
+  useEffect(() => {
+    const refreshCommerce = () => {
+      if (isCandidate) void loadWorkspace(false);
+    };
+    window.addEventListener('iipm-commerce-refresh', refreshCommerce);
+    return () => window.removeEventListener('iipm-commerce-refresh', refreshCommerce);
+  }, [isCandidate, loadWorkspace]);
 
   useEffect(() => {
     if (!isCandidate) {
       setMenuRoot(null);
+      setCardRoots([]);
       return;
     }
 
     const attach = () => {
       const nav = document.querySelector<HTMLElement>('header nav');
-      if (!nav) {
+      if (nav) {
+        let mount = nav.querySelector<HTMLElement>('[data-agilecert-cipmn-cart-mount="true"]');
+        if (!mount) {
+          mount = document.createElement('div');
+          mount.dataset.agilecertCipmnCartMount = 'true';
+          mount.className = 'relative';
+          nav.appendChild(mount);
+        }
+        setMenuRoot((current) => (current === mount ? current : mount));
+      } else {
         setMenuRoot(null);
-        return;
       }
-      let mount = nav.querySelector<HTMLElement>('[data-agilecert-cipmn-cart-mount="true"]');
-      if (!mount) {
-        mount = document.createElement('div');
-        mount.dataset.agilecertCipmnCartMount = 'true';
-        mount.className = 'relative';
-        nav.appendChild(mount);
-      }
-      setMenuRoot(mount);
+
+      const nextRoots: CardPortalRoot[] = [];
+      cipmnModules.forEach((test) => {
+        const card = document.getElementById(`exam-card-${test.id}`);
+        const launchButton = Array.from(card?.querySelectorAll<HTMLButtonElement>('button') || []).find(
+          (button) => !button.closest('[data-agilecert-cipmn-card-cart-mount]'),
+        );
+        const actionArea = launchButton?.parentElement;
+        if (!actionArea || !launchButton) return;
+
+        actionArea.classList.add('flex', 'min-w-[190px]', 'flex-col', 'items-stretch', 'gap-2');
+        let cardMount = actionArea.querySelector<HTMLElement>(
+          `[data-agilecert-cipmn-card-cart-mount="${test.id}"]`,
+        );
+        if (!cardMount) {
+          cardMount = document.createElement('div');
+          cardMount.dataset.agilecertCipmnCardCartMount = test.id;
+          cardMount.className = 'w-full';
+          actionArea.insertBefore(cardMount, launchButton);
+        }
+        nextRoots.push({ examinationId: test.id, element: cardMount });
+      });
+
+      setCardRoots((current) => {
+        if (
+          current.length === nextRoots.length
+          && current.every((entry, index) => (
+            entry.examinationId === nextRoots[index]?.examinationId
+            && entry.element === nextRoots[index]?.element
+          ))
+        ) {
+          return current;
+        }
+        return nextRoots;
+      });
     };
 
     attach();
     const observer = new MutationObserver(attach);
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [isCandidate]);
+  }, [cipmnModules, isCandidate]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -262,9 +367,22 @@ export default function CandidateCipmnModuleCart() {
   useEffect(() => {
     if (!currencies.includes(currency)) {
       setCurrency(currencies[0] || 'NGN');
-      setQuote(null);
     }
   }, [currencies, currency]);
+
+  useEffect(() => {
+    if (!workspaceReady) return;
+    if (!cart?.itemCount) {
+      quoteRequestRef.current += 1;
+      setQuote(null);
+      setQuoting(false);
+      return;
+    }
+
+    const delay = couponCode.trim() ? 550 : 180;
+    const timer = window.setTimeout(() => void refreshQuote(), delay);
+    return () => window.clearTimeout(timer);
+  }, [cart?.itemCount, cartItemKey, couponCode, currency, refreshQuote, workspaceReady]);
 
   if (!isCandidate) return null;
 
@@ -278,6 +396,11 @@ export default function CandidateCipmnModuleCart() {
         >
           <ShoppingCart className="h-3.5 w-3.5 text-emerald-300" />
           <span className="hidden xl:inline">Cart</span>
+          {quote && (cart?.itemCount || 0) > 0 && (
+            <span className="hidden 2xl:inline text-emerald-300">
+              · {formatMinor(quote.payableAmountMinor, quote.currency)}
+            </span>
+          )}
           {(cart?.itemCount || 0) > 0 && (
             <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-emerald-500 px-1 text-center text-[9px] font-black leading-4 text-white">
               {cart?.itemCount}
@@ -288,12 +411,60 @@ export default function CandidateCipmnModuleCart() {
       )
     : null;
 
+  const examinationCardButtons = cardRoots.map(({ examinationId, element }) => {
+    const test = moduleById.get(examinationId);
+    if (!test) return null;
+    const selected = selectedIds.has(test.id);
+    const unlocked = isUnlocked(test);
+    const updating = updatingId === test.id;
+
+    return createPortal(
+      <button
+        type="button"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!unlocked) void toggleModule(test, !selected);
+        }}
+        disabled={unlocked || updating || checkingOut}
+        className={`flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-black transition disabled:cursor-not-allowed ${
+          unlocked
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            : selected
+              ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+              : 'border-emerald-600 bg-white text-emerald-700 hover:bg-emerald-50'
+        }`}
+        aria-label={
+          unlocked
+            ? `${test.title} is already unlocked`
+            : selected
+              ? `Remove ${test.title} from cart`
+              : `Add ${test.title} to cart`
+        }
+      >
+        {updating ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : unlocked ? (
+          <CheckCircle2 className="h-4 w-4" />
+        ) : selected ? (
+          <Trash2 className="h-4 w-4" />
+        ) : (
+          <ShoppingCart className="h-4 w-4" />
+        )}
+        {unlocked ? 'Unlocked' : selected ? 'In Cart — Remove' : 'Add to Cart'}
+      </button>,
+      element,
+      examinationId,
+    );
+  });
+
   return (
     <>
       {launcher}
+      {examinationCardButtons}
       {isOpen && (
         <div className="fixed inset-0 z-[130] overflow-y-auto bg-slate-950/80 p-3 backdrop-blur-sm md:p-6">
-          <section ref={panelRef} className="mx-auto w-full max-w-7xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+          <section className="mx-auto w-full max-w-7xl overflow-hidden rounded-3xl bg-white shadow-2xl">
             <header className="flex items-start justify-between gap-4 bg-slate-950 px-5 py-5 text-white md:px-8">
               <div className="flex items-start gap-3">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-600">
@@ -303,7 +474,7 @@ export default function CandidateCipmnModuleCart() {
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-300">CIPMN bulk checkout</p>
                   <h2 className="text-xl font-black md:text-2xl">Select and pay for multiple modules</h2>
                   <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-300">
-                    Build one secure cart, apply an eligible coupon and complete one Paystack transaction for all selected modules.
+                    Add modules directly from each examination card. Your secure total and coupon discount update automatically.
                   </p>
                 </div>
               </div>
@@ -330,7 +501,7 @@ export default function CandidateCipmnModuleCart() {
                 </div>
               )}
 
-              {loading ? (
+              {loading && !workspaceReady ? (
                 <div className="flex min-h-64 items-center justify-center text-slate-500">
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading the secure module cart…
                 </div>
@@ -341,28 +512,29 @@ export default function CandidateCipmnModuleCart() {
                       <div>
                         <h3 className="text-lg font-black text-slate-900">Available CIPMN modules</h3>
                         <p className="mt-1 text-sm text-slate-600">
-                          Already unlocked modules are excluded automatically. The existing single-module checkout remains available in the catalogue.
+                          Use the Add to Cart button beside each examination or manage all modules here. Already unlocked modules remain protected from duplicate purchase.
                         </p>
                       </div>
                       <button
                         type="button"
-                        onClick={() => void loadWorkspace()}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50"
+                        onClick={() => void loadWorkspace(false)}
+                        disabled={loading}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                       >
-                        <RefreshCw className="h-4 w-4" /> Refresh
+                        <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
                       </button>
                     </div>
 
                     <div className="grid gap-3 md:grid-cols-2">
                       {cipmnModules.map((test) => {
                         const selected = selectedIds.has(test.id);
-                        const locked = test.canLaunch || test.accessStatus === 'unlocked';
+                        const unlocked = isUnlocked(test);
                         const price = (test.prices || []).find((item) => item.currency === currency) || test.defaultPrice;
                         return (
                           <article
                             key={test.id}
                             className={`rounded-2xl border p-4 transition ${
-                              locked
+                              unlocked
                                 ? 'border-slate-200 bg-slate-50 opacity-70'
                                 : selected
                                   ? 'border-emerald-400 bg-emerald-50 shadow-sm'
@@ -376,7 +548,7 @@ export default function CandidateCipmnModuleCart() {
                                 </span>
                                 <h4 className="mt-3 text-sm font-black leading-6 text-slate-900">{test.title}</h4>
                               </div>
-                              {locked ? (
+                              {unlocked ? (
                                 <span className="rounded-full bg-emerald-100 p-2 text-emerald-700" title="Already unlocked">
                                   <Check className="h-4 w-4" />
                                 </span>
@@ -384,7 +556,7 @@ export default function CandidateCipmnModuleCart() {
                                 <button
                                   type="button"
                                   onClick={() => void toggleModule(test, !selected)}
-                                  disabled={updatingId === test.id}
+                                  disabled={updatingId === test.id || checkingOut}
                                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition disabled:opacity-50 ${
                                     selected
                                       ? 'border-emerald-600 bg-emerald-600 text-white'
@@ -405,7 +577,7 @@ export default function CandidateCipmnModuleCart() {
                             <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-3 text-xs">
                               <span className="text-slate-500">{test.questionCount} questions · {test.durationMinutes} mins</span>
                               <span className="font-black text-slate-900">
-                                {locked ? 'Unlocked' : price ? formatMinor(price.amountMinor, price.currency) : 'Price unavailable'}
+                                {unlocked ? 'Unlocked' : price ? formatMinor(price.amountMinor, price.currency) : 'Price unavailable'}
                               </span>
                             </div>
                           </article>
@@ -431,7 +603,7 @@ export default function CandidateCipmnModuleCart() {
                       <div className="mt-4 max-h-56 space-y-2 overflow-y-auto pr-1">
                         {selectedModules.length === 0 ? (
                           <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-500">
-                            Select two or more modules for the greatest checkout convenience.
+                            Select one or more modules from the examination cards.
                           </div>
                         ) : (
                           selectedModules.map((test) => (
@@ -443,7 +615,7 @@ export default function CandidateCipmnModuleCart() {
                               <button
                                 type="button"
                                 onClick={() => void toggleModule(test, false)}
-                                disabled={updatingId === test.id}
+                                disabled={updatingId === test.id || checkingOut}
                                 className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
                                 aria-label={`Remove ${test.title}`}
                               >
@@ -460,10 +632,7 @@ export default function CandidateCipmnModuleCart() {
                           <div className="relative mt-1">
                             <select
                               value={currency}
-                              onChange={(event) => {
-                                setCurrency(event.target.value);
-                                setQuote(null);
-                              }}
+                              onChange={(event) => setCurrency(event.target.value)}
                               className="w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 py-2.5 pr-9 text-sm font-bold text-slate-900 outline-none focus:border-emerald-500"
                             >
                               {currencies.map((value) => <option key={value} value={value}>{value}</option>)}
@@ -477,10 +646,7 @@ export default function CandidateCipmnModuleCart() {
                             <Tag className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
                             <input
                               value={couponCode}
-                              onChange={(event) => {
-                                setCouponCode(event.target.value.toUpperCase());
-                                setQuote(null);
-                              }}
+                              onChange={(event) => setCouponCode(event.target.value.toUpperCase())}
                               placeholder="Optional code"
                               className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-sm font-bold uppercase text-slate-900 outline-none focus:border-emerald-500"
                             />
@@ -488,19 +654,24 @@ export default function CandidateCipmnModuleCart() {
                         </label>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => void updateQuote()}
-                        disabled={!cart?.itemCount || quoting || checkingOut}
-                        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-800 transition hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {quoting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                        Calculate Secure Total
-                      </button>
+                      <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-600">
+                        {quoting ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                        ) : quote ? (
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4 text-slate-400" />
+                        )}
+                        {quoting
+                          ? 'Updating the secure total automatically…'
+                          : quote
+                            ? 'Secure total and discount are up to date.'
+                            : 'Totals will appear automatically after a module is added.'}
+                      </div>
                     </div>
 
                     {quote && (
-                      <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+                      <div className={`rounded-3xl border border-emerald-200 bg-emerald-50 p-5 transition ${quoting ? 'opacity-70' : ''}`}>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between gap-4 text-slate-700">
                             <span>Module total</span>
@@ -526,7 +697,7 @@ export default function CandidateCipmnModuleCart() {
                         <button
                           type="button"
                           onClick={() => void checkout()}
-                          disabled={checkingOut || quote.quotedItemCount === 0}
+                          disabled={checkingOut || quoting || quote.quotedItemCount === 0}
                           className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3.5 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {checkingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : quote.payableAmountMinor > 0 ? <CreditCard className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
