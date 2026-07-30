@@ -1,0 +1,76 @@
+name: Verify Live Materials Library and Player UI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/verify-material-library-player-live.txt'
+      - '.github/workflows/verify-material-library-player-live.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify public Pages bundle contains approved materials UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          site='https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+
+          for attempt in $(seq 1 36); do
+            cache_bust="$(date +%s)-${attempt}"
+            if curl --fail --silent --show-error "${site}?release=${cache_bust}" -o /tmp/index.html; then
+              python3 <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+
+          class Scripts(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.sources = []
+              def handle_starttag(self, tag, attrs):
+                  if tag == 'script':
+                      values = dict(attrs)
+                      if values.get('src'):
+                          self.sources.append(values['src'])
+
+          parser = Scripts()
+          parser.feed(Path('/tmp/index.html').read_text(errors='ignore'))
+          Path('/tmp/scripts.txt').write_text('\n'.join(parser.sources) + ('\n' if parser.sources else ''))
+          PY
+
+              : > /tmp/live-bundle.js
+              while IFS= read -r script; do
+                [[ -n "$script" ]] || continue
+                if [[ "$script" == http* ]]; then
+                  url="$script"
+                elif [[ "$script" == /* ]]; then
+                  url="https://iipmnigeria.github.io${script}"
+                else
+                  url="${site}${script#./}"
+                fi
+                curl --fail --silent --show-error "${url}?release=${cache_bust}" >> /tmp/live-bundle.js
+              done < /tmp/scripts.txt
+
+              if grep -Fq 'Search by examination code, title, topic or material type' /tmp/live-bundle.js \
+                && grep -Fq 'Quick filters' /tmp/live-bundle.js \
+                && grep -Fq 'In-platform viewing' /tmp/live-bundle.js \
+                && grep -Fq 'External navigation is blocked' /tmp/live-bundle.js \
+                && grep -Fq 'Clear search and filters' /tmp/live-bundle.js \
+                && grep -Fq 'allow-presentation' /tmp/live-bundle.js; then
+                echo 'Live materials search, tags, centred player and sandbox markers verified.'
+                exit 0
+              fi
+            fi
+
+            echo "Approved live bundle not visible yet (attempt ${attempt}/36)."
+            sleep 10
+          done
+
+          echo 'The approved materials-library bundle did not become visible within the verification window.' >&2
+          exit 1
