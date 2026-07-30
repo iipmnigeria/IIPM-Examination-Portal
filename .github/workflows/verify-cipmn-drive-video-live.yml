@@ -1,0 +1,91 @@
+name: Verify Live CIPMN Drive Video Release
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/verify-cipmn-drive-video-live.txt'
+      - '.github/workflows/verify-cipmn-drive-video-live.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify public Pages bundle contains approved video release
+        env:
+          LIVE_URL: 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+        run: |
+          python3 <<'PY'
+          import os
+          import re
+          import time
+          import urllib.request
+          from urllib.parse import urljoin
+
+          base = os.environ['LIVE_URL'].rstrip('/') + '/'
+          markers = (
+              'Watch video lesson',
+              'authorize_my_agilecert_video_playback',
+              'drive.google.com',
+              'Preparation Materials',
+          )
+          last_error = None
+
+          for attempt in range(1, 25):
+              try:
+                  nonce = str(int(time.time()))
+                  index_url = urljoin(base, f'index.html?release={nonce}')
+                  request = urllib.request.Request(
+                      index_url,
+                      headers={
+                          'Cache-Control': 'no-cache, no-store, max-age=0',
+                          'Pragma': 'no-cache',
+                          'User-Agent': 'IIPM-Release-Verifier/1.0',
+                      },
+                  )
+                  html = urllib.request.urlopen(request, timeout=30).read().decode('utf-8', 'ignore')
+                  assets = re.findall(r'(?:src|href)=["\']([^"\']+\.(?:js|css))(?:\?[^"\']*)?["\']', html)
+                  if not assets:
+                      raise RuntimeError('No compiled assets were referenced by the live index.')
+
+                  bundle_parts = []
+                  for asset in assets:
+                      asset_url = urljoin(base, asset)
+                      separator = '&' if '?' in asset_url else '?'
+                      asset_request = urllib.request.Request(
+                          f'{asset_url}{separator}release={nonce}',
+                          headers={
+                              'Cache-Control': 'no-cache, no-store, max-age=0',
+                              'Pragma': 'no-cache',
+                              'User-Agent': 'IIPM-Release-Verifier/1.0',
+                          },
+                      )
+                      bundle_parts.append(
+                          urllib.request.urlopen(asset_request, timeout=45).read().decode('utf-8', 'ignore')
+                      )
+
+                  bundle = ''.join(bundle_parts)
+                  missing = [marker for marker in markers if marker not in bundle]
+                  if missing:
+                      raise RuntimeError(f'Live bundle is still missing markers: {missing}')
+
+                  print({
+                      'liveUrl': base,
+                      'assetCount': len(assets),
+                      'bundleBytes': len(bundle.encode('utf-8')),
+                      'verifiedMarkers': list(markers),
+                      'attempt': attempt,
+                  })
+                  raise SystemExit(0)
+              except Exception as exc:
+                  last_error = exc
+                  print(f'Attempt {attempt} not ready: {exc}')
+                  time.sleep(10)
+
+          raise SystemExit(f'Live CIPMN video release verification failed: {last_error}')
+          PY
