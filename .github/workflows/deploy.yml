@@ -1,6 +1,7 @@
 # Phase 4 recovery republish: 2026-07-25
 # CIPMN secure import console republish: 2026-07-29
 # CIPMN Google Drive video player production release: 2026-07-30
+# Materials search, tags and centred player release: 2026-07-30
 name: Deploy to GitHub Pages
 
 on:
