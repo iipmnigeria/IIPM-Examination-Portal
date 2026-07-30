@@ -30,7 +30,9 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: |
+          npm install --no-audit --no-fund
+          python -m pip install --quiet pglast
 
       - name: Type-check changed video files
         run: >-
@@ -43,16 +45,20 @@ jobs:
       - name: Build production application
         run: npm run build
 
-      - name: Validate Drive video catalogue and security markers
+      - name: Validate Drive video catalogue, SQL syntax and security markers
         shell: python
         run: |
           from pathlib import Path
           import re
+          from pglast import parse_sql
 
           playback = Path('supabase/migrations/202607301945_cipmn_google_drive_video_playback.sql').read_text()
           email = Path('supabase/migrations/202607301946_cipmn_material_access_email_instructions.sql').read_text()
           service = Path('src/services/preparationMaterialService.ts').read_text()
           panel = Path('src/components/CandidatePreparationMaterialsPanel.tsx').read_text()
+
+          parse_sql(playback)
+          parse_sql(email)
 
           expected = {
               'CIPMN-MOD-001': '10_V8XlrI4vMtOKvu8Cizsumv_lDYpWl2',
@@ -110,4 +116,4 @@ jobs:
 
           assert playback.rstrip().endswith('commit;')
           assert email.rstrip().endswith('commit;')
-          print('Validated 12 Google Drive videos, payment gates, player markers and email instructions.')
+          print('Validated 12 Google Drive videos, SQL syntax, payment gates, player markers and email instructions.')
