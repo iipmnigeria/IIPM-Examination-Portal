@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.agilecert-resend-webhook]
 verify_jwt = false
+
+[functions.agilecert-people-admin]
+verify_jwt = false

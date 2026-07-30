@@ -21,8 +21,24 @@ export interface CandidateProfile {
   marketing_consent: boolean;
   certificate_email_updates: boolean;
   course_recommendation_emails: boolean;
+  profile_update_required?: boolean;
+  privacy_accepted_at?: string | null;
+  terms_accepted_at?: string | null;
+  examination_policy_accepted_at?: string | null;
+  onboarding_completed_at?: string | null;
+  onboarding_version?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CandidateOnboardingStatus {
+  complete: boolean;
+  profileExists: boolean;
+  profileUpdateRequired: boolean;
+  completionPercent: number;
+  missingFields: string[];
+  onboardingCompletedAt?: string | null;
+  onboardingVersion: string;
 }
 
 export interface SaveCandidateProfileInput {
@@ -44,6 +60,17 @@ export interface SaveCandidateProfileInput {
   courseRecommendationEmails?: boolean;
 }
 
+export interface CompleteCandidateOnboardingInput {
+  legalName: string;
+  phone: string;
+  countryCode: string;
+  preferredCurrency: CandidatePreferredCurrency;
+  timezone: string;
+  acceptPrivacy: boolean;
+  acceptTerms: boolean;
+  acceptExaminationPolicy: boolean;
+}
+
 function ensureStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
@@ -58,11 +85,24 @@ function normaliseProfile(value: CandidateProfile): CandidateProfile {
   };
 }
 
+function normaliseOnboardingStatus(value: unknown): CandidateOnboardingStatus {
+  const payload = (value || {}) as Record<string, unknown>;
+  return {
+    complete: Boolean(payload.complete),
+    profileExists: Boolean(payload.profileExists),
+    profileUpdateRequired: Boolean(payload.profileUpdateRequired),
+    completionPercent: Number(payload.completionPercent || 0),
+    missingFields: ensureStringArray(payload.missingFields),
+    onboardingCompletedAt: payload.onboardingCompletedAt ? String(payload.onboardingCompletedAt) : null,
+    onboardingVersion: String(payload.onboardingVersion || '2026-07'),
+  };
+}
+
 export async function getMyCandidateProfile(): Promise<CandidateProfile | null> {
   const { data, error } = await supabase
     .from('agilecert_candidate_profiles')
     .select(
-      'user_id, legal_name, phone, profile_photo_path, country_code, preferred_currency, preferred_language, timezone, professional_headline, employer, industry, education_summary, skills, certification_interests, public_profile_enabled, marketing_consent, certificate_email_updates, course_recommendation_emails, created_at, updated_at',
+      'user_id, legal_name, phone, profile_photo_path, country_code, preferred_currency, preferred_language, timezone, professional_headline, employer, industry, education_summary, skills, certification_interests, public_profile_enabled, marketing_consent, certificate_email_updates, course_recommendation_emails, profile_update_required, privacy_accepted_at, terms_accepted_at, examination_policy_accepted_at, onboarding_completed_at, onboarding_version, created_at, updated_at',
     )
     .maybeSingle();
 
@@ -71,6 +111,29 @@ export async function getMyCandidateProfile(): Promise<CandidateProfile | null> 
   }
 
   return data ? normaliseProfile(data as CandidateProfile) : null;
+}
+
+export async function getMyCandidateOnboardingStatus(): Promise<CandidateOnboardingStatus> {
+  const { data, error } = await supabase.rpc('get_my_agilecert_onboarding_status');
+  if (error) throw new Error(`Unable to check candidate onboarding: ${error.message}`);
+  return normaliseOnboardingStatus(data);
+}
+
+export async function completeMyCandidateOnboarding(
+  input: CompleteCandidateOnboardingInput,
+): Promise<CandidateOnboardingStatus> {
+  const { data, error } = await supabase.rpc('complete_my_agilecert_candidate_onboarding', {
+    p_legal_name: input.legalName.trim(),
+    p_phone: input.phone.trim(),
+    p_country_code: input.countryCode.trim().toUpperCase(),
+    p_preferred_currency: input.preferredCurrency,
+    p_timezone: input.timezone.trim(),
+    p_accept_privacy: input.acceptPrivacy,
+    p_accept_terms: input.acceptTerms,
+    p_accept_examination_policy: input.acceptExaminationPolicy,
+  });
+  if (error) throw new Error(`Unable to complete mandatory onboarding: ${error.message}`);
+  return normaliseOnboardingStatus(data);
 }
 
 export async function getAuthenticatedCandidateEmail(): Promise<string> {

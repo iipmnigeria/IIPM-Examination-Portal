@@ -12,6 +12,7 @@ import AdminFinanceSponsorshipLauncher from './components/AdminFinanceSponsorshi
 import AdminIdentityAssuranceLauncher from './components/AdminIdentityAssuranceLauncher';
 import AdminIdentityProctoringLauncher from './components/AdminIdentityProctoringLauncher';
 import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
+import AdminPeopleMessagingLauncher from './components/AdminPeopleMessagingLauncher';
 import AdminPrimaryToolsMenu from './components/AdminPrimaryToolsMenu';
 import AgileCertPolicyExperience from './components/AgileCertPolicyExperience';
 import AiCertificationAdviser from './components/AiCertificationAdviser';
@@ -23,6 +24,7 @@ import CandidateCommunicationPreferences from './components/CandidateCommunicati
 import CandidateCredentialWallet from './components/CandidateCredentialWallet';
 import CandidateIdentityAssurance from './components/CandidateIdentityAssurance';
 import CandidateIdentityProctoringWorkspace from './components/CandidateIdentityProctoringWorkspace';
+import CandidateOnboardingBoundary from './components/CandidateOnboardingBoundary';
 import CandidatePrimaryToolsMenu from './components/CandidatePrimaryToolsMenu';
 import CandidateSponsoredAccessWorkspace from './components/CandidateSponsoredAccessWorkspace';
 import CertificatePaymentReturnHandler from './components/CertificatePaymentReturnHandler';
@@ -161,35 +163,38 @@ window.addEventListener('unhandledrejection', (event) => {
 createRoot(rootElement).render(
   <StrictMode>
     <SupabaseSessionBoundary>
-      <App />
-      <CandidatePrimaryToolsMenu />
-      <AdminPrimaryToolsMenu />
-      <AgileCertPolicyExperience />
-      <CandidateCommerceOverlay />
-      <PaymentReturnHandler />
-      <AdminCommerceConsole />
-      <AdminAssignmentWidget />
-      <AdminMaterialManagementLauncher />
-      <CandidateCertificateWorkspace />
-      <LegacyCertificateSecurityGate />
-      <AdminCertificateManagementLauncher />
-      <AdminCertificateCompletionLauncher />
-      <PublicCertificateVerification />
-      <CandidateIdentityAssurance />
-      <CandidateIdentityProctoringWorkspace />
-      <CandidateCertificateCommerce />
-      <CandidateCredentialWallet />
-      <CandidateSponsoredAccessWorkspace />
-      <CandidateCommunicationPreferences />
-      <CertificatePaymentReturnHandler />
-      <AdminIdentityAssuranceLauncher />
-      <AdminIdentityProctoringLauncher />
-      <AdminCertificateCommerceLauncher />
-      <AdminCredentialLifecycleLauncher />
-      <AdminFinanceSponsorshipLauncher />
-      <AdminCommunicationsLauncher />
-      <AiCvEnhancementLauncher />
-      <AiCertificationAdviser />
+      <CandidateOnboardingBoundary>
+        <App />
+        <CandidatePrimaryToolsMenu />
+        <AdminPrimaryToolsMenu />
+        <AgileCertPolicyExperience />
+        <CandidateCommerceOverlay />
+        <PaymentReturnHandler />
+        <AdminCommerceConsole />
+        <AdminAssignmentWidget />
+        <AdminMaterialManagementLauncher />
+        <CandidateCertificateWorkspace />
+        <LegacyCertificateSecurityGate />
+        <AdminCertificateManagementLauncher />
+        <AdminCertificateCompletionLauncher />
+        <PublicCertificateVerification />
+        <CandidateIdentityAssurance />
+        <CandidateIdentityProctoringWorkspace />
+        <CandidateCertificateCommerce />
+        <CandidateCredentialWallet />
+        <CandidateSponsoredAccessWorkspace />
+        <CandidateCommunicationPreferences />
+        <CertificatePaymentReturnHandler />
+        <AdminIdentityAssuranceLauncher />
+        <AdminIdentityProctoringLauncher />
+        <AdminCertificateCommerceLauncher />
+        <AdminCredentialLifecycleLauncher />
+        <AdminFinanceSponsorshipLauncher />
+        <AdminCommunicationsLauncher />
+        <AdminPeopleMessagingLauncher />
+        <AiCvEnhancementLauncher />
+        <AiCertificationAdviser />
+      </CandidateOnboardingBoundary>
     </SupabaseSessionBoundary>
   </StrictMode>,
 );
