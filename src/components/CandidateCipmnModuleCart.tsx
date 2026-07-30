@@ -316,7 +316,9 @@ export default function CandidateCipmnModuleCart() {
       const nextRoots: CardPortalRoot[] = [];
       cipmnModules.forEach((test) => {
         const card = document.getElementById(`exam-card-${test.id}`);
-        const launchButton = card?.querySelector<HTMLButtonElement>('button');
+        const launchButton = Array.from(card?.querySelectorAll<HTMLButtonElement>('button') || []).find(
+          (button) => !button.closest('[data-agilecert-cipmn-card-cart-mount]'),
+        );
         const actionArea = launchButton?.parentElement;
         if (!actionArea || !launchButton) return;
 
