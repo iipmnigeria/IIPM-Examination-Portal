@@ -1,0 +1,298 @@
+name: Deploy CIPMN Third-Attempt Remediation
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-cipmn-third-attempt-remediation.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-cipmn-third-attempt-remediation-production
+  cancel-in-progress: false
+
+jobs:
+  database:
+    name: Apply and verify CIPMN remediation release
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      EXPECTED_COMMIT: 'c82672cd096ecdeba37e3b073e173c46be0b865d'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      TRACKING_BOUNDARY: '202607230101'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Checkout exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact approved remediation source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+
+          cat > cipmn-remediation-expected-migrations.txt <<'EOF'
+          202607301730_cipmn_third_attempt_remediation.sql
+          202607301731_cipmn_review_snapshot_decoupling.sql
+          202607301732_cipmn_review_composite_row_fix.sql
+          EOF
+
+          find supabase/migrations -maxdepth 1 -type f -name '20260730173*_cipmn_*.sql' \
+            -printf '%f\n' | sort > cipmn-remediation-source-migrations.txt
+          sort -o cipmn-remediation-expected-migrations.txt cipmn-remediation-expected-migrations.txt
+          diff -u cipmn-remediation-expected-migrations.txt cipmn-remediation-source-migrations.txt
+          test "$(wc -l < cipmn-remediation-source-migrations.txt | tr -d ' ')" -eq 3
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          files = [
+              Path('supabase/migrations') / line.strip()
+              for line in Path('cipmn-remediation-expected-migrations.txt').read_text().splitlines()
+          ]
+          sql = '\n'.join(path.read_text(encoding='utf-8') for path in files)
+          required = [
+              'agilecert_cipmn_attempt_reviews',
+              'agilecert_cipmn_attempt_review_items',
+              'agilecert_prepare_cipmn_third_attempt_review',
+              'get_my_cipmn_remediation_attempts',
+              'get_my_cipmn_attempt_review',
+              'cipmn-third-attempt-remediation:',
+              'max_attempts = 3',
+          ]
+          missing = [marker for marker in required if marker not in sql]
+          assert not missing, f'Missing approved remediation controls: {missing}'
+
+          lowered = sql.lower()
+          forbidden = [
+              'grant select on public.question_answer_keys to authenticated',
+              'grant select on public.agilecert_cipmn_attempt_reviews to authenticated',
+              'grant select on public.agilecert_cipmn_attempt_review_items to authenticated',
+              'resend_api_key',
+              'supabase_service_role_key',
+          ]
+          found = [marker for marker in forbidden if marker in lowered]
+          assert not found, f'Forbidden authority or secret marker found: {found}'
+          PY
+
+      - name: Isolate production-tracked migration window
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cipmn-remediation-legacy"
+          : > cipmn-remediation-legacy-local-migrations.txt
+
+          for path in supabase/migrations/*.sql; do
+            file="$(basename "$path")"
+            version="${file%%_*}"
+            if [[ "$version" < "$TRACKING_BOUNDARY" ]]; then
+              printf '%s\n' "$file" >> cipmn-remediation-legacy-local-migrations.txt
+              mv "$path" "$RUNNER_TEMP/cipmn-remediation-legacy/$file"
+            fi
+          done
+
+          find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' \
+            | sort > cipmn-remediation-isolated-window.txt
+          for file in $(cat cipmn-remediation-expected-migrations.txt); do
+            grep -qx "$file" cipmn-remediation-isolated-window.txt
+          done
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Require exactly three pending migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 | tee cipmn-remediation-production-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' cipmn-remediation-production-dry-run.log \
+            | sort -u > cipmn-remediation-production-pending.txt || true
+          diff -u cipmn-remediation-expected-migrations.txt cipmn-remediation-production-pending.txt
+          test "$(wc -l < cipmn-remediation-production-pending.txt | tr -d ' ')" -eq 3
+
+      - name: Apply approved remediation migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked 2>&1 | tee cipmn-remediation-production-deploy.log
+          for file in $(cat cipmn-remediation-expected-migrations.txt); do
+            grep -q "Applying migration $file" cipmn-remediation-production-deploy.log
+          done
+          grep -q 'Finished supabase db push' cipmn-remediation-production-deploy.log
+
+      - name: Verify production configuration and authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          select jsonb_build_object(
+            'cipmnExaminations', (
+              select count(*) from public.examinations e
+              join public.programmes p on p.id = e.programme_id
+              where p.code = 'CIPMN-MOCK'
+            ),
+            'threeAttemptExaminations', (
+              select count(*) from public.examinations e
+              join public.programmes p on p.id = e.programme_id
+              where p.code = 'CIPMN-MOCK' and e.max_attempts = 3
+            ),
+            'reviewFunctions', (
+              select count(*) from pg_proc
+              where proname in (
+                'agilecert_prepare_cipmn_third_attempt_review',
+                'get_my_cipmn_remediation_attempts',
+                'get_my_cipmn_attempt_review'
+              ) and prosecdef = true
+            ),
+            'reviewTriggers', (
+              select count(*) from pg_trigger
+              where tgname in (
+                'agilecert_prepare_cipmn_third_attempt_review_insert_trigger',
+                'agilecert_prepare_cipmn_third_attempt_review_status_trigger'
+              ) and not tgisinternal
+            ),
+            'authenticatedReviewTableSelect',
+              has_table_privilege('authenticated', 'public.agilecert_cipmn_attempt_reviews', 'select')
+              or has_table_privilege('authenticated', 'public.agilecert_cipmn_attempt_review_items', 'select'),
+            'authenticatedAnswerKeySelect',
+              has_table_privilege('authenticated', 'public.question_answer_keys', 'select')
+          ) as verification;
+          """
+          Path('/tmp/cipmn-remediation-production-verify.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/cipmn-remediation-production-verify.json \
+            -o cipmn-remediation-production-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('cipmn-remediation-production-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('cipmnExaminations') == 12, result
+          assert result.get('threeAttemptExaminations') == 12, result
+          assert result.get('reviewFunctions') == 3, result
+          assert result.get('reviewTriggers') == 2, result
+          assert result.get('authenticatedReviewTableSelect') is False, result
+          assert result.get('authenticatedAnswerKeySelect') is False, result
+          Path('cipmn-remediation-production-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Run rolled-back live candidate lifecycle test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          sql = Path('supabase/tests/cipmn_third_attempt_remediation_smoke.sql').read_text(
+              encoding='utf-8'
+          )
+          sql = sql.replace('\\set ON_ERROR_STOP on\n\n', '', 1)
+          sql += """
+          select jsonb_build_object(
+            'syntheticCandidateTest', true,
+            'transactionRolledBack', true,
+            'attemptsExercised', 3,
+            'failedAnswersReviewed', 1,
+            'crossCandidateAccessDenied', true,
+            'protectedTableAccessDenied', true,
+            'remediationEmailQueuedInsideRollback', true
+          ) as verification;
+          """
+          Path('/tmp/cipmn-remediation-production-test.json').write_text(
+              json.dumps({'query': sql}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/cipmn-remediation-production-test.json \
+            -o cipmn-remediation-production-test.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('cipmn-remediation-production-test.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('syntheticCandidateTest') is True, result
+          assert result.get('transactionRolledBack') is True, result
+          assert result.get('attemptsExercised') == 3, result
+          assert result.get('failedAnswersReviewed') == 1, result
+          assert result.get('crossCandidateAccessDenied') is True, result
+          assert result.get('protectedTableAccessDenied') is True, result
+          assert result.get('remediationEmailQueuedInsideRollback') is True, result
+          Path('cipmn-remediation-production-test-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Confirm no remediation migrations remain pending
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 | tee cipmn-remediation-post-deploy-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' cipmn-remediation-post-deploy-dry-run.log \
+            | sort -u > cipmn-remediation-post-deploy-pending.txt || true
+          test ! -s cipmn-remediation-post-deploy-pending.txt
+          grep -q 'Remote database is up to date' cipmn-remediation-post-deploy-dry-run.log
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-third-attempt-remediation-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cipmn-remediation-expected-migrations.txt
+            cipmn-remediation-source-migrations.txt
+            cipmn-remediation-legacy-local-migrations.txt
+            cipmn-remediation-isolated-window.txt
+            cipmn-remediation-production-dry-run.log
+            cipmn-remediation-production-pending.txt
+            cipmn-remediation-production-deploy.log
+            cipmn-remediation-production-safe.json
+            cipmn-remediation-production-test-safe.json
+            cipmn-remediation-post-deploy-dry-run.log
+            cipmn-remediation-post-deploy-pending.txt
