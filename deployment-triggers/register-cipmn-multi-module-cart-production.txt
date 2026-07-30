@@ -1,0 +1,1 @@
+Permanent registration marker for the controlled CIPMN multi-module cart production workflow. The actual deployment trigger is created in a separate pull request to supabase-integration, must remain unmerged, and is closed after the exact approved migrations, Edge Functions and rolled-back production lifecycle test succeed.
