@@ -36,7 +36,8 @@ jobs:
         run: >-
           npx tsc --noEmit --skipLibCheck --jsx react-jsx --target ES2022
           --module ESNext --moduleResolution Bundler --allowSyntheticDefaultImports
-          --esModuleInterop src/services/preparationMaterialService.ts
+          --esModuleInterop src/vite-env.d.ts
+          src/services/preparationMaterialService.ts
           src/components/CandidatePreparationMaterialsPanel.tsx
 
       - name: Build production application
