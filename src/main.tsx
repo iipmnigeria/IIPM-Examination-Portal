@@ -19,6 +19,7 @@ import AiCertificationAdviser from './components/AiCertificationAdviser';
 import AiCvEnhancementLauncher from './components/AiCvEnhancementLauncher';
 import CandidateCertificateCommerce from './components/CandidateCertificateCommerce';
 import CandidateCertificateWorkspace from './components/CandidateCertificateWorkspace';
+import CandidateCipmnRemediationWorkspace from './components/CandidateCipmnRemediationWorkspace';
 import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
 import CandidateCommunicationPreferences from './components/CandidateCommunicationPreferences';
 import CandidateCredentialWallet from './components/CandidateCredentialWallet';
@@ -184,6 +185,7 @@ createRoot(rootElement).render(
         <CandidateCredentialWallet />
         <CandidateSponsoredAccessWorkspace />
         <CandidateCommunicationPreferences />
+        <CandidateCipmnRemediationWorkspace />
         <CertificatePaymentReturnHandler />
         <AdminIdentityAssuranceLauncher />
         <AdminIdentityProctoringLauncher />
