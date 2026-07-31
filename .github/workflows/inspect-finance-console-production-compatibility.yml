@@ -1,0 +1,101 @@
+name: Inspect Finance Console Production Compatibility
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/inspect-finance-console-production.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect production commerce authority
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - name: Query sanitized production compatibility metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          select jsonb_build_object(
+            'legacyCommerceMigrationRecorded', exists (
+              select 1 from supabase_migrations.schema_migrations
+              where version = '202607210012'
+            ),
+            'functions', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'name', p.proname,
+                'identityArguments', pg_get_function_identity_arguments(p.oid),
+                'securityDefiner', p.prosecdef
+              ) order by p.proname, pg_get_function_identity_arguments(p.oid))
+              from pg_proc p
+              join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public'
+                and p.proname in (
+                  'get_admin_commerce_snapshot',
+                  'admin_upsert_exam_price',
+                  'admin_set_exam_price_active',
+                  'admin_upsert_coupon',
+                  'admin_set_coupon_active',
+                  'admin_cancel_exam_order',
+                  'current_user_role',
+                  'agilecert_record_finance_audit'
+                )
+            ), '[]'::jsonb),
+            'tables', coalesce((
+              select jsonb_agg(t.table_name order by t.table_name)
+              from information_schema.tables t
+              where t.table_schema = 'public'
+                and t.table_name in (
+                  'exam_prices', 'coupons', 'exam_orders', 'exam_payments',
+                  'coupon_redemptions', 'agilecert_finance_settings',
+                  'agilecert_finance_audit_events'
+                )
+            ), '[]'::jsonb)
+          ) as inspection;
+          """
+          Path('/tmp/finance-console-production-inspection.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/finance-console-production-inspection.json \
+            -o finance-console-production-inspection.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('finance-console-production-inspection.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('inspection') or {}
+          Path('finance-console-production-inspection-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Upload sanitized inspection evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-production-compatibility
+          retention-days: 14
+          path: finance-console-production-inspection-safe.json
