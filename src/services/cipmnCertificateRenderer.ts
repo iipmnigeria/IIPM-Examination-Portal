@@ -162,10 +162,12 @@ export function renderCipmnCompletionCertificate(
 
   // Balanced institutional identity exactly as approved.
   doc.addImage(IIPM_CERTIFICATE_LOGO_DATA_URI, 'JPEG', 81, 13.1, 35, 35, 'iipm-logo', 'FAST');
+  doc.addImage(CIPMN_CERTIFICATE_LOGO_DATA_URI, 'JPEG', 123, 16.1, 95, 25.5, 'cipmn-logo', 'FAST');
+  doc.setFillColor(255, 255, 255);
+  doc.rect(122.8, 15.8, 17.5, 26.2, 'F');
   doc.setDrawColor(...GOLD);
   doc.setLineWidth(0.45);
-  doc.line(128.5, 16, 128.5, 43.5);
-  doc.addImage(CIPMN_CERTIFICATE_LOGO_DATA_URI, 'JPEG', 139, 16.1, 91, 25.5, 'cipmn-logo', 'FAST');
+  doc.line(125.5, 16, 125.5, 43.5);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.4);
@@ -261,7 +263,7 @@ export function renderCipmnCompletionCertificate(
   drawInformationBox(doc, 153.5, infoY, 59, 'Certificate Number', input.certificateNumber, 'certificate');
 
   // Single approved signatory.
-  doc.addImage(BANITO_SIGNATURE_DATA_URI, 'JPEG', 38, 154.2, 29, 24, 'banito-signature', 'FAST');
+  doc.addImage(BANITO_SIGNATURE_DATA_URI, 'JPEG', 40, 156, 24, 20, 'banito-signature', 'FAST');
   doc.setDrawColor(139, 159, 179);
   doc.setLineWidth(0.32);
   doc.line(20, 178.4, 86.5, 178.4);
