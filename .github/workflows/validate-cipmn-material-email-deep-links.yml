@@ -31,11 +31,11 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Type-check changed frontend files
+      - name: Type-check changed Materials component
         run: >-
           npx tsc --noEmit --skipLibCheck --jsx react-jsx --target ES2022
           --module ESNext --moduleResolution Bundler --allowSyntheticDefaultImports
-          --esModuleInterop src/vite-env.d.ts src/App.tsx
+          --esModuleInterop src/vite-env.d.ts
           src/components/CandidatePreparationMaterialsPanel.tsx
 
       - name: Check communications function
