@@ -1,0 +1,10 @@
+Approved one-time production release for exact source commit:
+0f335c35a09c1bebcbebf8c43868bdd90258ab57
+
+Approved migration:
+202607310500_cipmn_material_email_deep_links.sql
+
+Approved Edge Function:
+agilecert-communications
+
+The workflow must stop before production changes unless Resend, sender configuration, Supabase communication secrets and the GitHub communications worker token are ready.
