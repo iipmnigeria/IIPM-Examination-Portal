@@ -1,0 +1,4 @@
+Verify the completed Finance Console Phase 1 production release.
+Approved source: 0793caab245b0942bc4b779826a60a2f3a977a45
+Pages trigger: 067af8238af7a34856446baf48f40661dd148d80
+Verification date: 2026-07-31
