@@ -1,0 +1,4 @@
+Finance Console Phase 1B production verification
+Approved source: 1a9d6f44f3423b7757f9a07f809fccf46765fe42
+Pages trigger: f142b077ffdaf21aab1f81a4b3b28a8ed32d0bf7
+Triggered: 2026-07-31
