@@ -101,16 +101,12 @@ jobs:
           -- CI-only: Finance Console test identities are created by the smoke test.
           commit;
           SQL
-      - name: Start isolated Supabase services
+      - name: Start isolated database and apply complete migration history
         shell: bash
         run: |
           set -o pipefail
-          supabase start 2>&1 | tee finance-console-supabase-start.log
-      - name: Apply complete repository migration history
-        shell: bash
-        run: |
-          set -o pipefail
-          supabase db reset --local 2>&1 | tee finance-console-db-reset.log
+          supabase db start 2>&1 | tee finance-console-supabase-start.log
+          grep -q 'Started supabase local development setup' finance-console-supabase-start.log
       - name: Exercise permissions, examination fees and immutable audit
         shell: bash
         env:
@@ -201,7 +197,6 @@ jobs:
           if-no-files-found: warn
           path: |
             finance-console-supabase-start.log
-            finance-console-db-reset.log
             finance-console-behaviour.log
             finance-console-schema.log
       - name: Stop isolated Supabase services
