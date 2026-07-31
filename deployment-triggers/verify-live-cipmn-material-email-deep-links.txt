@@ -1,0 +1,6 @@
+Read-only live verification for the CIPMN Access My Materials deep-link release.
+
+Expected integrated source:
+0f335c35a09c1bebcbebf8c43868bdd90258ab57
+
+This branch must be closed without merge after verification.
