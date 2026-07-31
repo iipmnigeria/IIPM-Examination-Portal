@@ -71,6 +71,7 @@ declare
   v_examination_id uuid;
   v_scope jsonb;
   v_price jsonb;
+  v_definition text;
 begin
   select programme.id into v_programme_id
   from public.programmes programme
@@ -133,6 +134,8 @@ begin
     raise exception 'Programme certification scope was not saved correctly: %', v_scope;
   end if;
 
+  perform set_config('app.phase1b_scope_id', v_scope ->> 'id', true);
+
   perform public.finance_upsert_certificate_product_scope(
     null,
     'professional',
@@ -142,6 +145,28 @@ begin
     true,
     'Validate examination-specific certification applicability'
   );
+
+  -- Re-saving the same scope must update deterministically rather than create
+  -- a duplicate or depend on an expression-based ON CONFLICT inference.
+  perform public.finance_upsert_certificate_product_scope(
+    null,
+    'achievement',
+    'programme',
+    v_programme_id,
+    null,
+    true,
+    'Validate deterministic programme-scope update'
+  );
+
+  if (
+    select count(*)
+    from public.agilecert_certificate_product_scopes scope
+    where scope.product_code = 'achievement'
+      and scope.scope_type = 'programme'
+      and scope.programme_id = v_programme_id
+  ) <> 1 then
+    raise exception 'The certification applicability update created a duplicate rule.';
+  end if;
 
   v_snapshot := public.get_finance_certification_snapshot(100);
   if jsonb_array_length(v_snapshot -> 'products') <> 2
@@ -173,26 +198,29 @@ begin
   ) then
     raise exception 'Advanced certification finance audit evidence is missing.';
   end if;
-end;
-$$;
 
-DO $$
-declare
-  v_definition text;
-begin
   select pg_get_functiondef('public.create_agilecert_certificate_order(uuid,text,text)'::regprocedure)
   into v_definition;
-  if position('pricingMode' in v_definition) = 0
-     or position('included_with_examination' in v_definition) = 0
-     or position('configured_no_charge' in v_definition) = 0 then
-    raise exception 'Achievement certificate order authority does not contain the Phase 1B pricing-mode controls.';
+  if position('agilecert_resolve_certificate_pricing' in v_definition) = 0
+     or position('create_agilecert_certificate_order_phase1b_legacy' in v_definition) = 0
+     or position('agilecert_create_no_charge_certificate_order' in v_definition) = 0 then
+    raise exception 'Achievement checkout wrapper does not preserve both paid and no-charge authority.';
   end if;
 
   select pg_get_functiondef('public.create_agilecert_professional_certificate_order(uuid,text)'::regprocedure)
   into v_definition;
-  if position('pricingMode' in v_definition) = 0
-     or position('agilecert_issue_identity_verified_certificate_for_order' in v_definition) = 0 then
-    raise exception 'Professional Certificate order authority does not contain the Phase 1B pricing-mode controls.';
+  if position('create_agilecert_professional_certificate_order_phase1b_legacy' in v_definition) = 0
+     or position('agilecert_create_no_charge_certificate_order' in v_definition) = 0 then
+    raise exception 'Professional checkout wrapper does not preserve both paid and no-charge authority.';
+  end if;
+
+  select pg_get_functiondef('public.agilecert_create_no_charge_certificate_order(uuid,text,text,boolean)'::regprocedure)
+  into v_definition;
+  if position('agilecert_issue_certificate_for_order' in v_definition) = 0
+     or position('agilecert_issue_identity_verified_certificate_for_order' in v_definition) = 0
+     or position('included_with_examination' in v_definition) = 0
+     or position('configured_no_charge' in v_definition) = 0 then
+    raise exception 'The no-charge certification helper is incomplete.';
   end if;
 end;
 $$;
@@ -253,6 +281,8 @@ select pg_temp.set_cert_rules_actor('31110100-0000-0000-0000-000000000003');
 set local role authenticated;
 
 DO $$
+declare
+  v_scope_id uuid := current_setting('app.phase1b_scope_id')::uuid;
 begin
   begin
     perform public.get_finance_certification_snapshot(10);
@@ -266,7 +296,7 @@ begin
 
   begin
     perform public.finance_set_certificate_product_scope_active(
-      (select id from public.agilecert_certificate_product_scopes limit 1),
+      v_scope_id,
       false,
       'Candidate applicability denial validation'
     );
@@ -304,6 +334,26 @@ begin
 
   if has_table_privilege('authenticated', 'public.agilecert_certificate_product_scopes', 'select') then
     raise exception 'Authenticated browser roles received direct certification-scope table access.';
+  end if;
+
+  if has_function_privilege(
+    'authenticated',
+    'public.agilecert_create_no_charge_certificate_order(uuid,text,text,boolean)',
+    'execute'
+  ) then
+    raise exception 'The internal no-charge certificate helper is browser-executable.';
+  end if;
+
+  if has_function_privilege(
+    'authenticated',
+    'public.create_agilecert_certificate_order_phase1b_legacy(uuid,text,text)',
+    'execute'
+  ) or has_function_privilege(
+    'authenticated',
+    'public.create_agilecert_professional_certificate_order_phase1b_legacy(uuid,text)',
+    'execute'
+  ) then
+    raise exception 'The internal legacy certificate checkout bridges are browser-executable.';
   end if;
 
   if not has_function_privilege(
