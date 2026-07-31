@@ -26,6 +26,36 @@ const LIGHT_GREEN: [number, number, number] = [246, 250, 247];
 const BORDER_GREEN: [number, number, number] = [5, 77, 57];
 const BOX_BORDER: [number, number, number] = [191, 219, 205];
 
+let cachedIipmLogoBytes: Uint8Array | null = null;
+let cachedCipmnLogoBytes: Uint8Array | null = null;
+let cachedSignatureBytes: Uint8Array | null = null;
+
+const decodePngDataUri = (value: string, label: string): Uint8Array => {
+  const prefix = 'data:image/png;base64,';
+  if (!value.startsWith(prefix)) {
+    throw new Error(`${label} is not a valid lossless PNG data URI.`);
+  }
+
+  const payload = value.slice(prefix.length).replace(/\s+/g, '');
+  const binary = globalThis.atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  if (
+    bytes.length < 8 ||
+    bytes[0] !== 0x89 ||
+    bytes[1] !== 0x50 ||
+    bytes[2] !== 0x4e ||
+    bytes[3] !== 0x47
+  ) {
+    throw new Error(`${label} did not decode to a valid PNG image.`);
+  }
+
+  return bytes;
+};
+
 const formatDate = (value: string): string => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value.toUpperCase();
@@ -142,6 +172,11 @@ export function renderCipmnCompletionCertificate(
     .replace(/\s+Mock Examination$/i, '')
     .trim();
 
+  cachedIipmLogoBytes ??= decodePngDataUri(IIPM_CERTIFICATE_LOGO_DATA_URI, 'IIPM logo');
+  cachedCipmnLogoBytes ??= decodePngDataUri(CIPMN_CERTIFICATE_LOGO_DATA_URI, 'CIPMN logo');
+  cachedSignatureBytes ??= decodePngDataUri(BANITO_SIGNATURE_DATA_URI, 'Banito signature');
+  const qrBytes = decodePngDataUri(qrDataUrl, 'Certificate verification QR code');
+
   // Exact approved landscape composition. Sample-only watermark wording is deliberately omitted.
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, 297, 210, 'F');
@@ -161,8 +196,8 @@ export function renderCipmnCompletionCertificate(
   drawCornerMark(doc, 288.4, 201.4);
 
   // Lossless institutional identity using approved PNG artwork.
-  doc.addImage(IIPM_CERTIFICATE_LOGO_DATA_URI, 'PNG', 81, 13.1, 35, 35, 'iipm-logo', 'NONE');
-  doc.addImage(CIPMN_CERTIFICATE_LOGO_DATA_URI, 'PNG', 123, 16.1, 95, 25.5, 'cipmn-logo', 'NONE');
+  doc.addImage(cachedIipmLogoBytes, 'PNG', 81, 13.1, 35, 35, 'iipm-logo', 'NONE');
+  doc.addImage(cachedCipmnLogoBytes, 'PNG', 123, 16.1, 95, 25.5, 'cipmn-logo', 'NONE');
   doc.setFillColor(255, 255, 255);
   doc.rect(122.8, 15.8, 17.5, 26.2, 'F');
   doc.setDrawColor(...GOLD);
@@ -263,7 +298,7 @@ export function renderCipmnCompletionCertificate(
   drawInformationBox(doc, 153.5, infoY, 59, 'Certificate Number', input.certificateNumber, 'certificate');
 
   // Single approved signatory rendered from a transparent lossless PNG.
-  doc.addImage(BANITO_SIGNATURE_DATA_URI, 'PNG', 40, 156, 24, 20, 'banito-signature', 'NONE');
+  doc.addImage(cachedSignatureBytes, 'PNG', 40, 156, 24, 20, 'banito-signature', 'NONE');
   doc.setDrawColor(139, 159, 179);
   doc.setLineWidth(0.32);
   doc.line(20, 178.4, 86.5, 178.4);
@@ -276,7 +311,7 @@ export function renderCipmnCompletionCertificate(
   doc.setTextColor(...MUTED);
   doc.text('Programme Coordinator / Executive Director, IIPM', 20, 188, { maxWidth: 72 });
 
-  doc.addImage(qrDataUrl, 'PNG', 244.5, 148.2, 29, 29, 'verification-qr', 'NONE');
+  doc.addImage(qrBytes, 'PNG', 244.5, 148.2, 29, 29, 'verification-qr', 'NONE');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.3);
   doc.setTextColor(...PRIMARY);
