@@ -1,1 +1,0 @@
-Build the CIPMN material email deep-link release from the current supabase-integration source.
