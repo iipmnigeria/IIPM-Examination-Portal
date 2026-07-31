@@ -8,6 +8,7 @@ on:
       - 'src/services/certificatePdfService.ts'
       - 'src/services/cipmnCertificateRenderer.ts'
       - 'src/assets/cipmnCertificate*.ts'
+      - 'src/assets/cipmnCertificatePrint/**'
       - 'scripts/render-cipmn-certificate-sample.ts'
       - 'supabase/migrations/202607310600_cipmn_approved_certificate_template.sql'
       - '.github/workflows/validate-cipmn-approved-certificate-template.yml'
@@ -43,6 +44,71 @@ jobs:
           src/assets/cipmnCertificateIipmLogo.ts
           src/assets/cipmnCertificateCipmnLogo.ts
           src/assets/cipmnCertificateBanitoSignature.ts
+          src/assets/cipmnCertificatePrint/*.ts
+
+      - name: Validate print-ready PNG assets
+        shell: python
+        run: |
+          import base64
+          import hashlib
+          import re
+          import struct
+          from pathlib import Path
+
+          assets = {
+              'iipm': {
+                  'count': 7,
+                  'dimensions': (420, 436),
+                  'sha256': 'dfbd4d1cc935c98c824038ff4b37df7c96cb85929d94ff9fc04f6410886e35aa',
+                  'aggregator': Path('src/assets/cipmnCertificateIipmLogo.ts'),
+              },
+              'cipmn': {
+                  'count': 6,
+                  'dimensions': (1140, 306),
+                  'sha256': '38d2dc2b15ece1e444e2ad74452a0bfc8f2c557c61792c6cf9da23bd0a0f538a',
+                  'aggregator': Path('src/assets/cipmnCertificateCipmnLogo.ts'),
+              },
+              'signature': {
+                  'count': 4,
+                  'dimensions': (288, 240),
+                  'sha256': '0131bbf882b9b30b7b22e7667b6bd28b4bde1bc78f200d731bc565a8095eab90',
+                  'aggregator': Path('src/assets/cipmnCertificateBanitoSignature.ts'),
+              },
+          }
+
+          for name, expected in assets.items():
+              encoded = ''
+              for index in range(1, expected['count'] + 1):
+                  path = Path(f'src/assets/cipmnCertificatePrint/{name}{index}.ts')
+                  source = path.read_text(encoding='utf-8')
+                  match = re.search(r"= '([A-Za-z0-9+/=]+)';", source)
+                  assert match, f'Malformed print asset chunk: {path}'
+                  encoded += match.group(1)
+
+              raw = base64.b64decode(encoded, validate=True)
+              assert raw[:8] == b'\x89PNG\r\n\x1a\n', f'{name} is not a PNG'
+              width, height = struct.unpack('>II', raw[16:24])
+              assert (width, height) == expected['dimensions'], (name, width, height)
+              digest = hashlib.sha256(raw).hexdigest()
+              assert digest == expected['sha256'], (name, digest)
+
+              aggregator = expected['aggregator'].read_text(encoding='utf-8')
+              assert "'data:image/png;base64,'" in aggregator
+              assert 'data:image/jpeg' not in aggregator
+              print(f'{name}: {width}x{height}, sha256={digest}')
+
+          renderer = Path('src/services/cipmnCertificateRenderer.ts').read_text(encoding='utf-8')
+          required_png_calls = [
+              "doc.addImage(IIPM_CERTIFICATE_LOGO_DATA_URI, 'PNG', 81, 13.1, 35, 35, 'iipm-logo');",
+              "doc.addImage(CIPMN_CERTIFICATE_LOGO_DATA_URI, 'PNG', 123, 16.1, 95, 25.5, 'cipmn-logo');",
+              "doc.addImage(BANITO_SIGNATURE_DATA_URI, 'PNG', 40, 156, 24, 20, 'banito-signature');",
+          ]
+          missing = [call for call in required_png_calls if call not in renderer]
+          assert not missing, missing
+          assert "IIPM_CERTIFICATE_LOGO_DATA_URI, 'JPEG'" not in renderer
+          assert "CIPMN_CERTIFICATE_LOGO_DATA_URI, 'JPEG'" not in renderer
+          assert "BANITO_SIGNATURE_DATA_URI, 'JPEG'" not in renderer
+          print('Validated lossless print-ready PNG embedding at the approved dimensions.')
 
       - name: Build production application
         run: npm run build
@@ -56,21 +122,37 @@ jobs:
           test -s cipmn-certificate-standard-sample.pdf
           test -s cipmn-certificate-long-content-sample.pdf
 
-      - name: Render certificate pages for visual evidence
+      - name: Render and inspect certificate print evidence
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq poppler-utils
           pdfinfo cipmn-certificate-standard-sample.pdf | tee cipmn-certificate-standard-info.txt
           pdfinfo cipmn-certificate-long-content-sample.pdf | tee cipmn-certificate-long-info.txt
-          pdftoppm -png -f 1 -singlefile -r 144 \
+          pdfimages -list cipmn-certificate-standard-sample.pdf | tee cipmn-certificate-standard-images.txt
+          pdfimages -list cipmn-certificate-long-content-sample.pdf | tee cipmn-certificate-long-images.txt
+          pdftoppm -png -f 1 -singlefile -r 300 \
             cipmn-certificate-standard-sample.pdf cipmn-certificate-standard-sample
-          pdftoppm -png -f 1 -singlefile -r 144 \
+          pdftoppm -png -f 1 -singlefile -r 300 \
             cipmn-certificate-long-content-sample.pdf cipmn-certificate-long-content-sample
           test -s cipmn-certificate-standard-sample.png
           test -s cipmn-certificate-long-content-sample.png
           grep -q 'Page size:.*A4' cipmn-certificate-standard-info.txt
           grep -q 'Pages:.*1' cipmn-certificate-standard-info.txt
           grep -q 'Pages:.*1' cipmn-certificate-long-info.txt
+
+      - name: Verify embedded image resolution
+        shell: python
+        run: |
+          import re
+          from pathlib import Path
+
+          image_list = Path('cipmn-certificate-standard-images.txt').read_text(encoding='utf-8')
+          expected = [(420, 436), (1140, 306), (288, 240)]
+          missing = [dimensions for dimensions in expected if not re.search(
+              rf'\b{dimensions[0]}\s+{dimensions[1]}\b', image_list
+          )]
+          assert not missing, f'Missing embedded print-resolution images: {missing}'
+          print('Confirmed the three print-ready images are embedded at source resolution.')
 
       - name: Validate dynamic, security and scope controls
         shell: python
@@ -118,7 +200,7 @@ jobs:
       - name: Upload certificate review evidence
         uses: actions/upload-artifact@v4
         with:
-          name: approved-cipmn-certificate-template-samples
+          name: approved-cipmn-certificate-print-quality-samples
           retention-days: 30
           if-no-files-found: error
           path: |
@@ -128,3 +210,5 @@ jobs:
             cipmn-certificate-long-content-sample.png
             cipmn-certificate-standard-info.txt
             cipmn-certificate-long-info.txt
+            cipmn-certificate-standard-images.txt
+            cipmn-certificate-long-images.txt
