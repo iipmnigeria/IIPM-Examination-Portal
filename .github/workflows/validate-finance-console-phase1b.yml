@@ -1,0 +1,237 @@
+name: Validate Finance Console Phase 1B
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/components/AdminFinanceConsole.tsx'
+      - 'src/components/FinanceCertificationFeesPanel.tsx'
+      - 'src/services/financeConsoleService.ts'
+      - 'src/services/certificateCommerceService.ts'
+      - 'supabase/migrations/202607311100_finance_console_certification_products_fees.sql'
+      - 'supabase/migrations/202607311101_finance_console_certification_pricing_rules.sql'
+      - 'supabase/migrations/202607311102_finance_console_certification_identity_route_hardening.sql'
+      - 'supabase/tests/finance_console_phase1b_certification_fees_smoke.sql'
+      - 'supabase/tests/finance_console_phase1b_certification_rules_smoke.sql'
+      - 'supabase/tests/finance_console_phase1b_identity_route_smoke.sql'
+      - 'docs/FINANCE_CONSOLE_PHASE_1B_SCOPE.md'
+      - '.github/workflows/validate-finance-console-phase1b.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-finance-console-phase1b-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Validate Finance Console certification workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Verify Finance Console Phase 1B browser output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          test -s src/components/FinanceCertificationFeesPanel.tsx
+          grep -q 'Certification Fees' src/components/AdminFinanceConsole.tsx
+          grep -q 'Certification pricing rule' src/components/FinanceCertificationFeesPanel.tsx
+          grep -q 'Programme and examination applicability' src/components/FinanceCertificationFeesPanel.tsx
+          grep -q 'Certificate orders' src/components/FinanceCertificationFeesPanel.tsx
+          grep -q 'Certificate payments' src/components/FinanceCertificationFeesPanel.tsx
+          grep -q 'finance_upsert_certificate_product_price_rule' src/services/financeConsoleService.ts
+          grep -q 'finance_upsert_certificate_product_scope' src/services/financeConsoleService.ts
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Certification Fees'
+          find dist -type f -name '*.js' -print0 | xargs -0 grep -q 'Included with examination'
+
+  database:
+    name: Validate certification finance authority
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: Phase 1B smoke tests create isolated finance actors.
+          commit;
+          SQL
+      - name: Start isolated Supabase stack with diagnostics and retry
+        shell: bash
+        run: |
+          set -uo pipefail
+          : > phase1b-supabase-start.log
+          for attempt in 1 2 3; do
+            echo "Supabase startup attempt ${attempt}/3" | tee -a phase1b-supabase-start.log
+            if supabase start --debug 2>&1 | tee -a phase1b-supabase-start.log; then
+              supabase status 2>&1 | tee phase1b-supabase-status.log
+              exit 0
+            fi
+            echo "Startup attempt ${attempt} failed; collecting Docker diagnostics." | tee -a phase1b-supabase-start.log
+            docker ps -a 2>&1 | tee -a phase1b-docker-ps.log || true
+            docker system df 2>&1 | tee -a phase1b-docker-system-df.log || true
+            supabase stop --no-backup 2>&1 | tee -a phase1b-supabase-stop.log || true
+            sleep $((attempt * 10))
+          done
+          docker images 2>&1 | tee phase1b-docker-images.log || true
+          exit 1
+      - name: Rebuild complete isolated schema
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee phase1b-db-reset.log
+      - name: Run Phase 1B certification fee smoke test
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_console_phase1b_certification_fees_smoke.sql \
+            2>&1 | tee phase1b-certification-fees-smoke.log
+      - name: Run advanced pricing and applicability smoke test
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_console_phase1b_certification_rules_smoke.sql \
+            2>&1 | tee phase1b-certification-rules-smoke.log
+      - name: Verify Professional Certificate identity routing
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_console_phase1b_identity_route_smoke.sql \
+            2>&1 | tee phase1b-identity-route-smoke.log
+          grep -q 'professionalIdentityRouteProtected' phase1b-identity-route-smoke.log
+          grep -q 'internalNoChargeHelperProtected' phase1b-identity-route-smoke.log
+      - name: Verify migration and authority definitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          migrations = [
+              Path('supabase/migrations/202607311100_finance_console_certification_products_fees.sql'),
+              Path('supabase/migrations/202607311101_finance_console_certification_pricing_rules.sql'),
+              Path('supabase/migrations/202607311102_finance_console_certification_identity_route_hardening.sql'),
+          ]
+          code = '\n'.join(path.read_text() for path in migrations)
+          required = [
+              'finance.certificate_prices.manage',
+              'get_finance_certification_snapshot',
+              'finance_upsert_certificate_product_price_rule',
+              'finance_upsert_certificate_product_scope',
+              'agilecert_certificate_product_scopes',
+              'separate_payment',
+              "'included'",
+              "'free'",
+              'country_codes',
+              'effective_from',
+              'effective_to',
+              'agilecert_resolve_certificate_pricing',
+              'included_with_examination',
+              'configured_no_charge',
+              'agilecert_issue_identity_verified_certificate_for_order',
+              'create_agilecert_professional_certificate_order',
+              'Professional requests are always routed',
+              'agilecert_record_finance_audit',
+          ]
+          missing = [marker for marker in required if marker not in code]
+          assert not missing, f'Missing Finance Console Phase 1B controls: {missing}'
+          PY
+      - name: Upload isolated database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-phase1b-database-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            phase1b-supabase-start.log
+            phase1b-supabase-status.log
+            phase1b-supabase-stop.log
+            phase1b-docker-ps.log
+            phase1b-docker-system-df.log
+            phase1b-docker-images.log
+            phase1b-db-reset.log
+            phase1b-certification-fees-smoke.log
+            phase1b-certification-rules-smoke.log
+            phase1b-identity-route-smoke.log
+      - name: Stop isolated Supabase stack
+        if: always()
+        run: supabase stop --no-backup || true
+
+  boundaries:
+    name: Confirm payment and examination boundaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Limit Phase 1B to approved files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only origin/supabase-integration...HEAD | sort > changed-files.txt
+          cat > allowed-files.txt <<'EOF'
+          .github/workflows/validate-finance-console-phase1b.yml
+          docs/FINANCE_CONSOLE_PHASE_1B_SCOPE.md
+          src/components/AdminFinanceConsole.tsx
+          src/components/FinanceCertificationFeesPanel.tsx
+          src/services/certificateCommerceService.ts
+          src/services/financeConsoleService.ts
+          supabase/migrations/202607311100_finance_console_certification_products_fees.sql
+          supabase/migrations/202607311101_finance_console_certification_pricing_rules.sql
+          supabase/migrations/202607311102_finance_console_certification_identity_route_hardening.sql
+          supabase/tests/finance_console_phase1b_certification_fees_smoke.sql
+          supabase/tests/finance_console_phase1b_certification_rules_smoke.sql
+          supabase/tests/finance_console_phase1b_identity_route_smoke.sql
+          EOF
+          sort -o allowed-files.txt allowed-files.txt
+          diff -u allowed-files.txt changed-files.txt
+
+          forbidden='^supabase/functions/(initialize-certificate-payment|verify-certificate-payment|paystack-certificate-webhook|initialize-exam-payment|verify-exam-payment|initialize-exam-cart-payment|verify-exam-cart-payment|paystack-webhook)/|^src/services/(commerceService|examService)\.ts$|^src/components/(CandidateCommerceOverlay|PaymentReturnHandler|ExamScreen|StudentDashboard)\.tsx$'
+          if grep -Eq "$forbidden" changed-files.txt; then
+            cat changed-files.txt
+            exit 1
+          fi
+      - name: Confirm certificate payment verification remains untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --quiet origin/supabase-integration...HEAD -- \
+            supabase/functions/initialize-certificate-payment/index.ts \
+            supabase/functions/verify-certificate-payment/index.ts \
+            supabase/functions/paystack-certificate-webhook/index.ts \
+            supabase/functions/_shared/agilecertCertificatePaystack.ts

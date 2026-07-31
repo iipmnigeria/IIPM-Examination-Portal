@@ -4,6 +4,7 @@ import { getMyIdentityAssurance } from './identityAssuranceService';
 export type CertificateProductCode = 'achievement' | 'professional';
 export type CertificateCommerceCurrency = 'NGN' | 'USD';
 export type CertificatePricingWindow = 'early' | 'standard' | 'waived';
+export type CertificatePricingMode = 'separate_payment' | 'included' | 'free';
 
 export interface CertificateCommerceOffer {
   eligibilityId: string;
@@ -21,15 +22,20 @@ export interface CertificateCommerceOffer {
   productTitle: string;
   productDescription: string;
   currency: CertificateCommerceCurrency;
+  countryCodes?: string[];
+  pricingMode: CertificatePricingMode;
   earlyAmountMinor: number;
   standardAmountMinor: number;
   payableAmountMinor: number;
-  pricingWindow: 'early' | 'standard';
+  paymentRequired: boolean;
+  pricingWindow: CertificatePricingWindow;
   checkoutAvailable: boolean;
   blockedReason: string | null;
   requiresIdentityVerification: boolean;
   includesBadge: boolean;
   includesTranscript: boolean;
+  effectiveFrom?: string;
+  effectiveTo?: string | null;
   benefits: string[];
 }
 
@@ -41,6 +47,7 @@ export interface CertificateCommerceOrder {
   productTitle?: string;
   currency: CertificateCommerceCurrency;
   pricingWindow: CertificatePricingWindow;
+  pricingMode?: CertificatePricingMode | null;
   listAmountMinor: number;
   discountAmountMinor: number;
   payableAmountMinor: number;
@@ -53,6 +60,7 @@ export interface CertificateCommerceOrder {
   fulfilledAt?: string | null;
   createdAt?: string;
   paymentRequired?: boolean;
+  autoIssued?: boolean;
   alreadyPaid?: boolean;
   alreadyFulfilled?: boolean;
   certificateId?: string;
@@ -113,6 +121,10 @@ export interface AdminCertificatePrice {
   currency: CertificateCommerceCurrency;
   earlyAmountMinor: number;
   standardAmountMinor: number;
+  pricingMode?: CertificatePricingMode;
+  countryCodes?: string[];
+  effectiveFrom?: string;
+  effectiveTo?: string | null;
   active: boolean;
   requiresIdentityVerification: boolean;
   updatedAt: string;

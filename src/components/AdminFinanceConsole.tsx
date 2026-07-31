@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   CreditCard,
+  FileBadge2,
   History,
   KeyRound,
   Loader2,
@@ -41,8 +42,9 @@ import {
   type FinanceConsoleSnapshot,
   type FinancePermissionGrant,
 } from '../services/financeConsoleService';
+import FinanceCertificationFeesPanel from './FinanceCertificationFeesPanel';
 
-type ConsoleTab = 'overview' | 'pricing' | 'coupons' | 'orders' | 'payments' | 'permissions';
+type ConsoleTab = 'overview' | 'pricing' | 'certification' | 'coupons' | 'orders' | 'payments' | 'permissions';
 
 type TabDefinition = {
   id: ConsoleTab;
@@ -192,6 +194,7 @@ export default function AdminFinanceConsole() {
     const tabs: TabDefinition[] = [
       { id: 'overview', label: 'Overview', icon: BarChart3 },
       { id: 'pricing', label: 'Examination Fees', icon: CircleDollarSign },
+      { id: 'certification', label: 'Certification Fees', icon: FileBadge2 },
     ];
     if (access.canManageCoupons) tabs.push({ id: 'coupons', label: 'Discount Codes', icon: BadgePercent });
     tabs.push({ id: 'orders', label: 'Orders', icon: ShoppingCart });
@@ -447,6 +450,7 @@ export default function AdminFinanceConsole() {
   const summaryCards = snapshot ? [
     ['Published examinations', snapshot.summary.publishedExaminations, BarChart3],
     ['Active examination fees', snapshot.summary.activePrices, CircleDollarSign],
+    ['Active certification fees', snapshot.certificationSummary.activePrices, FileBadge2],
     ['Active discount codes', snapshot.summary.activeCoupons, BadgePercent],
     ['Pending orders', snapshot.summary.pendingOrders, ShoppingCart],
     ['Paid orders', snapshot.summary.paidOrders, CheckCircle2],
@@ -473,7 +477,7 @@ export default function AdminFinanceConsole() {
                   Protected Administrator Workspace
                 </p>
                 <h1 className="text-xl font-extrabold">Finance Console</h1>
-                <p className="mt-1 text-xs text-slate-400">Examination fees, finance permissions and commerce controls</p>
+                <p className="mt-1 text-xs text-slate-400">Examination fees, certification fees, finance permissions and commerce controls</p>
               </div>
               <div className="flex gap-2">
                 <button
@@ -672,6 +676,15 @@ export default function AdminFinanceConsole() {
                     ))}
                   </section>
                 </div>
+              )}
+
+              {snapshot && activeTab === 'certification' && (
+                <FinanceCertificationFeesPanel
+                  snapshot={snapshot}
+                  onRefresh={loadSnapshot}
+                  onMessage={setMessage}
+                  onError={setError}
+                />
               )}
 
               {snapshot && activeTab === 'coupons' && snapshot.access.canManageCoupons && (
