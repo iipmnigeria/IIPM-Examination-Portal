@@ -2,11 +2,14 @@ name: Validate Finance Console Phase 1
 
 on:
   push:
-    branches: [feature/finance-console-foundation]
+    branches:
+      - feature/finance-console-foundation
+      - fix/finance-console-production-drift
     paths:
       - 'src/components/AdminFinanceConsole.tsx'
       - 'src/components/AdminCommerceConsole.tsx'
       - 'src/services/financeConsoleService.ts'
+      - 'supabase/migrations/202607310699_finance_console_legacy_commerce_compatibility.sql'
       - 'supabase/migrations/202607310700_finance_console_pricing_permissions.sql'
       - 'supabase/tests/finance_console_phase1_smoke.sql'
       - '.github/workflows/validate-finance-console-phase1.yml'
@@ -16,6 +19,7 @@ on:
       - 'src/components/AdminFinanceConsole.tsx'
       - 'src/components/AdminCommerceConsole.tsx'
       - 'src/services/financeConsoleService.ts'
+      - 'supabase/migrations/202607310699_finance_console_legacy_commerce_compatibility.sql'
       - 'supabase/migrations/202607310700_finance_console_pricing_permissions.sql'
       - 'supabase/tests/finance_console_phase1_smoke.sql'
       - '.github/workflows/validate-finance-console-phase1.yml'
@@ -121,7 +125,7 @@ jobs:
           grep -q 'exam_admin_finance_grants' finance-console-behaviour.log
           grep -q 'fee_audit_events' finance-console-behaviour.log
           grep -q 'current_candidate_console_access' finance-console-behaviour.log
-      - name: Verify protected schema and function authority
+      - name: Verify protected schema and compatibility authority
         shell: bash
         env:
           PGPASSWORD: postgres
@@ -139,17 +143,43 @@ jobs:
             )
           order by tablename;
 
-          select proname, prosecdef, proconfig
+          select proname, pg_get_function_identity_arguments(oid) as identity_arguments, prosecdef, proconfig
           from pg_proc
-          where proname in (
-            'agilecert_has_finance_permission',
-            'get_my_finance_console_access',
-            'get_finance_console_snapshot',
-            'admin_set_finance_role_permission',
-            'finance_upsert_exam_price',
-            'finance_set_exam_price_active'
-          )
-          order by proname;
+          where pronamespace = 'public'::regnamespace
+            and proname in (
+              'get_admin_commerce_snapshot',
+              'admin_upsert_exam_price',
+              'admin_set_exam_price_active',
+              'admin_upsert_coupon',
+              'admin_set_coupon_active',
+              'admin_cancel_exam_order',
+              'agilecert_has_finance_permission',
+              'get_my_finance_console_access',
+              'get_finance_console_snapshot',
+              'admin_set_finance_role_permission',
+              'finance_upsert_exam_price',
+              'finance_set_exam_price_active'
+            )
+          order by proname, identity_arguments;
+
+          select jsonb_build_object(
+            'legacyCompatibilityFunctions', (
+              select count(*) from pg_proc
+              where pronamespace = 'public'::regnamespace
+                and proname in (
+                  'get_admin_commerce_snapshot',
+                  'admin_upsert_exam_price',
+                  'admin_set_exam_price_active',
+                  'admin_upsert_coupon',
+                  'admin_set_coupon_active',
+                  'admin_cancel_exam_order'
+                ) and prosecdef = true
+            ),
+            'authenticatedLegacySnapshotExecute',
+              has_function_privilege('authenticated', 'public.get_admin_commerce_snapshot(integer)', 'execute'),
+            'authenticatedLegacyPriceExecute',
+              has_function_privilege('authenticated', 'public.admin_upsert_exam_price(uuid,text,bigint,text[],boolean,boolean,timestamptz,timestamptz)', 'execute')
+          ) as compatibility;
 
           select permission_key, risk_level
           from public.agilecert_finance_permission_definitions
@@ -157,6 +187,10 @@ jobs:
           SQL
           grep -q 'agilecert_finance_permission_definitions' finance-console-schema.log
           grep -q 'finance_upsert_exam_price' finance-console-schema.log
+          grep -q 'get_admin_commerce_snapshot' finance-console-schema.log
+          grep -q '"legacyCompatibilityFunctions": 6' finance-console-schema.log
+          grep -q '"authenticatedLegacySnapshotExecute": false' finance-console-schema.log
+          grep -q '"authenticatedLegacyPriceExecute": false' finance-console-schema.log
           grep -q 'finance.permissions.manage' finance-console-schema.log
       - name: Upload database evidence
         if: always()
@@ -191,5 +225,8 @@ jobs:
             echo 'Phase 1 unexpectedly changed payment, cart or examination runtime files.' >&2
             exit 1
           fi
-          grep -q '202607310700_finance_console_pricing_permissions.sql' finance-console-changed-files.log
-          grep -q 'AdminFinanceConsole.tsx' finance-console-changed-files.log
+          grep -q '202607310699_finance_console_legacy_commerce_compatibility.sql' finance-console-changed-files.log
+          test -s supabase/migrations/202607310700_finance_console_pricing_permissions.sql
+          test -s src/components/AdminFinanceConsole.tsx
+          grep -q 'get_admin_commerce_snapshot' supabase/migrations/202607310699_finance_console_legacy_commerce_compatibility.sql
+          grep -q 'revoke all on function public.get_admin_commerce_snapshot' supabase/migrations/202607310699_finance_console_legacy_commerce_compatibility.sql
