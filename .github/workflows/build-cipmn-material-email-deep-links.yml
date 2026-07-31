@@ -1,0 +1,435 @@
+name: Build CIPMN Material Email Deep Links
+
+on:
+  push:
+    branches:
+      - feature/cipmn-material-email-deep-links
+    paths:
+      - '.github/workflows/build-cipmn-material-email-deep-links.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/cipmn-material-email-deep-links
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Apply exact source changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              return text.replace(old, new, 1)
+
+          app_path = Path('src/App.tsx')
+          app = app_path.read_text(encoding='utf-8')
+          app = replace_once(
+              app,
+              "type PortalView = 'dashboard' | 'materials' | 'profile' | 'cv' | 'exam' | 'admin';\n\nexport default function App() {",
+              """type PortalView = 'dashboard' | 'materials' | 'profile' | 'cv' | 'exam' | 'admin';
+
+interface MaterialsDestination {
+  requested: boolean;
+  examinationId: string | null;
+}
+
+function readMaterialsDestination(): MaterialsDestination {
+  if (typeof window === 'undefined') return { requested: false, examinationId: null };
+  const parameters = new URLSearchParams(window.location.search);
+  const requested = parameters.get('view') === 'materials';
+  const candidateId = parameters.get('examinationId')?.trim() || '';
+  const examinationId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidateId)
+    ? candidateId
+    : null;
+  return { requested, examinationId };
+}
+
+function clearMaterialsDestinationUrl(): void {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('view');
+  url.searchParams.delete('examinationId');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+export default function App() {""",
+              'App destination helpers',
+          )
+          app = replace_once(
+              app,
+              """  const [view, setView] = useState<PortalView>(() => {
+    return localStorage.getItem('aura_logged_role') === 'admin' ? 'admin' : 'dashboard';
+  });
+
+  const [tests, setTests] = useState<Test[]>([]);""",
+              """  const [view, setView] = useState<PortalView>(() => {
+    if (localStorage.getItem('aura_logged_role') === 'admin') return 'admin';
+    return readMaterialsDestination().requested ? 'materials' : 'dashboard';
+  });
+  const [materialsExaminationId, setMaterialsExaminationId] = useState<string | null>(() => {
+    return readMaterialsDestination().examinationId;
+  });
+
+  const [tests, setTests] = useState<Test[]>([]);""",
+              'App state',
+          )
+          app = replace_once(
+              app,
+              """  const handleLoginSuccess = (name: string, role: 'student' | 'admin') => {
+    localStorage.setItem('aura_logged_role', role);
+    localStorage.setItem('aura_student_name', name);
+    setUserRole(role);
+    setStudentName(name);
+    setView(role === 'admin' ? 'admin' : 'dashboard');
+  };""",
+              """  const handleLoginSuccess = (name: string, role: 'student' | 'admin') => {
+    const materialsDestination = readMaterialsDestination();
+    localStorage.setItem('aura_logged_role', role);
+    localStorage.setItem('aura_student_name', name);
+    setUserRole(role);
+    setStudentName(name);
+    setMaterialsExaminationId(materialsDestination.examinationId);
+    setView(role === 'admin' ? 'admin' : materialsDestination.requested ? 'materials' : 'dashboard');
+  };""",
+              'App login routing',
+          )
+          app = replace_once(
+              app,
+              """                  <button
+                    onClick={() => setView('materials')}
+                    className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${""",
+              """                  <button
+                    onClick={() => {
+                      setMaterialsExaminationId(null);
+                      clearMaterialsDestinationUrl();
+                      setView('materials');
+                    }}
+                    className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${""",
+              'App materials navigation',
+          )
+          app = replace_once(
+              app,
+              """              <CandidatePreparationMaterialsPanel />""",
+              """              <CandidatePreparationMaterialsPanel
+                focusedExaminationId={materialsExaminationId}
+                onClearFocus={() => {
+                  setMaterialsExaminationId(null);
+                  clearMaterialsDestinationUrl();
+                }}
+              />""",
+              'App materials props',
+          )
+          app_path.write_text(app, encoding='utf-8')
+
+          panel_path = Path('src/components/CandidatePreparationMaterialsPanel.tsx')
+          panel = panel_path.read_text(encoding='utf-8')
+          panel = replace_once(
+              panel,
+              """export default function CandidatePreparationMaterialsPanel() {""",
+              """interface CandidatePreparationMaterialsPanelProps {
+  focusedExaminationId?: string | null;
+  onClearFocus?: () => void;
+}
+
+export default function CandidatePreparationMaterialsPanel({
+  focusedExaminationId = null,
+  onClearFocus,
+}: CandidatePreparationMaterialsPanelProps) {""",
+              'Panel props',
+          )
+          panel = replace_once(
+              panel,
+              """    materials
+      .filter((material) => matchesLibraryFilter(material, libraryFilter))""",
+              """    materials
+      .filter((material) => !focusedExaminationId || material.examinationId === focusedExaminationId)
+      .filter((material) => matchesLibraryFilter(material, libraryFilter))""",
+              'Panel focus filter',
+          )
+          panel = replace_once(
+              panel,
+              """  }, [libraryFilter, materials, searchQuery]);
+
+  const handleDownload""",
+              """  }, [focusedExaminationId, libraryFilter, materials, searchQuery]);
+
+  useEffect(() => {
+    if (!focusedExaminationId || isLoading || groups.length === 0) return;
+    window.setTimeout(() => {
+      document.getElementById(`materials-examination-${focusedExaminationId}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 80);
+  }, [focusedExaminationId, groups.length, isLoading]);
+
+  const handleDownload""",
+              'Panel focused scroll',
+          )
+          panel = replace_once(
+              panel,
+              """  const visibleResourceCount = groups.reduce((total, group) => total + group.materials.length, 0);
+  const hasActiveLibraryFilter = searchQuery.trim().length > 0 || libraryFilter !== 'all';""",
+              """  const visibleResourceCount = groups.reduce((total, group) => total + group.materials.length, 0);
+  const focusedExaminationTitle = focusedExaminationId
+    ? materials.find((material) => material.examinationId === focusedExaminationId)?.examinationTitle || ''
+    : '';
+  const hasActiveLibraryFilter = searchQuery.trim().length > 0 || libraryFilter !== 'all';""",
+              'Panel focus title',
+          )
+          panel = replace_once(
+              panel,
+              """            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:p-5" aria-label="Search and filter materials">""",
+              """            {focusedExaminationId && (
+              <section className="flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">Opened from your payment email</p>
+                  <p className="mt-1 text-sm font-bold text-emerald-950">
+                    Showing materials for {focusedExaminationTitle || 'the purchased examination'}.
+                  </p>
+                </div>
+                {onClearFocus && (
+                  <button
+                    type="button"
+                    onClick={onClearFocus}
+                    className="shrink-0 rounded-xl border border-emerald-300 bg-white px-4 py-2.5 text-sm font-black text-emerald-800 transition hover:border-emerald-500 hover:bg-emerald-100"
+                  >
+                    View all materials
+                  </button>
+                )}
+              </section>
+            )}
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:p-5" aria-label="Search and filter materials">""",
+              'Panel focus banner',
+          )
+          panel = replace_once(
+              panel,
+              """                    <section key={group.examinationId} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">""",
+              """                    <section
+                      id={`materials-examination-${group.examinationId}`}
+                      key={group.examinationId}
+                      className={`scroll-mt-28 overflow-hidden rounded-3xl border bg-white shadow-sm ${
+                        focusedExaminationId === group.examinationId
+                          ? 'border-emerald-400 ring-4 ring-emerald-100'
+                          : 'border-slate-200'
+                      }`}
+                    >""",
+              'Panel section anchor',
+          )
+          panel_path.write_text(panel, encoding='utf-8')
+
+          communications_path = Path('supabase/functions/agilecert-communications/index.ts')
+          communications = communications_path.read_text(encoding='utf-8')
+          communications = replace_once(
+              communications,
+              """function money(amountMinor: unknown, currency: unknown): string {""",
+              """function safePortalActionUrl(value: unknown, portalUrl: string): string {
+  try {
+    const portal = new URL(portalUrl);
+    const candidate = new URL(String(value || portalUrl), portal);
+    if (candidate.protocol !== 'https:' || candidate.origin !== portal.origin) return portal.toString();
+    const portalPath = portal.pathname.endsWith('/') ? portal.pathname : `${portal.pathname}/`;
+    if (!candidate.pathname.startsWith(portalPath)) return portal.toString();
+    return candidate.toString();
+  } catch {
+    return portalUrl;
+  }
+}
+
+function money(amountMinor: unknown, currency: unknown): string {""",
+              'Communications safe action URL',
+          )
+          communications = replace_once(
+              communications,
+              """    const senderName = cleanText(payload.senderName, 180) || 'AgileCert Administration';
+    const bodyHtml = escapeHtml(body).replace(/\\r?\\n/g, '<br>');
+    return {
+      subject,
+      html: emailFrame({
+        heading: subject,
+        intro: `Hello ${recipientName},`,
+        content: `<div style="font-size:15px;line-height:1.8;color:#334155">${bodyHtml}</div>`,
+        actionLabel: 'Open AgileCert portal',
+        actionUrl: portalUrl,
+        footer: `Sent by ${escapeHtml(senderName)} through the authorised AgileCert administration console. ${optionalFooter}`,
+      }),
+      text: `Hello ${recipientName},\\n\\n${body}\\n\\nOpen AgileCert: ${portalUrl}\\n\\nSent by ${senderName}.`,
+    };""",
+              """    const senderName = cleanText(payload.senderName, 180) || 'AgileCert Administration';
+    const actionLabel = cleanText(payload.actionLabel, 80) || 'Open AgileCert portal';
+    const actionUrl = safePortalActionUrl(payload.actionUrl, portalUrl);
+    const bodyHtml = escapeHtml(body).replace(/\\r?\\n/g, '<br>');
+    return {
+      subject,
+      html: emailFrame({
+        heading: subject,
+        intro: `Hello ${recipientName},`,
+        content: `<div style="font-size:15px;line-height:1.8;color:#334155">${bodyHtml}</div>`,
+        actionLabel,
+        actionUrl,
+        footer: `Sent by ${escapeHtml(senderName)} through the authorised AgileCert administration console. ${optionalFooter}`,
+      }),
+      text: `Hello ${recipientName},\\n\\n${body}\\n\\n${actionLabel}: ${actionUrl}\\n\\nSent by ${senderName}.`,
+    };""",
+              'Communications admin action',
+          )
+          communications_path.write_text(communications, encoding='utf-8')
+
+          migration = r'''begin;
+
+-- Add module-specific calls to action to CIPMN material-ready emails without
+-- mutating messages that have already been delivered.
+create or replace function public.enrich_cipmn_material_email_deep_link()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_examination_id text;
+begin
+  if new.message_type = 'admin_message'
+     and new.event_key like 'exam-material-ready:%' then
+    v_examination_id := nullif(trim(new.payload ->> 'examinationId'), '');
+    if v_examination_id is not null
+       and v_examination_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
+      new.payload := coalesce(new.payload, '{}'::jsonb) || jsonb_build_object(
+        'actionLabel', 'Access My Materials',
+        'actionUrl', '?view=materials&examinationId=' || v_examination_id
+      );
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.enrich_cipmn_material_email_deep_link()
+  from public, anon, authenticated;
+
+drop trigger if exists agilecert_cipmn_material_email_deep_link
+  on public.agilecert_communication_outbox;
+create trigger agilecert_cipmn_material_email_deep_link
+  before insert or update of message_type, event_key, payload
+  on public.agilecert_communication_outbox
+  for each row
+  execute function public.enrich_cipmn_material_email_deep_link();
+
+update public.agilecert_communication_outbox outbox
+set payload = coalesce(outbox.payload, '{}'::jsonb) || jsonb_build_object(
+      'actionLabel', 'Access My Materials',
+      'actionUrl', '?view=materials&examinationId=' || (outbox.payload ->> 'examinationId')
+    ),
+    updated_at = now()
+where outbox.message_type = 'admin_message'
+  and outbox.event_key like 'exam-material-ready:%'
+  and outbox.status in ('queued', 'failed')
+  and nullif(trim(outbox.payload ->> 'examinationId'), '') is not null
+  and (outbox.payload ->> 'examinationId') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
+
+commit;
+'''
+          Path('supabase/migrations/202607310500_cipmn_material_email_deep_links.sql').write_text(migration, encoding='utf-8')
+
+          validation = r'''name: Validate CIPMN Material Email Deep Links
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - 'src/App.tsx'
+      - 'src/components/CandidatePreparationMaterialsPanel.tsx'
+      - 'supabase/functions/agilecert-communications/index.ts'
+      - 'supabase/migrations/202607310500_cipmn_material_email_deep_links.sql'
+      - '.github/workflows/validate-cipmn-material-email-deep-links.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Type-check changed frontend files
+        run: >-
+          npx tsc --noEmit --skipLibCheck --jsx react-jsx --target ES2022
+          --module ESNext --moduleResolution Bundler --allowSyntheticDefaultImports
+          --esModuleInterop src/vite-env.d.ts src/App.tsx
+          src/components/CandidatePreparationMaterialsPanel.tsx
+      - name: Check communications function
+        run: deno check supabase/functions/agilecert-communications/index.ts
+      - name: Build production application
+        run: npm run build
+      - name: Validate deep-link controls
+        shell: python
+        run: |
+          from pathlib import Path
+          app = Path('src/App.tsx').read_text()
+          panel = Path('src/components/CandidatePreparationMaterialsPanel.tsx').read_text()
+          communications = Path('supabase/functions/agilecert-communications/index.ts').read_text()
+          migration = Path('supabase/migrations/202607310500_cipmn_material_email_deep_links.sql').read_text()
+          required = [
+              (app, "parameters.get('view') === 'materials'"),
+              (app, "parameters.get('examinationId')"),
+              (app, 'focusedExaminationId={materialsExaminationId}'),
+              (panel, 'Opened from your payment email'),
+              (panel, 'View all materials'),
+              (panel, 'materials-examination-${group.examinationId}'),
+              (communications, 'safePortalActionUrl'),
+              (communications, "cleanText(payload.actionLabel, 80)"),
+              (communications, 'safePortalActionUrl(payload.actionUrl, portalUrl)'),
+              (migration, "'Access My Materials'"),
+              (migration, "'?view=materials&examinationId='"),
+              (migration, "outbox.status in ('queued', 'failed')"),
+          ]
+          missing = [marker for text, marker in required if marker not in text]
+          assert not missing, missing
+          assert migration.rstrip().endswith('commit;')
+          print('Validated CIPMN payment-email deep links, login preservation and module focus.')
+'''
+          Path('.github/workflows/validate-cipmn-material-email-deep-links.yml').write_text(validation, encoding='utf-8')
+
+      - name: Validate production build
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: Remove temporary builder and commit release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/build-cipmn-material-email-deep-links.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/App.tsx src/components/CandidatePreparationMaterialsPanel.tsx \
+            supabase/functions/agilecert-communications/index.ts \
+            supabase/migrations/202607310500_cipmn_material_email_deep_links.sql \
+            .github/workflows/validate-cipmn-material-email-deep-links.yml
+          git commit -m "Add CIPMN material email deep links"
+          git push origin HEAD:feature/cipmn-material-email-deep-links
