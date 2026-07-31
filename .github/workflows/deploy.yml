@@ -4,6 +4,7 @@
 # Materials search, tags and centred player release: 2026-07-30
 # CIPMN Access My Materials email deep-link release: 2026-07-31
 # CIPMN examination-card startup hotfix release: 2026-07-31
+# Locked CIPMN payment and cart controls release: 2026-07-31
 name: Deploy to GitHub Pages
 
 on:
