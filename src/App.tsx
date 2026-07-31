@@ -28,6 +28,30 @@ import type { Attempt, ProctorLogEvent, Test } from './types';
 
 type PortalView = 'dashboard' | 'materials' | 'profile' | 'cv' | 'exam' | 'admin';
 
+interface MaterialsDestination {
+  requested: boolean;
+  examinationId: string | null;
+}
+
+function readMaterialsDestination(): MaterialsDestination {
+  if (typeof window === 'undefined') return { requested: false, examinationId: null };
+  const parameters = new URLSearchParams(window.location.search);
+  const requested = parameters.get('view') === 'materials';
+  const candidateId = parameters.get('examinationId')?.trim() || '';
+  const examinationId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidateId)
+    ? candidateId
+    : null;
+  return { requested, examinationId };
+}
+
+function clearMaterialsDestinationUrl(): void {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('view');
+  url.searchParams.delete('examinationId');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 export default function App() {
   const [userRole, setUserRole] = useState<'student' | 'admin' | null>(() => {
     return (localStorage.getItem('aura_logged_role') as 'student' | 'admin') || null;
@@ -36,7 +60,11 @@ export default function App() {
     return localStorage.getItem('aura_student_name') || '';
   });
   const [view, setView] = useState<PortalView>(() => {
-    return localStorage.getItem('aura_logged_role') === 'admin' ? 'admin' : 'dashboard';
+    if (localStorage.getItem('aura_logged_role') === 'admin') return 'admin';
+    return readMaterialsDestination().requested ? 'materials' : 'dashboard';
+  });
+  const [materialsExaminationId, setMaterialsExaminationId] = useState<string | null>(() => {
+    return readMaterialsDestination().examinationId;
   });
 
   const [tests, setTests] = useState<Test[]>([]);
@@ -80,11 +108,13 @@ export default function App() {
   }, [userRole]);
 
   const handleLoginSuccess = (name: string, role: 'student' | 'admin') => {
+    const materialsDestination = readMaterialsDestination();
     localStorage.setItem('aura_logged_role', role);
     localStorage.setItem('aura_student_name', name);
     setUserRole(role);
     setStudentName(name);
-    setView(role === 'admin' ? 'admin' : 'dashboard');
+    setMaterialsExaminationId(materialsDestination.examinationId);
+    setView(role === 'admin' ? 'admin' : materialsDestination.requested ? 'materials' : 'dashboard');
   };
 
   const handleLogout = async () => {
@@ -226,7 +256,11 @@ export default function App() {
                     <span className="hidden lg:inline">Examinations</span>
                   </button>
                   <button
-                    onClick={() => setView('materials')}
+                    onClick={() => {
+                      setMaterialsExaminationId(null);
+                      clearMaterialsDestinationUrl();
+                      setView('materials');
+                    }}
                     className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${
                       view === 'materials' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
                     }`}
@@ -319,7 +353,13 @@ export default function App() {
 
           {view === 'materials' && userRole === 'student' && (
             <motion.div key="materials" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <CandidatePreparationMaterialsPanel />
+              <CandidatePreparationMaterialsPanel
+                focusedExaminationId={materialsExaminationId}
+                onClearFocus={() => {
+                  setMaterialsExaminationId(null);
+                  clearMaterialsDestinationUrl();
+                }}
+              />
             </motion.div>
           )}
 

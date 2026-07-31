@@ -109,6 +109,11 @@ interface ActiveVideo {
   playback: VideoPlaybackReceipt;
 }
 
+interface CandidatePreparationMaterialsPanelProps {
+  focusedExaminationId?: string | null;
+  onClearFocus?: () => void;
+}
+
 function isEmbeddedVideo(material: CandidatePreparationMaterial): boolean {
   return material.deliveryMode === 'embedded_video' || material.materialType === 'video';
 }
@@ -139,7 +144,10 @@ function getMaterialSearchText(material: CandidatePreparationMaterial): string {
     .toLowerCase();
 }
 
-export default function CandidatePreparationMaterialsPanel() {
+export default function CandidatePreparationMaterialsPanel({
+  focusedExaminationId = null,
+  onClearFocus,
+}: CandidatePreparationMaterialsPanelProps) {
   const [materials, setMaterials] = useState<CandidatePreparationMaterial[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -200,6 +208,7 @@ export default function CandidatePreparationMaterialsPanel() {
     const grouped = new Map<string, MaterialGroup>();
 
     materials
+      .filter((material) => !focusedExaminationId || material.examinationId === focusedExaminationId)
       .filter((material) => matchesLibraryFilter(material, libraryFilter))
       .filter((material) => !normalizedQuery || getMaterialSearchText(material).includes(normalizedQuery))
       .forEach((material) => {
@@ -223,7 +232,17 @@ export default function CandidatePreparationMaterialsPanel() {
         materials: [...group.materials].sort((left, right) => left.position - right.position),
       }))
       .sort((left, right) => left.examinationTitle.localeCompare(right.examinationTitle));
-  }, [libraryFilter, materials, searchQuery]);
+  }, [focusedExaminationId, libraryFilter, materials, searchQuery]);
+
+  useEffect(() => {
+    if (!focusedExaminationId || isLoading || groups.length === 0) return;
+    window.setTimeout(() => {
+      document.getElementById(`materials-examination-${focusedExaminationId}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 80);
+  }, [focusedExaminationId, groups.length, isLoading]);
 
   const handleDownload = async (material: CandidatePreparationMaterial) => {
     const key = `${material.examinationId}-${material.materialId}`;
@@ -264,6 +283,9 @@ export default function CandidatePreparationMaterialsPanel() {
   const availableCount = materials.filter((material) => material.accessStatus === 'available').length;
   const lockedCount = materials.filter((material) => material.accessStatus === 'locked').length;
   const visibleResourceCount = groups.reduce((total, group) => total + group.materials.length, 0);
+  const focusedExaminationTitle = focusedExaminationId
+    ? materials.find((material) => material.examinationId === focusedExaminationId)?.examinationTitle || ''
+    : '';
   const hasActiveLibraryFilter = searchQuery.trim().length > 0 || libraryFilter !== 'all';
 
   return (
@@ -314,6 +336,26 @@ export default function CandidatePreparationMaterialsPanel() {
                 <p className="mt-2 text-2xl font-black text-amber-900">{lockedCount}</p>
               </div>
             </div>
+
+            {focusedExaminationId && (
+              <section className="flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">Opened from your payment email</p>
+                  <p className="mt-1 text-sm font-bold text-emerald-950">
+                    Showing materials for {focusedExaminationTitle || 'the purchased examination'}.
+                  </p>
+                </div>
+                {onClearFocus && (
+                  <button
+                    type="button"
+                    onClick={onClearFocus}
+                    className="shrink-0 rounded-xl border border-emerald-300 bg-white px-4 py-2.5 text-sm font-black text-emerald-800 transition hover:border-emerald-500 hover:bg-emerald-100"
+                  >
+                    View all materials
+                  </button>
+                )}
+              </section>
+            )}
 
             <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:p-5" aria-label="Search and filter materials">
               <div className="flex flex-col gap-4">
@@ -445,7 +487,15 @@ export default function CandidatePreparationMaterialsPanel() {
                   const groupVideoCount = group.materials.filter(isEmbeddedVideo).length;
 
                   return (
-                    <section key={group.examinationId} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                    <section
+                      id={`materials-examination-${group.examinationId}`}
+                      key={group.examinationId}
+                      className={`scroll-mt-28 overflow-hidden rounded-3xl border bg-white shadow-sm ${
+                        focusedExaminationId === group.examinationId
+                          ? 'border-emerald-400 ring-4 ring-emerald-100'
+                          : 'border-slate-200'
+                      }`}
+                    >
                       <header className="flex flex-col justify-between gap-4 border-b border-slate-200 bg-slate-50 px-5 py-5 sm:flex-row sm:items-center">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">

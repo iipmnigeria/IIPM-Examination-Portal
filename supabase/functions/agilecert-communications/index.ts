@@ -57,6 +57,19 @@ function safeUrl(value: unknown, fallback: string): string {
   }
 }
 
+function safePortalActionUrl(value: unknown, portalUrl: string): string {
+  try {
+    const portal = new URL(portalUrl);
+    const candidate = new URL(String(value || portalUrl), portal);
+    if (candidate.protocol !== 'https:' || candidate.origin !== portal.origin) return portal.toString();
+    const portalPath = portal.pathname.endsWith('/') ? portal.pathname : `${portal.pathname}/`;
+    if (!candidate.pathname.startsWith(portalPath)) return portal.toString();
+    return candidate.toString();
+  } catch {
+    return portalUrl;
+  }
+}
+
 function money(amountMinor: unknown, currency: unknown): string {
   const amount = Number(amountMinor || 0) / 100;
   const code = cleanText(currency, 3).toUpperCase() || 'NGN';
@@ -233,6 +246,8 @@ async function renderMessage(
     const body = cleanText(payload.body, 10000) || 'Please sign in to your AgileCert Global account for an important update.';
     const recipientName = cleanText(payload.recipientName, 180) || name;
     const senderName = cleanText(payload.senderName, 180) || 'AgileCert Administration';
+    const actionLabel = cleanText(payload.actionLabel, 80) || 'Open AgileCert portal';
+    const actionUrl = safePortalActionUrl(payload.actionUrl, portalUrl);
     const bodyHtml = escapeHtml(body).replace(/\r?\n/g, '<br>');
     return {
       subject,
@@ -240,11 +255,11 @@ async function renderMessage(
         heading: subject,
         intro: `Hello ${recipientName},`,
         content: `<div style="font-size:15px;line-height:1.8;color:#334155">${bodyHtml}</div>`,
-        actionLabel: 'Open AgileCert portal',
-        actionUrl: portalUrl,
+        actionLabel,
+        actionUrl,
         footer: `Sent by ${escapeHtml(senderName)} through the authorised AgileCert administration console. ${optionalFooter}`,
       }),
-      text: `Hello ${recipientName},\n\n${body}\n\nOpen AgileCert: ${portalUrl}\n\nSent by ${senderName}.`,
+      text: `Hello ${recipientName},\n\n${body}\n\n${actionLabel}: ${actionUrl}\n\nSent by ${senderName}.`,
     };
   }
 
