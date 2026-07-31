@@ -17,112 +17,124 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download and validate official CIPMN SVG
+      - name: Download and validate official CIPMN vectors
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p official-cipmn-logo-review
           UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0 Safari/537.36'
-          curl --fail --location --silent --show-error --max-time 30 \
-            --proto '=https' --tlsv1.2 \
-            --user-agent "$UA" \
-            --referer 'https://app.cipmn.gov.ng/' \
-            --dump-header /tmp/cipmn-logo.headers \
-            --output official-cipmn-logo-review/cipmn-logo-official.svg \
-            'https://app.cipmn.gov.ng/cipmn_logo.svg'
-
-          grep -iE '^(HTTP/|content-type:|content-length:|location:)' /tmp/cipmn-logo.headers | tail -n 8 || true
-          file official-cipmn-logo-review/cipmn-logo-official.svg
+          for asset in cipmn_logo coa; do
+            curl --fail --location --silent --show-error --max-time 30 \
+              --proto '=https' --tlsv1.2 \
+              --user-agent "$UA" \
+              --referer 'https://app.cipmn.gov.ng/' \
+              --output "official-cipmn-logo-review/${asset}-official.svg" \
+              "https://app.cipmn.gov.ng/${asset}.svg"
+          done
 
           python <<'PY'
+          import base64
           import hashlib
           import pathlib
           import re
           import xml.etree.ElementTree as ET
 
-          path = pathlib.Path('official-cipmn-logo-review/cipmn-logo-official.svg')
-          data = path.read_bytes()
-          if len(data) < 100 or len(data) > 2_000_000:
-              raise SystemExit(f'Unexpected official SVG size: {len(data)} bytes.')
+          review = pathlib.Path('official-cipmn-logo-review')
+          metadata = []
+          encoded = {}
 
-          text = data.decode('utf-8-sig')
-          if '<!DOCTYPE' in text.upper() or '<!ENTITY' in text.upper():
-              raise SystemExit('Official SVG contains a forbidden document type or entity declaration.')
+          def local(tag):
+              return tag.rsplit('}', 1)[-1].lower()
 
-          root = ET.fromstring(text)
-          local = lambda tag: tag.rsplit('}', 1)[-1].lower()
-          if local(root.tag) != 'svg':
-              raise SystemExit('Official source root element is not SVG.')
+          for name in ('cipmn_logo', 'coa'):
+              path = review / f'{name}-official.svg'
+              data = path.read_bytes()
+              if len(data) < 100 or len(data) > 2_000_000:
+                  raise SystemExit(f'Unexpected official {name} SVG size: {len(data)} bytes.')
 
-          forbidden_elements = {'script', 'foreignobject', 'iframe', 'object', 'embed'}
-          drawable_elements = {'path', 'circle', 'ellipse', 'rect', 'polygon', 'polyline', 'line', 'text', 'use'}
-          forbidden_found = []
-          external_refs = []
-          event_handlers = []
-          drawables = 0
+              text = data.decode('utf-8-sig')
+              if '<!DOCTYPE' in text.upper() or '<!ENTITY' in text.upper():
+                  raise SystemExit(f'Official {name} SVG contains a forbidden document type or entity declaration.')
 
-          for element in root.iter():
-              name = local(element.tag)
-              if name in forbidden_elements:
-                  forbidden_found.append(name)
-              if name in drawable_elements:
-                  drawables += 1
-              for key, value in element.attrib.items():
-                  attr = local(key)
-                  if attr.startswith('on'):
-                      event_handlers.append(attr)
-                  if attr in {'href', 'src'}:
-                      candidate = value.strip().lower()
-                      if candidate and not candidate.startswith('#') and not candidate.startswith('data:'):
-                          external_refs.append(value)
+              root = ET.fromstring(text)
+              if local(root.tag) != 'svg':
+                  raise SystemExit(f'Official {name} source root element is not SVG.')
 
-          if forbidden_found or external_refs or event_handlers:
-              raise SystemExit(
-                  f'Unsafe official SVG content: forbidden={forbidden_found}, external={external_refs}, events={event_handlers}'
-              )
-          if drawables < 1:
-              raise SystemExit(f'Official SVG contains no drawable elements: {drawables}.')
+              forbidden = []
+              external = []
+              events = []
+              drawables = 0
+              for element in root.iter():
+                  element_name = local(element.tag)
+                  if element_name in {'script', 'foreignobject', 'iframe', 'object', 'embed'}:
+                      forbidden.append(element_name)
+                  if element_name in {'path', 'circle', 'ellipse', 'rect', 'polygon', 'polyline', 'line', 'text', 'use'}:
+                      drawables += 1
+                  for key, value in element.attrib.items():
+                      attr = local(key)
+                      if attr.startswith('on'):
+                          events.append(attr)
+                      if attr in {'href', 'src'}:
+                          candidate = value.strip().lower()
+                          if candidate and not candidate.startswith('#') and not candidate.startswith('data:'):
+                              external.append(value)
 
-          view_box = root.attrib.get('viewBox') or root.attrib.get('viewbox')
-          width = root.attrib.get('width')
-          height = root.attrib.get('height')
-          if not view_box and not (width and height):
-              raise SystemExit('Official SVG has neither viewBox nor explicit dimensions.')
+              if forbidden or external or events or drawables < 1:
+                  raise SystemExit(
+                      f'Unsafe or empty official {name} SVG: forbidden={forbidden}, external={external}, events={events}, drawables={drawables}'
+                  )
 
-          if view_box:
-              numbers = [float(value) for value in re.split(r'[\s,]+', view_box.strip()) if value]
-              if len(numbers) != 4 or numbers[2] <= 0 or numbers[3] <= 0:
-                  raise SystemExit(f'Invalid official SVG viewBox: {view_box}.')
-              aspect = numbers[2] / numbers[3]
-          else:
-              def number(value):
-                  match = re.match(r'\s*([0-9.]+)', value or '')
-                  if not match:
-                      raise SystemExit(f'Invalid SVG dimension: {value}.')
-                  return float(match.group(1))
-              aspect = number(width) / number(height)
+              view_box = root.attrib.get('viewBox') or root.attrib.get('viewbox')
+              width = root.attrib.get('width')
+              height = root.attrib.get('height')
+              if not view_box and not (width and height):
+                  raise SystemExit(f'Official {name} SVG has no usable dimensions.')
 
-          if not 0.65 <= aspect <= 1.55:
-              raise SystemExit(f'Unexpected official CIPMN emblem aspect ratio: {aspect:.3f}.')
+              if view_box:
+                  numbers = [float(value) for value in re.split(r'[\s,]+', view_box.strip()) if value]
+                  if len(numbers) != 4 or numbers[2] <= 0 or numbers[3] <= 0:
+                      raise SystemExit(f'Invalid official {name} viewBox: {view_box}.')
+                  aspect = numbers[2] / numbers[3]
+              else:
+                  number = lambda value: float(re.match(r'\s*([0-9.]+)', value or '').group(1))
+                  aspect = number(width) / number(height)
 
-          digest = hashlib.sha256(data).hexdigest()
-          pathlib.Path('official-cipmn-logo-review/source-metadata.txt').write_text(
-              '\n'.join([
-                  'source=https://app.cipmn.gov.ng/cipmn_logo.svg',
-                  f'bytes={len(data)}',
-                  f'sha256={digest}',
-                  f'viewBox={view_box or ""}',
-                  f'width={width or ""}',
-                  f'height={height or ""}',
-                  f'aspect={aspect:.6f}',
-                  f'drawable_elements={drawables}',
-              ]) + '\n',
-              encoding='utf-8',
-          )
-          print(f'Validated official CIPMN SVG: bytes={len(data)}, aspect={aspect:.3f}, drawables={drawables}, sha256={digest}')
+              if not 0.45 <= aspect <= 1.8:
+                  raise SystemExit(f'Unexpected official {name} aspect ratio: {aspect:.3f}.')
+
+              digest = hashlib.sha256(data).hexdigest()
+              metadata.extend([
+                  f'{name}.source=https://app.cipmn.gov.ng/{name}.svg',
+                  f'{name}.bytes={len(data)}',
+                  f'{name}.sha256={digest}',
+                  f'{name}.viewBox={view_box or ""}',
+                  f'{name}.width={width or ""}',
+                  f'{name}.height={height or ""}',
+                  f'{name}.aspect={aspect:.6f}',
+                  f'{name}.drawable_elements={drawables}',
+              ])
+              encoded[name] = base64.b64encode(data).decode('ascii')
+              print(f'Validated official {name} SVG: bytes={len(data)}, aspect={aspect:.3f}, drawables={drawables}, sha256={digest}')
+
+          composite = f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 320" width="1200" height="320">
+            <image x="4" y="12" width="230" height="296" preserveAspectRatio="xMidYMid meet" href="data:image/svg+xml;base64,{encoded['coa']}"/>
+            <image x="245" y="18" width="245" height="284" preserveAspectRatio="xMidYMid meet" href="data:image/svg+xml;base64,{encoded['cipmn_logo']}"/>
+            <g fill="#2f3033" font-family="DejaVu Sans, Arial, sans-serif">
+              <text x="515" y="98" font-size="44" font-weight="700">CHARTERED INSTITUTE OF</text>
+              <text x="515" y="154" font-size="44" font-weight="700">PROJECT MANAGERS OF NIGERIA</text>
+              <text x="515" y="211" font-size="26" font-weight="400">Regulatory Body for Project Management in Nigeria</text>
+            </g>
+          </svg>'''
+          (review / 'cipmn-horizontal-composite.svg').write_text(composite, encoding='utf-8')
+          metadata.extend([
+              'composite.width=1200',
+              'composite.height=320',
+              'composite.aspect=3.750000',
+          ])
+          (review / 'source-metadata.txt').write_text('\n'.join(metadata) + '\n', encoding='utf-8')
           PY
 
-      - name: Render lossless print review PNG
+      - name: Render and validate lossless horizontal PNG
         shell: bash
         run: |
           set -euo pipefail
@@ -131,23 +143,22 @@ jobs:
             sudo apt-get install -y -qq librsvg2-bin
           fi
           rsvg-convert \
-            --keep-aspect-ratio \
             --width 1200 \
-            --height 1200 \
-            --background-color white \
-            --output official-cipmn-logo-review/cipmn-logo-print-review.png \
-            official-cipmn-logo-review/cipmn-logo-official.svg
+            --height 320 \
+            --output official-cipmn-logo-review/cipmn-horizontal-composite.png \
+            official-cipmn-logo-review/cipmn-horizontal-composite.svg
 
           python <<'PY'
+          import base64
           import binascii
           import pathlib
           import struct
           import zlib
 
-          path = pathlib.Path('official-cipmn-logo-review/cipmn-logo-print-review.png')
+          path = pathlib.Path('official-cipmn-logo-review/cipmn-horizontal-composite.png')
           data = path.read_bytes()
           if not data.startswith(b'\x89PNG\r\n\x1a\n'):
-              raise SystemExit('Rendered review is not PNG.')
+              raise SystemExit('Rendered composite is not PNG.')
 
           offset = 8
           width = height = None
@@ -180,13 +191,20 @@ jobs:
 
           if not reached_iend or offset != len(data) or not idat:
               raise SystemExit('Rendered PNG is incomplete.')
-          if width is None or height is None or max(width, height) < 1100:
-              raise SystemExit(f'Rendered PNG resolution is too low: {width}x{height}.')
+          if (width, height) != (1200, 320):
+              raise SystemExit(f'Unexpected rendered dimensions: {width}x{height}.')
           zlib.decompress(b''.join(idat))
-          print(f'Validated lossless PNG review: {width}x{height}, bytes={len(data)}, chunks={chunks}.')
+
+          payload = base64.b64encode(data).decode('ascii')
+          pathlib.Path('official-cipmn-logo-review/cipmnCertificateCipmnLogo.ts').write_text(
+              "export const CIPMN_CERTIFICATE_LOGO_DATA_URI = "
+              f"'data:image/png;base64,{payload}';\n",
+              encoding='utf-8',
+          )
+          print(f'Validated horizontal PNG: {width}x{height}, bytes={len(data)}, chunks={chunks}.')
           PY
 
-      - name: Upload official logo review
+      - name: Upload official composite review
         uses: actions/upload-artifact@v4
         with:
           name: official-cipmn-logo-review
