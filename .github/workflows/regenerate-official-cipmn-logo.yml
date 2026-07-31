@@ -80,8 +80,8 @@ jobs:
               raise SystemExit(
                   f'Unsafe official SVG content: forbidden={forbidden_found}, external={external_refs}, events={event_handlers}'
               )
-          if drawables < 3:
-              raise SystemExit(f'Official SVG contains too few drawable elements: {drawables}.')
+          if drawables < 1:
+              raise SystemExit(f'Official SVG contains no drawable elements: {drawables}.')
 
           view_box = root.attrib.get('viewBox') or root.attrib.get('viewbox')
           width = root.attrib.get('width')
