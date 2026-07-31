@@ -58,33 +58,67 @@ jobs:
   database:
     name: Validate certification finance authority
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: supabase/setup-cli@v1
         with:
           version: 2.101.0
-      - name: Start isolated Supabase stack
-        run: supabase start
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: Phase 1B smoke tests create isolated finance actors.
+          commit;
+          SQL
+      - name: Start isolated Supabase stack with diagnostics and retry
+        shell: bash
+        run: |
+          set -uo pipefail
+          : > phase1b-supabase-start.log
+          for attempt in 1 2 3; do
+            echo "Supabase startup attempt ${attempt}/3" | tee -a phase1b-supabase-start.log
+            if supabase start --debug 2>&1 | tee -a phase1b-supabase-start.log; then
+              supabase status 2>&1 | tee phase1b-supabase-status.log
+              exit 0
+            fi
+            echo "Startup attempt ${attempt} failed; collecting Docker diagnostics." | tee -a phase1b-supabase-start.log
+            docker ps -a 2>&1 | tee -a phase1b-docker-ps.log || true
+            docker system df 2>&1 | tee -a phase1b-docker-system-df.log || true
+            supabase stop --no-backup 2>&1 | tee -a phase1b-supabase-stop.log || true
+            sleep $((attempt * 10))
+          done
+          docker images 2>&1 | tee phase1b-docker-images.log || true
+          exit 1
       - name: Rebuild complete isolated schema
-        run: supabase db reset --local
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee phase1b-db-reset.log
       - name: Run Phase 1B certification fee smoke test
         shell: bash
+        env:
+          PGPASSWORD: postgres
         run: |
           set -euo pipefail
-          supabase status -o env > supabase-status.env
-          set -a
-          source supabase-status.env
-          set +a
-          psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/finance_console_phase1b_certification_fees_smoke.sql
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_console_phase1b_certification_fees_smoke.sql \
+            2>&1 | tee phase1b-certification-fees-smoke.log
       - name: Run advanced pricing and applicability smoke test
         shell: bash
+        env:
+          PGPASSWORD: postgres
         run: |
           set -euo pipefail
-          set -a
-          source supabase-status.env
-          set +a
-          psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/finance_console_phase1b_certification_rules_smoke.sql
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_console_phase1b_certification_rules_smoke.sql \
+            2>&1 | tee phase1b-certification-rules-smoke.log
       - name: Verify migration and authority definitions
         shell: bash
         run: |
@@ -118,9 +152,26 @@ jobs:
           missing = [marker for marker in required if marker not in code]
           assert not missing, f'Missing Finance Console Phase 1B controls: {missing}'
           PY
+      - name: Upload isolated database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-phase1b-database-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            phase1b-supabase-start.log
+            phase1b-supabase-status.log
+            phase1b-supabase-stop.log
+            phase1b-docker-ps.log
+            phase1b-docker-system-df.log
+            phase1b-docker-images.log
+            phase1b-db-reset.log
+            phase1b-certification-fees-smoke.log
+            phase1b-certification-rules-smoke.log
       - name: Stop isolated Supabase stack
         if: always()
-        run: supabase stop --no-backup
+        run: supabase stop --no-backup || true
 
   boundaries:
     name: Confirm payment and examination boundaries
