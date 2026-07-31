@@ -11,14 +11,14 @@ begin
     'public.create_agilecert_certificate_order(uuid,text,text)'::regprocedure
   ) into v_generic_definition;
 
-  if position("v_product_code = 'professional'" in v_generic_definition) = 0
+  if position('v_product_code = ''professional''' in v_generic_definition) = 0
      or position('create_agilecert_professional_certificate_order' in v_generic_definition) = 0 then
     raise exception 'The generic certificate-order RPC does not route Professional Certificate requests through identity assurance.';
   end if;
 
   if position(
     'agilecert_create_no_charge_certificate_order' in v_generic_definition
-  ) = 0 or position("'achievement'" in v_generic_definition) = 0 then
+  ) = 0 or position('''achievement''' in v_generic_definition) = 0 then
     raise exception 'The hardened generic certificate-order RPC did not preserve the Achievement Certificate paid and no-charge routes.';
   end if;
 
