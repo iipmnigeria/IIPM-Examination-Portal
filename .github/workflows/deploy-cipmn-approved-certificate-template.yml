@@ -1,0 +1,349 @@
+name: Deploy Approved CIPMN Certificate Template
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-cipmn-approved-certificate-template.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-cipmn-approved-certificate-template-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Deploy and verify approved CIPMN certificate template
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      EXPECTED_COMMIT: '115221e095f2af9d2305ac67a3f13b3c7bdd14bb'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Check out exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact release scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+
+          cat > cipmn-certificate-expected-migrations.txt <<'EOF'
+          202607310600_cipmn_approved_certificate_template.sql
+          EOF
+
+          test -s supabase/migrations/202607310600_cipmn_approved_certificate_template.sql
+          test -s src/services/cipmnCertificateRenderer.ts
+          test -s src/services/certificatePdfService.ts
+          test -s src/assets/cipmnCertificateIipmLogo.ts
+          test -s src/assets/cipmnCertificateCipmnLogo.ts
+          test -s src/assets/cipmnCertificateBanitoSignature.ts
+
+          grep -q "'variant', 'cipmn-completion-v1'" \
+            supabase/migrations/202607310600_cipmn_approved_certificate_template.sql
+          grep -q "'certificateIdentityChanged', false" \
+            supabase/migrations/202607310600_cipmn_approved_certificate_template.sql
+          grep -q 'renderCipmnCompletionCertificate' src/services/certificatePdfService.ts
+          grep -q 'renderDefaultCertificate' src/services/certificatePdfService.ts
+          grep -q 'BANITO_SIGNATURE_DATA_URI' src/services/cipmnCertificateRenderer.ts
+          ! grep -R -E '(sk_(live|test)_[A-Za-z0-9]+|sb_secret_[A-Za-z0-9]+)' \
+            src/services/cipmnCertificateRenderer.ts \
+            src/assets/cipmnCertificate*.ts \
+            supabase/migrations/202607310600_cipmn_approved_certificate_template.sql
+
+      - name: Build exact approved frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run build
+          test -s dist/index.html
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum \
+            > cipmn-certificate-approved-dist.sha256
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Snapshot certificate identities before migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with cipmn_certificates as (
+            select
+              certificate.id,
+              certificate.certificate_number,
+              certificate.verification_code,
+              certificate.score,
+              certificate.revision_number,
+              certificate.status
+            from public.agilecert_issued_certificates certificate
+            join public.examinations examination on examination.id = certificate.examination_id
+            join public.programmes programme on programme.id = examination.programme_id
+            where upper(programme.code) like 'CIPMN%'
+              and lower(coalesce(nullif(certificate.metadata->>'productCode', ''), 'achievement')) = 'achievement'
+          ),
+          non_cipmn_templates as (
+            select template.*
+            from public.agilecert_certificate_templates template
+            join public.programmes programme on programme.id = template.programme_id
+            where upper(programme.code) not like 'CIPMN%'
+          )
+          select jsonb_build_object(
+            'cipmnProgrammes', (
+              select count(*) from public.programmes where upper(code) like 'CIPMN%'
+            ),
+            'cipmnCertificates', (select count(*) from cipmn_certificates),
+            'activeCipmnCertificates', (
+              select count(*) from cipmn_certificates where status = 'active'
+            ),
+            'cipmnIdentityHash', (
+              select md5(coalesce(string_agg(
+                id::text || ':' || certificate_number || ':' || verification_code || ':' ||
+                score::text || ':' || revision_number::text || ':' || status,
+                '|' order by id
+              ), '')) from cipmn_certificates
+            ),
+            'nonCipmnTemplateHash', (
+              select md5(coalesce(string_agg(
+                id::text || ':' || programme_id::text || ':' || product_code || ':' ||
+                version::text || ':' || active::text || ':' || certificate_title || ':' ||
+                issuer_name || ':' || layout_config::text,
+                '|' order by id
+              ), '')) from non_cipmn_templates
+            )
+          ) as verification;
+          """
+          Path('/tmp/cipmn-certificate-pre-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/cipmn-certificate-pre-query.json \
+            -o cipmn-certificate-pre-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('cipmn-certificate-pre-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('cipmnProgrammes', 0) >= 1, result
+          required = {
+              'cipmnProgrammes', 'cipmnCertificates', 'activeCipmnCertificates',
+              'cipmnIdentityHash', 'nonCipmnTemplateHash',
+          }
+          assert required.issubset(result), result
+          Path('cipmn-certificate-pre-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Require exactly one approved pending migration
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee cipmn-certificate-production-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' \
+            cipmn-certificate-production-dry-run.log \
+            | sort -u > cipmn-certificate-production-pending.txt || true
+          diff -u cipmn-certificate-expected-migrations.txt \
+            cipmn-certificate-production-pending.txt
+          test "$(wc -l < cipmn-certificate-production-pending.txt | tr -d ' ')" -eq 1
+
+      - name: Apply approved certificate migration
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked 2>&1 \
+            | tee cipmn-certificate-production-deploy.log
+          grep -q 'Applying migration 202607310600_cipmn_approved_certificate_template.sql' \
+            cipmn-certificate-production-deploy.log
+          grep -q 'Finished supabase db push' cipmn-certificate-production-deploy.log
+
+      - name: Verify live template and immutable certificate identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with cipmn_programmes as (
+            select id from public.programmes where upper(code) like 'CIPMN%'
+          ),
+          cipmn_certificates as (
+            select
+              certificate.id,
+              certificate.certificate_number,
+              certificate.verification_code,
+              certificate.score,
+              certificate.revision_number,
+              certificate.status,
+              certificate.template_id
+            from public.agilecert_issued_certificates certificate
+            join public.examinations examination on examination.id = certificate.examination_id
+            where examination.programme_id in (select id from cipmn_programmes)
+              and lower(coalesce(nullif(certificate.metadata->>'productCode', ''), 'achievement')) = 'achievement'
+          ),
+          non_cipmn_templates as (
+            select template.*
+            from public.agilecert_certificate_templates template
+            join public.programmes programme on programme.id = template.programme_id
+            where upper(programme.code) not like 'CIPMN%'
+          )
+          select jsonb_build_object(
+            'cipmnProgrammes', (select count(*) from cipmn_programmes),
+            'cipmnCertificates', (select count(*) from cipmn_certificates),
+            'activeCipmnCertificates', (
+              select count(*) from cipmn_certificates where status = 'active'
+            ),
+            'cipmnIdentityHash', (
+              select md5(coalesce(string_agg(
+                id::text || ':' || certificate_number || ':' || verification_code || ':' ||
+                score::text || ':' || revision_number::text || ':' || status,
+                '|' order by id
+              ), '')) from cipmn_certificates
+            ),
+            'nonCipmnTemplateHash', (
+              select md5(coalesce(string_agg(
+                id::text || ':' || programme_id::text || ':' || product_code || ':' ||
+                version::text || ':' || active::text || ':' || certificate_title || ':' ||
+                issuer_name || ':' || layout_config::text,
+                '|' order by id
+              ), '')) from non_cipmn_templates
+            ),
+            'activeCipmnTemplates', (
+              select count(*)
+              from public.agilecert_certificate_templates template
+              where template.programme_id in (select id from cipmn_programmes)
+                and template.product_code = 'achievement'
+                and template.active = true
+            ),
+            'approvedVariants', (
+              select count(*)
+              from public.agilecert_certificate_templates template
+              where template.programme_id in (select id from cipmn_programmes)
+                and template.product_code = 'achievement'
+                and template.active = true
+                and template.layout_config->>'variant' = 'cipmn-completion-v1'
+                and coalesce((template.layout_config->>'singleSignature')::boolean, false) = true
+                and coalesce((template.layout_config->>'showScore')::boolean, false) = true
+            ),
+            'mappedActiveCertificates', (
+              select count(*)
+              from cipmn_certificates certificate
+              join public.agilecert_certificate_templates template on template.id = certificate.template_id
+              where certificate.status = 'active'
+                and template.layout_config->>'variant' = 'cipmn-completion-v1'
+            ),
+            'renderPayloadHasExaminationCode', (
+              select position(
+                '''examinationCode''' in pg_get_functiondef(
+                  'public.get_my_agilecert_certificate_render_payload(uuid)'::regprocedure
+                )
+              ) > 0
+            )
+          ) as verification;
+          """
+          Path('/tmp/cipmn-certificate-post-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/cipmn-certificate-post-query.json \
+            -o cipmn-certificate-post-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          pre_data = json.loads(Path('cipmn-certificate-pre-verification.json').read_text())
+          post_data = json.loads(Path('cipmn-certificate-post-verification.json').read_text())
+          pre = pre_data[0].get('verification') or {}
+          post = post_data[0].get('verification') or {}
+
+          assert post.get('cipmnProgrammes') == pre.get('cipmnProgrammes'), (pre, post)
+          assert post.get('cipmnCertificates') == pre.get('cipmnCertificates'), (pre, post)
+          assert post.get('activeCipmnCertificates') == pre.get('activeCipmnCertificates'), (pre, post)
+          assert post.get('cipmnIdentityHash') == pre.get('cipmnIdentityHash'), (pre, post)
+          assert post.get('nonCipmnTemplateHash') == pre.get('nonCipmnTemplateHash'), (pre, post)
+          assert post.get('activeCipmnTemplates') == post.get('cipmnProgrammes'), post
+          assert post.get('approvedVariants') == post.get('cipmnProgrammes'), post
+          assert post.get('mappedActiveCertificates') == post.get('activeCipmnCertificates'), post
+          assert post.get('renderPayloadHasExaminationCode') is True, post
+
+          Path('cipmn-certificate-post-safe.json').write_text(
+              json.dumps(post, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(post, indent=2))
+          PY
+
+      - name: Confirm no migration remains pending
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee cipmn-certificate-post-deploy-dry-run.log
+          grep -Eo '202607310600_[A-Za-z0-9._-]+\.sql' \
+            cipmn-certificate-post-deploy-dry-run.log \
+            | sort -u > cipmn-certificate-post-deploy-pending.txt || true
+          test ! -s cipmn-certificate-post-deploy-pending.txt
+          grep -q 'Remote database is up to date' cipmn-certificate-post-deploy-dry-run.log
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-approved-certificate-template-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cipmn-certificate-expected-migrations.txt
+            cipmn-certificate-approved-dist.sha256
+            cipmn-certificate-pre-safe.json
+            cipmn-certificate-production-dry-run.log
+            cipmn-certificate-production-pending.txt
+            cipmn-certificate-production-deploy.log
+            cipmn-certificate-post-safe.json
+            cipmn-certificate-post-deploy-dry-run.log
+            cipmn-certificate-post-deploy-pending.txt
