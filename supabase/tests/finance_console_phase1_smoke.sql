@@ -32,16 +32,83 @@ insert into auth.users (
   )
 on conflict (id) do nothing;
 
-update public.profiles set role = 'super_admin', is_active = true
-where id = '31070000-0000-0000-0000-000000000001';
-update public.profiles set role = 'exam_admin', is_active = true
-where id = '31070000-0000-0000-0000-000000000002';
-update public.profiles set role = 'candidate', is_active = true
-where id = '31070000-0000-0000-0000-000000000003';
+-- Make the test independent of trigger timing while preserving the normal
+-- auth-user trigger path used by production.
+insert into public.profiles (id, full_name, email, role, is_active)
+values
+  (
+    '31070000-0000-0000-0000-000000000001',
+    'Finance Super Administrator',
+    'finance-super@example.test',
+    'super_admin',
+    true
+  ),
+  (
+    '31070000-0000-0000-0000-000000000002',
+    'Finance Examination Administrator',
+    'finance-exam-admin@example.test',
+    'exam_admin',
+    true
+  ),
+  (
+    '31070000-0000-0000-0000-000000000003',
+    'Finance Candidate',
+    'finance-candidate@example.test',
+    'candidate',
+    true
+  )
+on conflict (id) do update set
+  full_name = excluded.full_name,
+  email = excluded.email,
+  role = excluded.role,
+  is_active = excluded.is_active,
+  updated_at = now();
+
+DO $$
+begin
+  if (
+    select count(*)
+    from public.profiles p
+    where p.id in (
+      '31070000-0000-0000-0000-000000000001',
+      '31070000-0000-0000-0000-000000000002',
+      '31070000-0000-0000-0000-000000000003'
+    )
+      and p.is_active = true
+      and (
+        (p.id = '31070000-0000-0000-0000-000000000001' and p.role = 'super_admin')
+        or (p.id = '31070000-0000-0000-0000-000000000002' and p.role = 'exam_admin')
+        or (p.id = '31070000-0000-0000-0000-000000000003' and p.role = 'candidate')
+      )
+  ) <> 3 then
+    raise exception 'The Finance Console test identities were not provisioned correctly.';
+  end if;
+end;
+$$;
+
+create or replace function pg_temp.set_finance_test_actor(p_actor uuid)
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object(
+      'sub', p_actor::text,
+      'role', 'authenticated',
+      'aud', 'authenticated'
+    )::text,
+    true
+  );
+  perform set_config('request.jwt.claim.sub', p_actor::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+end;
+$$;
 
 -- Super Administrator receives all active finance permissions implicitly.
-select set_config('request.jwt.claim.sub', '31070000-0000-0000-0000-000000000001', true);
-select set_config('request.jwt.claim.role', 'authenticated', true);
+select pg_temp.set_finance_test_actor('31070000-0000-0000-0000-000000000001');
 set local role authenticated;
 
 DO $$
@@ -74,8 +141,7 @@ select public.admin_set_finance_role_permission(
 );
 
 reset role;
-select set_config('request.jwt.claim.sub', '31070000-0000-0000-0000-000000000002', true);
-select set_config('request.jwt.claim.role', 'authenticated', true);
+select pg_temp.set_finance_test_actor('31070000-0000-0000-0000-000000000002');
 set local role authenticated;
 
 DO $$
@@ -113,8 +179,7 @@ $$;
 
 -- Restore fee-management authority as Super Administrator.
 reset role;
-select set_config('request.jwt.claim.sub', '31070000-0000-0000-0000-000000000001', true);
-select set_config('request.jwt.claim.role', 'authenticated', true);
+select pg_temp.set_finance_test_actor('31070000-0000-0000-0000-000000000001');
 set local role authenticated;
 select public.admin_set_finance_role_permission(
   'exam_admin',
@@ -125,8 +190,7 @@ select public.admin_set_finance_role_permission(
 
 -- The authorised Examination Administrator may save a fee, with immutable audit evidence.
 reset role;
-select set_config('request.jwt.claim.sub', '31070000-0000-0000-0000-000000000002', true);
-select set_config('request.jwt.claim.role', 'authenticated', true);
+select pg_temp.set_finance_test_actor('31070000-0000-0000-0000-000000000002');
 set local role authenticated;
 
 DO $$
@@ -193,8 +257,7 @@ $$;
 
 -- Candidate accounts have no Finance Console authority.
 reset role;
-select set_config('request.jwt.claim.sub', '31070000-0000-0000-0000-000000000003', true);
-select set_config('request.jwt.claim.role', 'authenticated', true);
+select pg_temp.set_finance_test_actor('31070000-0000-0000-0000-000000000003');
 set local role authenticated;
 
 DO $$
