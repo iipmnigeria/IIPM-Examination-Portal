@@ -10,8 +10,10 @@ on:
       - 'src/services/certificateCommerceService.ts'
       - 'supabase/migrations/202607311100_finance_console_certification_products_fees.sql'
       - 'supabase/migrations/202607311101_finance_console_certification_pricing_rules.sql'
+      - 'supabase/migrations/202607311102_finance_console_certification_identity_route_hardening.sql'
       - 'supabase/tests/finance_console_phase1b_certification_fees_smoke.sql'
       - 'supabase/tests/finance_console_phase1b_certification_rules_smoke.sql'
+      - 'supabase/tests/finance_console_phase1b_identity_route_smoke.sql'
       - 'docs/FINANCE_CONSOLE_PHASE_1B_SCOPE.md'
       - '.github/workflows/validate-finance-console-phase1b.yml'
   workflow_dispatch:
@@ -119,6 +121,18 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f supabase/tests/finance_console_phase1b_certification_rules_smoke.sql \
             2>&1 | tee phase1b-certification-rules-smoke.log
+      - name: Verify Professional Certificate identity routing
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_console_phase1b_identity_route_smoke.sql \
+            2>&1 | tee phase1b-identity-route-smoke.log
+          grep -q 'professionalIdentityRouteProtected' phase1b-identity-route-smoke.log
+          grep -q 'internalNoChargeHelperProtected' phase1b-identity-route-smoke.log
       - name: Verify migration and authority definitions
         shell: bash
         run: |
@@ -129,6 +143,7 @@ jobs:
           migrations = [
               Path('supabase/migrations/202607311100_finance_console_certification_products_fees.sql'),
               Path('supabase/migrations/202607311101_finance_console_certification_pricing_rules.sql'),
+              Path('supabase/migrations/202607311102_finance_console_certification_identity_route_hardening.sql'),
           ]
           code = '\n'.join(path.read_text() for path in migrations)
           required = [
@@ -147,6 +162,8 @@ jobs:
               'included_with_examination',
               'configured_no_charge',
               'agilecert_issue_identity_verified_certificate_for_order',
+              'create_agilecert_professional_certificate_order',
+              'Professional requests are always routed',
               'agilecert_record_finance_audit',
           ]
           missing = [marker for marker in required if marker not in code]
@@ -169,6 +186,7 @@ jobs:
             phase1b-db-reset.log
             phase1b-certification-fees-smoke.log
             phase1b-certification-rules-smoke.log
+            phase1b-identity-route-smoke.log
       - name: Stop isolated Supabase stack
         if: always()
         run: supabase stop --no-backup || true
@@ -195,8 +213,10 @@ jobs:
           src/services/financeConsoleService.ts
           supabase/migrations/202607311100_finance_console_certification_products_fees.sql
           supabase/migrations/202607311101_finance_console_certification_pricing_rules.sql
+          supabase/migrations/202607311102_finance_console_certification_identity_route_hardening.sql
           supabase/tests/finance_console_phase1b_certification_fees_smoke.sql
           supabase/tests/finance_console_phase1b_certification_rules_smoke.sql
+          supabase/tests/finance_console_phase1b_identity_route_smoke.sql
           EOF
           sort -o allowed-files.txt allowed-files.txt
           diff -u allowed-files.txt changed-files.txt
