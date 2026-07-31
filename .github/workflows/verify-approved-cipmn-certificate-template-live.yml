@@ -1,0 +1,76 @@
+name: Verify Live Approved CIPMN Certificate Template
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'verification-triggers/verify-approved-cipmn-certificate-template-live.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify public bundle contains approved certificate release
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+          rm -rf /tmp/cipmn-live && mkdir -p /tmp/cipmn-live
+
+          for attempt in $(seq 1 30); do
+            rm -rf /tmp/cipmn-live/*
+            if curl --fail --silent --show-error --location \
+              -H 'Cache-Control: no-cache' "${base}?certificateRelease=${GITHUB_SHA}-${attempt}" \
+              -o /tmp/cipmn-live/index.html; then
+              python3 <<'PY'
+          import re
+          from pathlib import Path
+          html = Path('/tmp/cipmn-live/index.html').read_text(encoding='utf-8')
+          assets = sorted(set(re.findall(r'(?:src|href)=["\']([^"\']+\.(?:js|css))["\']', html)))
+          Path('/tmp/cipmn-live/assets.txt').write_text('\n'.join(assets), encoding='utf-8')
+          PY
+              while IFS= read -r asset; do
+                [ -n "$asset" ] || continue
+                case "$asset" in
+                  http*) url="$asset" ;;
+                  /*) url="https://iipmnigeria.github.io${asset}" ;;
+                  *) url="${base}${asset#./}" ;;
+                esac
+                file="/tmp/cipmn-live/$(basename "${asset%%\?*}")"
+                curl --fail --silent --show-error --location \
+                  -H 'Cache-Control: no-cache' "${url}?certificateRelease=${GITHUB_SHA}-${attempt}" \
+                  -o "$file" || true
+              done < /tmp/cipmn-live/assets.txt
+
+              cat /tmp/cipmn-live/*.js > /tmp/cipmn-live/all.js 2>/dev/null || true
+              if grep -q 'CERTIFICATE OF COMPLETION' /tmp/cipmn-live/all.js \
+                && grep -q 'IIPM_CIPMN' /tmp/cipmn-live/all.js \
+                && grep -q 'SCAN TO VERIFY' /tmp/cipmn-live/all.js \
+                && grep -q 'Programme Coordinator / Executive Director, IIPM' /tmp/cipmn-live/all.js \
+                && grep -q 'Delivered through IIPM in collaboration with CIPMN' /tmp/cipmn-live/all.js; then
+                sha256sum /tmp/cipmn-live/*.js | sort > live-approved-cipmn-certificate-bundle.sha256
+                printf '{"approvedCipmnCertificateLive":true,"attempt":%s}\n' "$attempt" \
+                  > live-approved-cipmn-certificate-verification.json
+                exit 0
+              fi
+            fi
+            sleep 20
+          done
+
+          echo 'The approved CIPMN certificate markers did not reach the public bundle in time.' >&2
+          exit 1
+
+      - name: Upload read-only verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-approved-cipmn-certificate-verification
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            live-approved-cipmn-certificate-bundle.sha256
+            live-approved-cipmn-certificate-verification.json
