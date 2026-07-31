@@ -1,0 +1,3 @@
+Finance Console Phase 1B controlled production release
+Approved source: 1a9d6f44f3423b7757f9a07f809fccf46765fe42
+Triggered: 2026-07-31
