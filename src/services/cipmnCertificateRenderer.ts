@@ -22,17 +22,20 @@ const NAVY: [number, number, number] = [20, 43, 83];
 const RED: [number, number, number] = [190, 43, 45];
 const GOLD: [number, number, number] = [198, 147, 38];
 const MUTED: [number, number, number] = [71, 85, 105];
-const LIGHT_GREEN: [number, number, number] = [244, 249, 246];
+const LIGHT_GREEN: [number, number, number] = [246, 250, 247];
 const BORDER_GREEN: [number, number, number] = [5, 77, 57];
+const BOX_BORDER: [number, number, number] = [191, 219, 205];
 
 const formatDate = (value: string): string => {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('en-GB', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  if (Number.isNaN(date.getTime())) return value.toUpperCase();
+  return date
+    .toLocaleDateString('en-GB', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+    .toUpperCase();
 };
 
 const fitFontSize = (
@@ -69,6 +72,29 @@ const drawCornerMark = (doc: jsPDF, x: number, y: number): void => {
   doc.circle(x, y, 0.45, 'F');
 };
 
+const drawCalendarIcon = (doc: jsPDF, x: number, y: number): void => {
+  doc.setDrawColor(...PRIMARY);
+  doc.setLineWidth(0.55);
+  doc.roundedRect(x, y + 1.2, 6.4, 6.2, 0.7, 0.7, 'S');
+  doc.line(x, y + 3.1, x + 6.4, y + 3.1);
+  doc.line(x + 1.7, y, x + 1.7, y + 2.1);
+  doc.line(x + 4.7, y, x + 4.7, y + 2.1);
+  doc.setFillColor(...PRIMARY);
+  doc.circle(x + 2, y + 4.7, 0.32, 'F');
+  doc.circle(x + 4.4, y + 4.7, 0.32, 'F');
+};
+
+const drawCertificateIcon = (doc: jsPDF, x: number, y: number): void => {
+  doc.setDrawColor(...PRIMARY);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(x, y, 7.2, 6.1, 0.6, 0.6, 'S');
+  doc.line(x + 1.3, y + 1.7, x + 5.7, y + 1.7);
+  doc.line(x + 1.3, y + 3.1, x + 4.7, y + 3.1);
+  doc.circle(x + 6, y + 5.7, 1.35, 'S');
+  doc.line(x + 5.4, y + 6.8, x + 5.1, y + 8.2);
+  doc.line(x + 6.6, y + 6.8, x + 6.9, y + 8.2);
+};
+
 const drawInformationBox = (
   doc: jsPDF,
   x: number,
@@ -76,22 +102,30 @@ const drawInformationBox = (
   width: number,
   label: string,
   value: string,
+  icon: 'calendar' | 'certificate',
 ): void => {
   doc.setFillColor(...LIGHT_GREEN);
-  doc.setDrawColor(189, 218, 204);
+  doc.setDrawColor(...BOX_BORDER);
   doc.setLineWidth(0.35);
-  doc.roundedRect(x, y, width, 16, 2, 2, 'FD');
+  doc.roundedRect(x, y, width, 14.2, 2, 2, 'FD');
 
+  if (icon === 'calendar') {
+    drawCalendarIcon(doc, x + 4.5, y + 3.2);
+  } else {
+    drawCertificateIcon(doc, x + 4.2, y + 3.1);
+  }
+
+  const textX = x + 14.5;
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.2);
+  doc.setFontSize(5.7);
   doc.setTextColor(...MUTED);
-  doc.text(label.toUpperCase(), x + 4, y + 5.2);
+  doc.text(label.toUpperCase(), textX, y + 5.2);
 
   doc.setFont('helvetica', 'bold');
-  const valueSize = fitFontSize(doc, value, 8.2, 5.8, width - 8);
+  const valueSize = fitFontSize(doc, value, 7.3, 5.3, width - 18);
   doc.setFontSize(valueSize);
   doc.setTextColor(...PRIMARY);
-  doc.text(value, x + 4, y + 11.8, { maxWidth: width - 8 });
+  doc.text(value, textX, y + 10.6, { maxWidth: width - 18 });
 };
 
 export const isCipmnCertificate = (programmeCode?: string | null): boolean =>
@@ -108,136 +142,155 @@ export function renderCipmnCompletionCertificate(
     .replace(/\s+Mock Examination$/i, '')
     .trim();
 
+  // Exact approved landscape composition. Sample-only watermark wording is deliberately omitted.
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, 297, 210, 'F');
 
   doc.setDrawColor(...BORDER_GREEN);
-  doc.setLineWidth(1.6);
-  doc.roundedRect(6.5, 6.5, 284, 197, 2.3, 2.3, 'S');
+  doc.setLineWidth(1.65);
+  doc.roundedRect(6.2, 6.2, 284.6, 197.6, 2.4, 2.4, 'S');
   doc.setDrawColor(...GOLD);
-  doc.setLineWidth(0.45);
-  doc.roundedRect(9.2, 9.2, 278.6, 191.6, 1.8, 1.8, 'S');
+  doc.setLineWidth(0.42);
+  doc.roundedRect(8.6, 8.6, 279.8, 192.8, 1.9, 1.9, 'S');
   doc.setDrawColor(...RED);
   doc.setLineWidth(0.35);
-  doc.roundedRect(11.2, 11.2, 274.6, 187.6, 1.5, 1.5, 'S');
-  drawCornerMark(doc, 9.2, 9.2);
-  drawCornerMark(doc, 287.8, 9.2);
-  drawCornerMark(doc, 9.2, 200.8);
-  drawCornerMark(doc, 287.8, 200.8);
+  doc.roundedRect(10.5, 10.5, 276, 189, 1.55, 1.55, 'S');
+  drawCornerMark(doc, 8.6, 8.6);
+  drawCornerMark(doc, 288.4, 8.6);
+  drawCornerMark(doc, 8.6, 201.4);
+  drawCornerMark(doc, 288.4, 201.4);
 
-  doc.addImage(IIPM_CERTIFICATE_LOGO_DATA_URI, 'JPEG', 72, 14, 29, 29, 'iipm-logo', 'FAST');
+  // Balanced institutional identity exactly as approved.
+  doc.addImage(IIPM_CERTIFICATE_LOGO_DATA_URI, 'JPEG', 81, 13.1, 35, 35, 'iipm-logo', 'FAST');
   doc.setDrawColor(...GOLD);
   doc.setLineWidth(0.45);
-  doc.line(108, 16, 108, 43);
-  doc.addImage(CIPMN_CERTIFICATE_LOGO_DATA_URI, 'JPEG', 115, 18, 105, 21.5, 'cipmn-logo', 'FAST');
+  doc.line(128.5, 16, 128.5, 43.5);
+  doc.addImage(CIPMN_CERTIFICATE_LOGO_DATA_URI, 'JPEG', 139, 16.1, 91, 25.5, 'cipmn-logo', 'FAST');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.4);
+  doc.setTextColor(...RED);
+  doc.text('IN COLLABORATION WITH', CENTRE_X, 51.2, { align: 'center' });
+  doc.setFontSize(7.2);
+  doc.setTextColor(...PRIMARY);
+  doc.text('CHARTERED INSTITUTE OF PROJECT MANAGERS OF NIGERIA (CIPMN)', CENTRE_X, 56.4, {
+    align: 'center',
+  });
 
   doc.setFont('times', 'bold');
-  doc.setFontSize(21);
+  doc.setFontSize(19.5);
   doc.setTextColor(...NAVY);
-  doc.text('CERTIFICATE OF COMPLETION', CENTRE_X, 58, { align: 'center' });
+  doc.text('CERTIFICATE OF COMPLETION', CENTRE_X, 70.2, { align: 'center' });
   doc.setDrawColor(...GOLD);
-  doc.setLineWidth(0.6);
-  doc.line(116, 63, 181, 63);
+  doc.setLineWidth(0.55);
+  doc.line(113.8, 73, 183.2, 73);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10.5);
+  doc.setFontSize(9.8);
   doc.setTextColor(...MUTED);
-  doc.text('This is to certify that', CENTRE_X, 73, { align: 'center' });
+  doc.text('This is to certify that', CENTRE_X, 82, { align: 'center' });
 
-  doc.setFont('times', 'bold');
   const holderName = input.holderName.toUpperCase();
-  const holderSize = fitFontSize(doc, holderName, 25, 15, 220);
+  doc.setFont('times', 'bold');
+  const holderSize = fitFontSize(doc, holderName, 23.5, 14.5, 219);
   doc.setFontSize(holderSize);
   doc.setTextColor(...PRIMARY);
-  doc.text(holderName, CENTRE_X, 90, { align: 'center', maxWidth: 220 });
+  doc.text(holderName, CENTRE_X, 96, { align: 'center', maxWidth: 219 });
   doc.setDrawColor(194, 209, 221);
-  doc.setLineWidth(0.35);
-  doc.line(58, 96, 239, 96);
+  doc.setLineWidth(0.32);
+  doc.line(66, 99.5, 231, 99.5);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10.2);
+  doc.setFontSize(9.7);
   doc.setTextColor(...MUTED);
   doc.text(
     'has successfully completed the CIPMN Licensing Training Module in',
     CENTRE_X,
-    106,
+    108.5,
     { align: 'center' },
   );
 
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...RED);
-  let examFontSize = 15;
+  let examFontSize = 14.2;
   doc.setFontSize(examFontSize);
-  let titleLines = doc.splitTextToSize(title.toUpperCase(), 220) as string[];
-  while (titleLines.length > 2 && examFontSize > 11.5) {
+  let titleLines = doc.splitTextToSize(title.toUpperCase(), 224) as string[];
+  while (titleLines.length > 2 && examFontSize > 10.8) {
     examFontSize -= 0.5;
     doc.setFontSize(examFontSize);
-    titleLines = doc.splitTextToSize(title.toUpperCase(), 220) as string[];
+    titleLines = doc.splitTextToSize(title.toUpperCase(), 224) as string[];
   }
   doc.text(titleLines.slice(0, 2), CENTRE_X, 116.5, {
     align: 'center',
-    lineHeightFactor: 1.05,
+    lineHeightFactor: 1.02,
   });
 
-  const titleEndY = 116.5 + (Math.min(titleLines.length, 2) - 1) * examFontSize * 0.37;
-  const moduleCodeY = Math.max(130.5, titleEndY + 4.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
+  const titleEndY = 116.5 + (Math.min(titleLines.length, 2) - 1) * examFontSize * 0.36;
+  const moduleCodeY = Math.max(125.3, titleEndY + 4.2);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.7);
   doc.setTextColor(...PRIMARY);
   doc.text(moduleCode.toUpperCase(), CENTRE_X, moduleCodeY, { align: 'center' });
 
-  const collaborationY = Math.max(138, moduleCodeY + 6);
+  const collaborationY = Math.max(131.5, moduleCodeY + 5.7);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
+  doc.setFontSize(8.1);
   doc.setTextColor(...MUTED);
   doc.text('Delivered through IIPM in collaboration with CIPMN.', CENTRE_X, collaborationY, {
     align: 'center',
   });
 
+  const scoreBoxY = Math.max(136, collaborationY + 5.2);
   doc.setFillColor(...LIGHT_GREEN);
-  doc.setDrawColor(183, 214, 198);
-  doc.setLineWidth(0.4);
-  doc.roundedRect(127.5, 144, 42, 13, 2, 2, 'FD');
+  doc.setDrawColor(...BOX_BORDER);
+  doc.setLineWidth(0.38);
+  doc.roundedRect(125.2, scoreBoxY, 46.6, 12.2, 2, 2, 'FD');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11.2);
+  doc.setFontSize(10.5);
   doc.setTextColor(...MUTED);
-  doc.text('SCORE:', 142.5, 152.5, { align: 'right' });
+  doc.text('SCORE:', 145.2, scoreBoxY + 8.1, { align: 'right' });
   doc.setTextColor(...PRIMARY);
-  doc.text(`${Number(input.score).toFixed(Number(input.score) % 1 === 0 ? 0 : 1)}%`, 145, 152.5);
+  const score = Number(input.score);
+  const scoreText = Number.isFinite(score)
+    ? `${score.toFixed(score % 1 === 0 ? 0 : 1)}%`
+    : `${input.score}%`;
+  doc.text(scoreText, 147.2, scoreBoxY + 8.1);
 
-  drawInformationBox(doc, 88, 160, 55, 'Date of Completion', formatDate(input.completionDate));
-  drawInformationBox(doc, 149, 160, 70, 'Certificate Number', input.certificateNumber);
+  const infoY = Math.max(151.2, scoreBoxY + 15.2);
+  drawInformationBox(doc, 90.5, infoY, 52, 'Date of Completion', formatDate(input.completionDate), 'calendar');
+  drawInformationBox(doc, 153.5, infoY, 59, 'Certificate Number', input.certificateNumber, 'certificate');
 
-  doc.addImage(BANITO_SIGNATURE_DATA_URI, 'JPEG', 25, 157, 37, 25, 'banito-signature', 'FAST');
+  // Single approved signatory.
+  doc.addImage(BANITO_SIGNATURE_DATA_URI, 'JPEG', 38, 154.2, 29, 24, 'banito-signature', 'FAST');
   doc.setDrawColor(139, 159, 179);
-  doc.setLineWidth(0.35);
-  doc.line(20, 183, 84, 183);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.4);
-  doc.setTextColor(...PRIMARY);
-  doc.text('EBURUCHE OBINNA CHIMEZIE BANITO', 20, 188.5, { maxWidth: 72 });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.3);
-  doc.setTextColor(...MUTED);
-  doc.text('Programme Coordinator / Executive Director, IIPM', 20, 193, { maxWidth: 72 });
-
-  doc.addImage(qrDataUrl, 'PNG', 247, 158, 27, 27, 'verification-qr', 'FAST');
+  doc.setLineWidth(0.32);
+  doc.line(20, 178.4, 86.5, 178.4);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.2);
   doc.setTextColor(...PRIMARY);
-  doc.text('SCAN TO VERIFY', 260.5, 190, { align: 'center' });
-  doc.setFont('courier', 'normal');
-  doc.setFontSize(5.2);
+  doc.text('EBURUCHE OBINNA CHIMEZIE BANITO', 20, 183.5, { maxWidth: 70 });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.1);
   doc.setTextColor(...MUTED);
-  doc.text(input.verificationCode, 260.5, 194, { align: 'center', maxWidth: 35 });
+  doc.text('Programme Coordinator / Executive Director, IIPM', 20, 188, { maxWidth: 72 });
+
+  doc.addImage(qrDataUrl, 'PNG', 244.5, 148.2, 29, 29, 'verification-qr', 'FAST');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.3);
+  doc.setTextColor(...PRIMARY);
+  doc.text('SCAN TO VERIFY', 259, 183.5, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5.6);
+  doc.setTextColor(...MUTED);
+  doc.text(input.verificationCode, 259, 187.3, { align: 'center', maxWidth: 38 });
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(5.3);
-  doc.setTextColor(130, 145, 160);
+  doc.setFontSize(5.2);
+  doc.setTextColor(116, 132, 148);
   doc.text(
     'This certificate is digitally verifiable. Scan the QR code or use the certificate number on the AgileCert portal.',
     CENTRE_X,
-    202,
-    { align: 'center', maxWidth: 150 },
+    195,
+    { align: 'center', maxWidth: 170 },
   );
 }
