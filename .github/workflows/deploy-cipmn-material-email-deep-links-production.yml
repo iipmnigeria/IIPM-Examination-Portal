@@ -1,0 +1,362 @@
+name: Deploy CIPMN Material Email Deep Links
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-cipmn-material-email-deep-links-production.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-cipmn-material-email-deep-links-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Deploy and verify material email deep links
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      EXPECTED_COMMIT: '0f335c35a09c1bebcbebf8c43868bdd90258ab57'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      GITHUB_COMMUNICATIONS_WORKER_TOKEN: ${{ secrets.AGILECERT_COMMUNICATIONS_WORKER_TOKEN }}
+
+    steps:
+      - name: Check out exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact approved release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          test -n "$GITHUB_COMMUNICATIONS_WORKER_TOKEN"
+
+          cat > cipmn-material-email-expected-migrations.txt <<'EOF'
+          202607310500_cipmn_material_email_deep_links.sql
+          EOF
+
+          test -s supabase/migrations/202607310500_cipmn_material_email_deep_links.sql
+          test -s supabase/functions/agilecert-communications/index.ts
+          test -s src/App.tsx
+          test -s src/components/CandidatePreparationMaterialsPanel.tsx
+
+          grep -q "'Access My Materials'" supabase/migrations/202607310500_cipmn_material_email_deep_links.sql
+          grep -q "'?view=materials&examinationId='" supabase/migrations/202607310500_cipmn_material_email_deep_links.sql
+          grep -q "outbox.status in ('queued', 'failed')" supabase/migrations/202607310500_cipmn_material_email_deep_links.sql
+          grep -q 'safePortalActionUrl' supabase/functions/agilecert-communications/index.ts
+          grep -q 'candidate.origin !== portal.origin' supabase/functions/agilecert-communications/index.ts
+          grep -q "candidate.protocol !== 'https:'" supabase/functions/agilecert-communications/index.ts
+          grep -q "parameters.get('view') === 'materials'" src/App.tsx
+          grep -q "parameters.get('examinationId')" src/App.tsx
+          grep -q 'Opened from your payment email' src/components/CandidatePreparationMaterialsPanel.tsx
+          grep -q 'View all materials' src/components/CandidatePreparationMaterialsPanel.tsx
+
+          ! grep -R -E '(sk_(live|test)_[A-Za-z0-9]+|re_[A-Za-z0-9]{20,})' \
+            supabase/functions/agilecert-communications \
+            supabase/migrations/202607310500_cipmn_material_email_deep_links.sql
+
+      - name: Validate exact application and communications build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npx tsc --noEmit --skipLibCheck --jsx react-jsx --target ES2022 \
+            --module ESNext --moduleResolution Bundler --allowSyntheticDefaultImports \
+            --esModuleInterop src/vite-env.d.ts \
+            src/components/CandidatePreparationMaterialsPanel.tsx
+          deno check supabase/functions/agilecert-communications/index.ts
+          npm run build
+          test -s dist/index.html
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum \
+            > cipmn-material-email-approved-dist.sha256
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Require complete delivery readiness before production changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase secrets list --project-ref "$PROJECT_REF" -o json \
+            > cipmn-material-email-secrets.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          raw = json.loads(Path('cipmn-material-email-secrets.json').read_text())
+          names = {
+              item.get('name')
+              for item in raw
+              if isinstance(item, dict) and isinstance(item.get('name'), str)
+          }
+          required = {
+              'RESEND_API_KEY',
+              'AGILECERT_COMMUNICATIONS_WORKER_TOKEN',
+              'AGILECERT_COMMUNICATIONS_WEBHOOK_TOKEN',
+              'AGILECERT_COMMUNICATIONS_SIGNING_SECRET',
+          }
+          missing = sorted(required - names)
+          assert not missing, f'Missing required Supabase communication secrets: {missing}'
+          Path('cipmn-material-email-secrets-safe.json').write_text(
+              json.dumps({'requiredSecretNamesPresent': sorted(required)}, indent=2),
+              encoding='utf-8',
+          )
+          PY
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          select jsonb_build_object(
+            'providerEnabled', provider_enabled,
+            'provider', provider,
+            'senderConfigured', coalesce(nullif(trim(from_email), ''), '') <> '',
+            'portalUrl', portal_url,
+            'portalHttps', portal_url ~ '^https://',
+            'batchSizePositive', hourly_batch_size > 0
+          ) as verification
+          from public.agilecert_communication_settings
+          where singleton = true;
+          """
+          Path('/tmp/cipmn-material-email-readiness-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/cipmn-material-email-readiness-query.json \
+            -o cipmn-material-email-readiness.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('cipmn-material-email-readiness.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('providerEnabled') is True, result
+          assert result.get('provider') == 'resend', result
+          assert result.get('senderConfigured') is True, result
+          assert result.get('portalHttps') is True, result
+          assert result.get('batchSizePositive') is True, result
+          Path('cipmn-material-email-readiness-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Require exactly one approved pending migration
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee cipmn-material-email-production-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' \
+            cipmn-material-email-production-dry-run.log \
+            | sort -u > cipmn-material-email-production-pending.txt || true
+          diff -u cipmn-material-email-expected-migrations.txt \
+            cipmn-material-email-production-pending.txt
+          test "$(wc -l < cipmn-material-email-production-pending.txt | tr -d ' ')" -eq 1
+
+      - name: Apply approved deep-link migration
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked 2>&1 \
+            | tee cipmn-material-email-production-deploy.log
+          grep -q 'Applying migration 202607310500_cipmn_material_email_deep_links.sql' \
+            cipmn-material-email-production-deploy.log
+          grep -q 'Finished supabase db push' cipmn-material-email-production-deploy.log
+
+      - name: Deploy approved communications Edge Function
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions deploy agilecert-communications \
+            --project-ref "$PROJECT_REF" --no-verify-jwt 2>&1 \
+            | tee cipmn-material-email-function-deploy.log
+          supabase functions list --project-ref "$PROJECT_REF" -o json \
+            > cipmn-material-email-functions.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('cipmn-material-email-functions.json').read_text())
+          names = {item.get('name') for item in data if isinstance(item, dict)}
+          assert 'agilecert-communications' in names, names
+          Path('cipmn-material-email-functions-safe.json').write_text(
+              json.dumps({'deployedFunction': 'agilecert-communications'}, indent=2),
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Verify live database deep-link controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          select jsonb_build_object(
+            'triggerFunctionPresent', exists (
+              select 1 from pg_proc
+              where proname = 'enrich_cipmn_material_email_deep_link'
+                and prosecdef = true
+            ),
+            'triggerPresent', exists (
+              select 1 from pg_trigger
+              where tgname = 'agilecert_cipmn_material_email_deep_link'
+                and not tgisinternal
+            ),
+            'anonymousExecuteDenied', not has_function_privilege(
+              'anon', 'public.enrich_cipmn_material_email_deep_link()', 'execute'
+            ),
+            'authenticatedExecuteDenied', not has_function_privilege(
+              'authenticated', 'public.enrich_cipmn_material_email_deep_link()', 'execute'
+            ),
+            'unsentMaterialMessages', (
+              select count(*)
+              from public.agilecert_communication_outbox
+              where message_type = 'admin_message'
+                and event_key like 'exam-material-ready:%'
+                and status in ('queued', 'failed')
+                and nullif(trim(payload ->> 'examinationId'), '') is not null
+            ),
+            'unsentDeepLinkedMessages', (
+              select count(*)
+              from public.agilecert_communication_outbox
+              where message_type = 'admin_message'
+                and event_key like 'exam-material-ready:%'
+                and status in ('queued', 'failed')
+                and payload ->> 'actionLabel' = 'Access My Materials'
+                and payload ->> 'actionUrl' =
+                  '?view=materials&examinationId=' || (payload ->> 'examinationId')
+            ),
+            'invalidUnsentDeepLinks', (
+              select count(*)
+              from public.agilecert_communication_outbox
+              where message_type = 'admin_message'
+                and event_key like 'exam-material-ready:%'
+                and status in ('queued', 'failed')
+                and nullif(trim(payload ->> 'examinationId'), '') is not null
+                and (
+                  payload ->> 'actionLabel' is distinct from 'Access My Materials'
+                  or payload ->> 'actionUrl' is distinct from
+                    '?view=materials&examinationId=' || (payload ->> 'examinationId')
+                )
+            )
+          ) as verification;
+          """
+          Path('/tmp/cipmn-material-email-production-verify.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/cipmn-material-email-production-verify.json \
+            -o cipmn-material-email-production-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('cipmn-material-email-production-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('triggerFunctionPresent') is True, result
+          assert result.get('triggerPresent') is True, result
+          assert result.get('anonymousExecuteDenied') is True, result
+          assert result.get('authenticatedExecuteDenied') is True, result
+          assert result.get('invalidUnsentDeepLinks') == 0, result
+          assert result.get('unsentDeepLinkedMessages') == result.get('unsentMaterialMessages'), result
+          Path('cipmn-material-email-production-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Verify function remains fail-closed without worker credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error -o cipmn-material-email-unauthorized.json \
+            -w '%{http_code}' \
+            -X POST "https://${PROJECT_REF}.supabase.co/functions/v1/agilecert-communications" \
+            -H 'Content-Type: application/json' \
+            --data '{"action":"scan-and-send"}')
+          test "$status" = '401'
+          grep -qi 'authorisation failed' cipmn-material-email-unauthorized.json
+
+      - name: Confirm no migration remains pending
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee cipmn-material-email-post-deploy-dry-run.log
+          grep -Eo '202607310500_[A-Za-z0-9._-]+\.sql' \
+            cipmn-material-email-post-deploy-dry-run.log \
+            | sort -u > cipmn-material-email-post-deploy-pending.txt || true
+          test ! -s cipmn-material-email-post-deploy-pending.txt
+          grep -q 'Remote database is up to date' \
+            cipmn-material-email-post-deploy-dry-run.log
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-material-email-deep-links-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            cipmn-material-email-expected-migrations.txt
+            cipmn-material-email-approved-dist.sha256
+            cipmn-material-email-secrets-safe.json
+            cipmn-material-email-readiness-safe.json
+            cipmn-material-email-production-dry-run.log
+            cipmn-material-email-production-pending.txt
+            cipmn-material-email-production-deploy.log
+            cipmn-material-email-function-deploy.log
+            cipmn-material-email-functions-safe.json
+            cipmn-material-email-production-safe.json
+            cipmn-material-email-unauthorized.json
+            cipmn-material-email-post-deploy-dry-run.log
+            cipmn-material-email-post-deploy-pending.txt
