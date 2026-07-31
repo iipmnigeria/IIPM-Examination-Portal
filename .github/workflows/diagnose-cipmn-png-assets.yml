@@ -26,6 +26,7 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('node:fs');
+          const zlib = require('node:zlib');
           const assets = [
             ['IIPM logo', 'src/assets/cipmnCertificateIipmLogo.ts'],
             ['CIPMN logo', 'src/assets/cipmnCertificateCipmnLogo.ts'],
@@ -51,15 +52,17 @@ jobs:
           const parsePng = (bytes) => {
             let offset = 8;
             const chunks = [];
-            let crcValid = true;
             while (offset + 12 <= bytes.length) {
               const length = bytes.readUInt32BE(offset);
-              const type = bytes.subarray(offset + 4, offset + 8).toString('ascii');
-              const next = offset + 12 + length;
+              const typeStart = offset + 4;
+              const type = bytes.subarray(typeStart, typeStart + 4).toString('ascii');
+              const dataStart = offset + 8;
+              const dataEnd = dataStart + length;
+              const crcOffset = dataEnd;
+              const next = crcOffset + 4;
               if (next > bytes.length) {
                 return {
                   valid: false,
-                  crcValid,
                   chunks,
                   offset,
                   remaining: bytes.length - offset,
@@ -69,16 +72,25 @@ jobs:
                 };
               }
 
-              const expectedCrc = bytes.readUInt32BE(offset + 8 + length);
-              const actualCrc = crc32(bytes.subarray(offset + 4, offset + 8 + length));
-              if (expectedCrc !== actualCrc) crcValid = false;
-              chunks.push(type);
+              const expectedCrc = bytes.readUInt32BE(crcOffset);
+              const actualCrc = crc32(bytes.subarray(typeStart, dataEnd));
+              chunks.push({
+                type,
+                length,
+                offset,
+                dataStart,
+                dataEnd,
+                crcOffset,
+                expectedCrc,
+                actualCrc,
+                crcValid: expectedCrc === actualCrc,
+              });
               offset = next;
 
               if (type === 'IEND') {
+                const crcValid = chunks.every((chunk) => chunk.crcValid);
                 return {
                   valid: offset === bytes.length && crcValid,
-                  crcValid,
                   chunks,
                   offset,
                   remaining: bytes.length - offset,
@@ -89,11 +101,53 @@ jobs:
 
             return {
               valid: false,
-              crcValid,
               chunks,
               offset,
               remaining: bytes.length - offset,
               reason: 'missing IEND',
+            };
+          };
+
+          const inspectPixels = (bytes, structure) => {
+            const ihdr = structure.chunks.find((chunk) => chunk.type === 'IHDR');
+            const idats = structure.chunks.filter((chunk) => chunk.type === 'IDAT');
+            if (!ihdr || idats.length === 0 || ihdr.length !== 13) {
+              return { valid: false, reason: 'missing IHDR or IDAT' };
+            }
+
+            const width = bytes.readUInt32BE(ihdr.dataStart);
+            const height = bytes.readUInt32BE(ihdr.dataStart + 4);
+            const bitDepth = bytes[ihdr.dataStart + 8];
+            const colorType = bytes[ihdr.dataStart + 9];
+            const interlace = bytes[ihdr.dataStart + 12];
+            const channelsByColorType = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+            const channels = channelsByColorType[colorType];
+            if (!channels) return { valid: false, reason: `unsupported colour type ${colorType}` };
+
+            const compressed = Buffer.concat(idats.map((chunk) => bytes.subarray(chunk.dataStart, chunk.dataEnd)));
+            let inflated;
+            try {
+              inflated = zlib.inflateSync(compressed);
+            } catch (error) {
+              return { valid: false, reason: `zlib failure: ${error.message}`, width, height, bitDepth, colorType, interlace };
+            }
+
+            if (interlace !== 0) {
+              return { valid: false, reason: 'interlaced PNG requires separate validation', width, height, bitDepth, colorType, interlace, inflatedBytes: inflated.length };
+            }
+
+            const rowBytes = Math.ceil((width * channels * bitDepth) / 8);
+            const expectedInflatedBytes = height * (rowBytes + 1);
+            return {
+              valid: inflated.length === expectedInflatedBytes,
+              reason: inflated.length === expectedInflatedBytes ? 'scanlines complete' : 'scanline length mismatch',
+              width,
+              height,
+              bitDepth,
+              colorType,
+              interlace,
+              inflatedBytes: inflated.length,
+              expectedInflatedBytes,
             };
           };
 
@@ -115,24 +169,32 @@ jobs:
             const supplied = payload.replace(/=+$/, '');
             const signatureValid = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
             const canonicalValid = canonical === supplied;
-            const structure = signatureValid ? parsePng(bytes) : { valid: false, crcValid: false, chunks: [], offset: 0, remaining: bytes.length, reason: 'bad signature' };
-            const lastChunks = structure.chunks.slice(-6).join(',');
-            console.log(`${label}: length=${payload.length}; mod4=${payload.length % 4}; invalid=${invalid.length}; bytes=${bytes.length}; signature=${signatureValid}; canonical=${canonicalValid}; structure=${structure.valid}; crc=${structure.crcValid}; reason=${structure.reason}; offset=${structure.offset}; remaining=${structure.remaining}; chunks=${lastChunks}; nextType=${structure.nextType || ''}; nextLength=${structure.nextLength ?? ''}; tail=${bytes.subarray(-24).toString('hex')}`);
+            const structure = signatureValid ? parsePng(bytes) : { valid: false, chunks: [], offset: 0, remaining: bytes.length, reason: 'bad signature' };
+            const chunkNames = structure.chunks.map((chunk) => chunk.type);
+            const badCrc = structure.chunks.filter((chunk) => !chunk.crcValid).map((chunk) => chunk.type);
+            const pixels = signatureValid ? inspectPixels(bytes, structure) : { valid: false, reason: 'bad signature' };
+            console.log(`${label}: length=${payload.length}; mod4=${payload.length % 4}; invalid=${invalid.length}; bytes=${bytes.length}; signature=${signatureValid}; canonical=${canonicalValid}; structure=${structure.valid}; reason=${structure.reason}; offset=${structure.offset}; remaining=${structure.remaining}; chunks=${chunkNames.join(',')}; badCrc=${badCrc.join(',')}; pixels=${pixels.valid}; pixelReason=${pixels.reason}; dimensions=${pixels.width || 0}x${pixels.height || 0}; bitDepth=${pixels.bitDepth ?? ''}; colorType=${pixels.colorType ?? ''}; interlace=${pixels.interlace ?? ''}; inflated=${pixels.inflatedBytes ?? ''}; expected=${pixels.expectedInflatedBytes ?? ''}`);
 
             const repairableCipmn =
               label === 'CIPMN logo' &&
               signatureValid &&
-              structure.crcValid &&
-              structure.chunks.at(-1) === 'IDAT' &&
+              pixels.valid &&
+              chunkNames.at(-1) === 'IDAT' &&
               structure.remaining > 0 &&
-              structure.remaining <= 12;
+              structure.remaining <= 12 &&
+              structure.chunks.filter((chunk) => !chunk.crcValid && chunk.type !== 'IDAT').length === 0;
 
             if (repairableCipmn) {
+              const repairedCore = Buffer.from(bytes.subarray(0, structure.offset));
+              for (const chunk of structure.chunks) {
+                repairedCore.writeUInt32BE(chunk.actualCrc, chunk.crcOffset);
+              }
               const iend = Buffer.from([0x00,0x00,0x00,0x00,0x49,0x45,0x4e,0x44,0xae,0x42,0x60,0x82]);
-              const repairedBytes = Buffer.concat([bytes.subarray(0, structure.offset), iend]);
+              const repairedBytes = Buffer.concat([repairedCore, iend]);
               const repairedStructure = parsePng(repairedBytes);
-              if (!repairedStructure.valid || !repairedStructure.crcValid) {
-                throw new Error('CIPMN PNG repair did not produce a valid lossless PNG.');
+              const repairedPixels = inspectPixels(repairedBytes, repairedStructure);
+              if (!repairedStructure.valid || !repairedPixels.valid) {
+                throw new Error('CIPMN PNG repair did not produce a fully valid lossless PNG.');
               }
 
               const repairedPayload = repairedBytes.toString('base64');
@@ -142,10 +204,10 @@ jobs:
                 'png-diagnostic/cipmnCertificateCipmnLogo.ts',
                 `export const CIPMN_CERTIFICATE_LOGO_DATA_URI = 'data:image/png;base64,${repairedPayload}';\n`,
               );
-              console.log(`CIPMN logo repair candidate: bytes=${repairedBytes.length}; structure=${repairedStructure.valid}; crc=${repairedStructure.crcValid}`);
+              console.log(`CIPMN logo repair candidate: bytes=${repairedBytes.length}; dimensions=${repairedPixels.width}x${repairedPixels.height}; structure=${repairedStructure.valid}; pixels=${repairedPixels.valid}`);
             }
 
-            if (!signatureValid || !structure.valid || !canonicalValid || invalid.length > 0) failed = true;
+            if (!signatureValid || !structure.valid || !canonicalValid || !pixels.valid || invalid.length > 0) failed = true;
           }
 
           if (failed) process.exitCode = 1;
