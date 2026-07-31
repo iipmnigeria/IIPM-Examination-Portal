@@ -20,114 +20,91 @@ jobs:
           ref: fix/cipmn-certificate-lossless-quality
           fetch-depth: 0
 
-      - name: Download and validate official CIPMN PNG
+      - name: Discover official CIPMN logo sources
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --location --silent --show-error \
-            --proto '=https' --tlsv1.2 \
-            --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0 Safari/537.36' \
-            --referer 'https://cipmn.org.ng/' \
-            --dump-header /tmp/cipmn-official.headers \
-            --output /tmp/cipmn-official.png \
-            'https://cipmn.org.ng/wp-content/uploads/2018/04/new-logo.png'
-
-          echo "Downloaded bytes: $(wc -c < /tmp/cipmn-official.png)"
-          grep -iE '^(HTTP/|content-type:|content-length:|location:)' /tmp/cipmn-official.headers | tail -n 8 || true
-          file /tmp/cipmn-official.png
-          xxd -l 16 -p /tmp/cipmn-official.png
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0 Safari/537.36'
+          for entry in \
+            'government|https://cipmn.gov.ng/' \
+            'application|https://app.cipmn.gov.ng/' \
+            'media-logo|https://cipmn.gov.ng/wp-json/wp/v2/media?search=logo&per_page=100' \
+            'media-cipmn|https://cipmn.gov.ng/wp-json/wp/v2/media?search=CIPMN&per_page=100'
+          do
+            label="${entry%%|*}"
+            url="${entry#*|}"
+            curl --location --silent --show-error --max-time 30 \
+              --user-agent "$UA" \
+              --dump-header "/tmp/${label}.headers" \
+              --output "/tmp/${label}.body" \
+              "$url" || true
+            echo "=== $label ==="
+            grep -iE '^(HTTP/|content-type:|content-length:|location:)' "/tmp/${label}.headers" | tail -n 8 || true
+            echo "bytes=$(wc -c < "/tmp/${label}.body")"
+            file "/tmp/${label}.body"
+          done
 
           python <<'PY'
-          import base64
-          import binascii
+          import html
+          import json
           import pathlib
-          import struct
-          import zlib
+          import re
+          from urllib.parse import urljoin, urlparse
 
-          source = pathlib.Path('/tmp/cipmn-official.png').read_bytes()
-          signature = b'\x89PNG\r\n\x1a\n'
-          if not source.startswith(signature):
-              raise SystemExit(f'Official CIPMN source is not a PNG; prefix={source[:16].hex()}.')
+          sources = {
+              'government': ('https://cipmn.gov.ng/', pathlib.Path('/tmp/government.body')),
+              'application': ('https://app.cipmn.gov.ng/', pathlib.Path('/tmp/application.body')),
+          }
 
-          offset = 8
-          chunks = []
-          idat = []
-          width = height = bit_depth = color_type = interlace = None
-          reached_iend = False
+          candidates = set()
+          attr_pattern = re.compile(r'''(?:src|href|srcset|content)\s*=\s*["']([^"']+)["']''', re.I)
+          url_pattern = re.compile(r'''https?://[^\s"'<>]+''', re.I)
 
-          while offset + 12 <= len(source):
-              length = struct.unpack('>I', source[offset:offset + 4])[0]
-              chunk_type = source[offset + 4:offset + 8]
-              data_start = offset + 8
-              data_end = data_start + length
-              crc_end = data_end + 4
-              if crc_end > len(source):
-                  raise SystemExit(f'Truncated PNG chunk: {chunk_type!r}')
+          for label, (base, path) in sources.items():
+              text = path.read_text('utf-8', errors='ignore')
+              for value in attr_pattern.findall(text):
+                  for part in value.split(','):
+                      raw = html.unescape(part.strip().split()[0])
+                      if raw:
+                          candidates.add(urljoin(base, raw))
+              for raw in url_pattern.findall(text):
+                  candidates.add(html.unescape(raw.rstrip('),;')))
 
-              data = source[data_start:data_end]
-              expected_crc = struct.unpack('>I', source[data_end:crc_end])[0]
-              actual_crc = binascii.crc32(chunk_type + data) & 0xffffffff
-              if expected_crc != actual_crc:
-                  raise SystemExit(f'CRC mismatch in {chunk_type.decode("ascii", "replace")} chunk.')
+          for path in [pathlib.Path('/tmp/media-logo.body'), pathlib.Path('/tmp/media-cipmn.body')]:
+              try:
+                  payload = json.loads(path.read_text('utf-8'))
+              except Exception:
+                  continue
 
-              name = chunk_type.decode('ascii')
-              chunks.append(name)
-              if name == 'IHDR':
-                  if length != 13:
-                      raise SystemExit('Invalid IHDR length.')
-                  width, height, bit_depth, color_type, compression, filtering, interlace = struct.unpack('>IIBBBBB', data)
-                  if compression != 0 or filtering != 0:
-                      raise SystemExit('Unsupported PNG compression or filtering method.')
-              elif name == 'IDAT':
-                  idat.append(data)
-              elif name == 'IEND':
-                  reached_iend = True
-                  offset = crc_end
-                  break
+              def walk(value):
+                  if isinstance(value, dict):
+                      for item in value.values():
+                          yield from walk(item)
+                  elif isinstance(value, list):
+                      for item in value:
+                          yield from walk(item)
+                  elif isinstance(value, str):
+                      yield value
 
-              offset = crc_end
+              for value in walk(payload):
+                  if value.startswith('http'):
+                      candidates.add(value)
 
-          if not reached_iend or offset != len(source):
-              raise SystemExit('Official CIPMN PNG does not end with a complete IEND chunk.')
-          if not idat or None in (width, height, bit_depth, color_type, interlace):
-              raise SystemExit('Official CIPMN PNG is missing required image data.')
-          if width < 600 or height < 140:
-              raise SystemExit(f'Official CIPMN PNG is too small for print use: {width}x{height}.')
+          approved_hosts = {'cipmn.gov.ng', 'www.cipmn.gov.ng', 'app.cipmn.gov.ng'}
+          filtered = []
+          for url in sorted(candidates):
+              parsed = urlparse(url)
+              lower = url.lower()
+              if parsed.netloc.lower() not in approved_hosts:
+                  continue
+              if not any(token in lower for token in ('logo', 'cipmn')):
+                  continue
+              filtered.append(url)
 
-          aspect = width / height
-          if not 2.8 <= aspect <= 4.5:
-              raise SystemExit(f'Unexpected CIPMN logo aspect ratio: {aspect:.3f}.')
-          if interlace != 0:
-              raise SystemExit('Interlaced official PNG is not accepted by this controlled conversion.')
-
-          channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(color_type)
-          if channels is None:
-              raise SystemExit(f'Unsupported PNG colour type: {color_type}.')
-          inflated = zlib.decompress(b''.join(idat))
-          row_bytes = (width * channels * bit_depth + 7) // 8
-          expected = height * (row_bytes + 1)
-          if len(inflated) != expected:
-              raise SystemExit(f'Incomplete PNG scanlines: {len(inflated)} != {expected}.')
-
-          payload = base64.b64encode(source).decode('ascii')
-          output = (
-              "export const CIPMN_CERTIFICATE_LOGO_DATA_URI = "
-              f"'data:image/png;base64,{payload}';\n"
-          )
-          pathlib.Path('src/assets/cipmnCertificateCipmnLogo.ts').write_text(output, encoding='utf-8')
-          print(f'Validated official CIPMN PNG: {width}x{height}, {len(source)} bytes, aspect={aspect:.3f}, chunks={chunks}')
+          print('=== OFFICIAL LOGO CANDIDATES ===')
+          for url in filtered[:200]:
+              print(url)
+          print(f'candidate_count={len(filtered)}')
+          if not filtered:
+              raise SystemExit('No official CIPMN logo candidate was discovered.')
           PY
-
-      - name: Commit exact official asset
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/assets/cipmnCertificateCipmnLogo.ts
-          if git diff --cached --quiet; then
-            echo 'Official CIPMN asset already matches the validated source.'
-            exit 0
-          fi
-          git commit -m 'Restore official lossless CIPMN certificate logo'
-          git push origin HEAD:fix/cipmn-certificate-lossless-quality
