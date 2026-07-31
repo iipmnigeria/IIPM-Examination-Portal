@@ -1,0 +1,203 @@
+name: Deploy Finance Console Phase 1 Production
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-finance-console-phase1-production.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-finance-console-phase1-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Deploy and verify Finance Console Phase 1
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPECTED_COMMIT: '5ba90997027a61c0271510c23de2534a05cc2afe'
+      EXPECTED_MIGRATION: '202607310700_finance_console_pricing_permissions.sql'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Checkout exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify approved source and release boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          test -s "supabase/migrations/$EXPECTED_MIGRATION"
+          test -s src/components/AdminFinanceConsole.tsx
+          test -s src/services/financeConsoleService.ts
+          grep -q 'finance_upsert_exam_price' "supabase/migrations/$EXPECTED_MIGRATION"
+          grep -q 'admin_set_finance_role_permission' "supabase/migrations/$EXPECTED_MIGRATION"
+          grep -q 'get_finance_console_snapshot' "supabase/migrations/$EXPECTED_MIGRATION"
+          grep -q 'agilecert_finance_audit_events' "supabase/migrations/$EXPECTED_MIGRATION"
+          ! grep -R -E 'sk_(live|test)_[A-Za-z0-9]+' \
+            src/components/AdminFinanceConsole.tsx \
+            src/services/financeConsoleService.ts \
+            "supabase/migrations/$EXPECTED_MIGRATION"
+
+      - name: Build exact approved frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -q 'Open Finance Console' src/components/AdminFinanceConsole.tsx
+          grep -q 'Examination Fees' src/components/AdminFinanceConsole.tsx
+          grep -q 'Permissions' src/components/AdminFinanceConsole.tsx
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > finance-console-approved-dist.sha256
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Reconcile production migration ledger
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 | tee finance-console-production-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' finance-console-production-dry-run.log \
+            | sort -u > finance-console-production-pending.txt || true
+          printf '%s\n' "$EXPECTED_MIGRATION" > finance-console-expected-migration.txt
+          diff -u finance-console-expected-migration.txt finance-console-production-pending.txt
+          test "$(wc -l < finance-console-production-pending.txt | tr -d ' ')" -eq 1
+
+      - name: Apply approved Finance Console migration
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked 2>&1 | tee finance-console-production-deploy.log
+          grep -q "Applying migration $EXPECTED_MIGRATION" finance-console-production-deploy.log
+          grep -q 'Finished supabase db push' finance-console-production-deploy.log
+
+      - name: Verify production schema, permissions and audit authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          query = r"""
+          select jsonb_build_object(
+            'permissionDefinitions', (
+              select count(*) from public.agilecert_finance_permission_definitions where is_active
+            ),
+            'examAdminGrants', (
+              select count(*) from public.agilecert_finance_role_permissions
+              where role = 'exam_admin' and is_granted
+            ),
+            'protectedTablesWithRls', (
+              select count(*) from pg_tables
+              where schemaname = 'public'
+                and tablename in (
+                  'agilecert_finance_permission_definitions',
+                  'agilecert_finance_role_permissions',
+                  'exam_prices', 'coupons'
+                ) and rowsecurity = true
+            ),
+            'securityDefinerFunctions', (
+              select count(*) from pg_proc
+              where proname in (
+                'agilecert_has_finance_permission',
+                'get_my_finance_console_access',
+                'get_finance_console_snapshot',
+                'admin_set_finance_role_permission',
+                'finance_upsert_exam_price',
+                'finance_set_exam_price_active'
+              ) and prosecdef = true
+            ),
+            'authenticatedPermissionTableSelect',
+              has_table_privilege('authenticated', 'public.agilecert_finance_permission_definitions', 'select')
+              or has_table_privilege('authenticated', 'public.agilecert_finance_role_permissions', 'select'),
+            'authenticatedAuditTableSelect',
+              has_table_privilege('authenticated', 'public.agilecert_finance_audit_events', 'select'),
+            'legacyPriceRpcExecutable',
+              has_function_privilege('authenticated', 'public.admin_upsert_exam_price(uuid,text,bigint,text[],boolean,boolean,timestamptz,timestamptz)', 'execute'),
+            'financePriceRpcExecutable',
+              has_function_privilege('authenticated', 'public.finance_upsert_exam_price(uuid,text,bigint,text[],boolean,boolean,timestamptz,timestamptz,text)', 'execute')
+          ) as verification;
+          """
+          Path('/tmp/finance-console-production-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/finance-console-production-query.json \
+            -o finance-console-production-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('finance-console-production-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('permissionDefinitions') == 5, result
+          assert result.get('examAdminGrants') == 4, result
+          assert result.get('protectedTablesWithRls') == 4, result
+          assert result.get('securityDefinerFunctions') == 6, result
+          assert result.get('authenticatedPermissionTableSelect') is False, result
+          assert result.get('authenticatedAuditTableSelect') is False, result
+          assert result.get('legacyPriceRpcExecutable') is False, result
+          assert result.get('financePriceRpcExecutable') is True, result
+          Path('finance-console-production-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Confirm no migrations remain pending
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 | tee finance-console-post-deploy-dry-run.log
+          ! grep -q "$EXPECTED_MIGRATION" finance-console-post-deploy-dry-run.log
+
+      - name: Upload controlled release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-phase1-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            finance-console-approved-dist.sha256
+            finance-console-production-dry-run.log
+            finance-console-production-pending.txt
+            finance-console-production-deploy.log
+            finance-console-production-verification.json
+            finance-console-production-safe.json
+            finance-console-post-deploy-dry-run.log
