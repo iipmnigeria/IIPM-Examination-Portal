@@ -1,0 +1,1 @@
+Verify the public GitHub Pages bundle contains the approved dynamic IIPM and CIPMN Certificate of Completion release.
