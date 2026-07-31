@@ -1,0 +1,93 @@
+name: Validate CIPMN Certificate High-Quality Assets
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - 'src/assets/cipmnCertificateIipmLogo.ts'
+      - 'src/assets/cipmnCertificateCipmnLogo.ts'
+      - 'src/assets/cipmnCertificateBanitoSignature.ts'
+      - 'src/services/cipmnCertificateRenderer.ts'
+      - 'scripts/render-cipmn-certificate-sample.ts'
+      - '.github/workflows/validate-cipmn-certificate-hq-assets.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate source and production build
+        run: |
+          npx tsc --noEmit --skipLibCheck --target ES2022 --module ESNext --moduleResolution Bundler --allowSyntheticDefaultImports --esModuleInterop src/vite-env.d.ts src/services/certificateCompletionService.ts src/services/certificatePdfService.ts src/services/cipmnCertificateRenderer.ts src/assets/cipmnCertificateIipmLogo.ts src/assets/cipmnCertificateCipmnLogo.ts src/assets/cipmnCertificateBanitoSignature.ts
+          npm run build
+      - name: Render certificate samples
+        run: |
+          npx esbuild scripts/render-cipmn-certificate-sample.ts --bundle --platform=node --format=cjs --outfile=/tmp/render-cipmn-certificate-sample.cjs
+          node /tmp/render-cipmn-certificate-sample.cjs
+          test -s cipmn-certificate-standard-sample.pdf
+          test -s cipmn-certificate-long-content-sample.pdf
+      - name: Validate lossless assets and rendering controls
+        shell: python
+        run: |
+          from pathlib import Path
+          import base64
+          import re
+          from io import BytesIO
+          from PIL import Image
+
+          files = {
+              'iipm': Path('src/assets/cipmnCertificateIipmLogo.ts'),
+              'cipmn': Path('src/assets/cipmnCertificateCipmnLogo.ts'),
+              'signature': Path('src/assets/cipmnCertificateBanitoSignature.ts'),
+          }
+          minimum_dimensions = {
+              'iipm': (700, 700),
+              'cipmn': (1100, 300),
+              'signature': (600, 600),
+          }
+          for name, path in files.items():
+              text = path.read_text(encoding='utf-8')
+              assert 'data:image/png;base64,' in text, f'{name} is not PNG'
+              payload = re.search(r"data:image/png;base64,([^']+)", text).group(1)
+              image = Image.open(BytesIO(base64.b64decode(payload)))
+              assert image.format == 'PNG'
+              assert image.width >= minimum_dimensions[name][0]
+              assert image.height >= minimum_dimensions[name][1]
+              if name == 'signature':
+                  assert image.mode in ('RGBA', 'LA') or 'transparency' in image.info
+
+          renderer = Path('src/services/cipmnCertificateRenderer.ts').read_text(encoding='utf-8')
+          assert renderer.count("'PNG'") >= 4
+          assert "'JPEG'" not in renderer
+          assert "'FAST'" not in renderer
+          assert "'NONE'" in renderer
+          print('Validated high-resolution PNG assets and non-lossy certificate rendering.')
+      - name: Render 300-DPI review evidence
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          pdftoppm -png -f 1 -singlefile -r 300 cipmn-certificate-standard-sample.pdf cipmn-certificate-standard-300dpi
+          pdftoppm -png -f 1 -singlefile -r 300 cipmn-certificate-long-content-sample.pdf cipmn-certificate-long-content-300dpi
+          test -s cipmn-certificate-standard-300dpi.png
+          test -s cipmn-certificate-long-content-300dpi.png
+      - name: Upload certificate quality evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-certificate-high-quality-samples
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            cipmn-certificate-standard-sample.pdf
+            cipmn-certificate-long-content-sample.pdf
+            cipmn-certificate-standard-300dpi.png
+            cipmn-certificate-long-content-300dpi.png
