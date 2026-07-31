@@ -219,7 +219,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin supabase-integration --depth=1
+          git fetch origin supabase-integration
           git diff --name-only origin/supabase-integration...HEAD | tee finance-console-changed-files.log
           if grep -E '^(supabase/functions/(initialize|verify|paystack)|src/components/(CandidateCipmnModuleCart|PaymentReturnHandler|ExamExperience)|src/services/(cartCommerceService|commerceService)\.ts)' finance-console-changed-files.log; then
             echo 'Phase 1 unexpectedly changed payment, cart or examination runtime files.' >&2
