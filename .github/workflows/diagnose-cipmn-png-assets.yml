@@ -32,9 +32,26 @@ jobs:
             ['Banito signature', 'src/assets/cipmnCertificateBanitoSignature.ts'],
           ];
 
+          const crcTable = Array.from({ length: 256 }, (_, index) => {
+            let value = index;
+            for (let bit = 0; bit < 8; bit += 1) {
+              value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+            }
+            return value >>> 0;
+          });
+
+          const crc32 = (buffer) => {
+            let crc = 0xffffffff;
+            for (const byte of buffer) {
+              crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+            }
+            return (crc ^ 0xffffffff) >>> 0;
+          };
+
           const parsePng = (bytes) => {
             let offset = 8;
             const chunks = [];
+            let crcValid = true;
             while (offset + 12 <= bytes.length) {
               const length = bytes.readUInt32BE(offset);
               const type = bytes.subarray(offset + 4, offset + 8).toString('ascii');
@@ -42,6 +59,7 @@ jobs:
               if (next > bytes.length) {
                 return {
                   valid: false,
+                  crcValid,
                   chunks,
                   offset,
                   remaining: bytes.length - offset,
@@ -50,20 +68,28 @@ jobs:
                   reason: `truncated ${type}`,
                 };
               }
+
+              const expectedCrc = bytes.readUInt32BE(offset + 8 + length);
+              const actualCrc = crc32(bytes.subarray(offset + 4, offset + 8 + length));
+              if (expectedCrc !== actualCrc) crcValid = false;
               chunks.push(type);
               offset = next;
+
               if (type === 'IEND') {
                 return {
-                  valid: offset === bytes.length,
+                  valid: offset === bytes.length && crcValid,
+                  crcValid,
                   chunks,
                   offset,
                   remaining: bytes.length - offset,
-                  reason: offset === bytes.length ? 'complete' : 'trailing bytes',
+                  reason: offset === bytes.length ? (crcValid ? 'complete' : 'CRC mismatch') : 'trailing bytes',
                 };
               }
             }
+
             return {
               valid: false,
+              crcValid,
               chunks,
               offset,
               remaining: bytes.length - offset,
@@ -89,17 +115,34 @@ jobs:
             const supplied = payload.replace(/=+$/, '');
             const signatureValid = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
             const canonicalValid = canonical === supplied;
-            const structure = signatureValid ? parsePng(bytes) : { valid: false, chunks: [], offset: 0, remaining: bytes.length, reason: 'bad signature' };
+            const structure = signatureValid ? parsePng(bytes) : { valid: false, crcValid: false, chunks: [], offset: 0, remaining: bytes.length, reason: 'bad signature' };
             const lastChunks = structure.chunks.slice(-6).join(',');
-            console.log(`${label}: length=${payload.length}; mod4=${payload.length % 4}; invalid=${invalid.length}; bytes=${bytes.length}; signature=${signatureValid}; canonical=${canonicalValid}; structure=${structure.valid}; reason=${structure.reason}; offset=${structure.offset}; remaining=${structure.remaining}; chunks=${lastChunks}; nextType=${structure.nextType || ''}; nextLength=${structure.nextLength ?? ''}; tail=${bytes.subarray(-24).toString('hex')}`);
+            console.log(`${label}: length=${payload.length}; mod4=${payload.length % 4}; invalid=${invalid.length}; bytes=${bytes.length}; signature=${signatureValid}; canonical=${canonicalValid}; structure=${structure.valid}; crc=${structure.crcValid}; reason=${structure.reason}; offset=${structure.offset}; remaining=${structure.remaining}; chunks=${lastChunks}; nextType=${structure.nextType || ''}; nextLength=${structure.nextLength ?? ''}; tail=${bytes.subarray(-24).toString('hex')}`);
 
-            if (label === 'CIPMN logo' && signatureValid && structure.valid) {
+            const repairableCipmn =
+              label === 'CIPMN logo' &&
+              signatureValid &&
+              structure.crcValid &&
+              structure.chunks.at(-1) === 'IDAT' &&
+              structure.remaining > 0 &&
+              structure.remaining <= 12;
+
+            if (repairableCipmn) {
+              const iend = Buffer.from([0x00,0x00,0x00,0x00,0x49,0x45,0x4e,0x44,0xae,0x42,0x60,0x82]);
+              const repairedBytes = Buffer.concat([bytes.subarray(0, structure.offset), iend]);
+              const repairedStructure = parsePng(repairedBytes);
+              if (!repairedStructure.valid || !repairedStructure.crcValid) {
+                throw new Error('CIPMN PNG repair did not produce a valid lossless PNG.');
+              }
+
+              const repairedPayload = repairedBytes.toString('base64');
               fs.mkdirSync('png-diagnostic', { recursive: true });
-              fs.writeFileSync('png-diagnostic/cipmn-logo-canonical.png', bytes);
+              fs.writeFileSync('png-diagnostic/cipmn-logo-repaired.png', repairedBytes);
               fs.writeFileSync(
                 'png-diagnostic/cipmnCertificateCipmnLogo.ts',
-                `export const CIPMN_CERTIFICATE_LOGO_DATA_URI = 'data:image/png;base64,${canonicalPayload}';\n`,
+                `export const CIPMN_CERTIFICATE_LOGO_DATA_URI = 'data:image/png;base64,${repairedPayload}';\n`,
               );
+              console.log(`CIPMN logo repair candidate: bytes=${repairedBytes.length}; structure=${repairedStructure.valid}; crc=${repairedStructure.crcValid}`);
             }
 
             if (!signatureValid || !structure.valid || !canonicalValid || invalid.length > 0) failed = true;
@@ -107,10 +150,10 @@ jobs:
 
           if (failed) process.exitCode = 1;
           NODE
-      - name: Upload canonical CIPMN logo evidence
+      - name: Upload repaired CIPMN logo evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cipmn-logo-canonical-evidence
+          name: cipmn-logo-repaired-evidence
           path: png-diagnostic/
           if-no-files-found: ignore
