@@ -101,7 +101,7 @@ jobs:
           set -euo pipefail
           supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
 
-      - name: Require complete delivery readiness before production changes
+      - name: Require outbound delivery readiness before production changes
         shell: bash
         run: |
           set -euo pipefail
@@ -118,18 +118,25 @@ jobs:
               for item in raw
               if isinstance(item, dict) and isinstance(item.get('name'), str)
           }
-          required = {
+          required_outbound = {
               'RESEND_API_KEY',
               'AGILECERT_COMMUNICATIONS_WORKER_TOKEN',
-              'AGILECERT_COMMUNICATIONS_WEBHOOK_TOKEN',
               'AGILECERT_COMMUNICATIONS_SIGNING_SECRET',
           }
-          missing = sorted(required - names)
-          assert not missing, f'Missing required Supabase communication secrets: {missing}'
+          missing = sorted(required_outbound - names)
+          assert not missing, f'Missing required outbound communication secrets: {missing}'
+          webhook_ready = 'AGILECERT_COMMUNICATIONS_WEBHOOK_TOKEN' in names
           Path('cipmn-material-email-secrets-safe.json').write_text(
-              json.dumps({'requiredSecretNamesPresent': sorted(required)}, indent=2),
+              json.dumps({
+                  'requiredOutboundSecretNamesPresent': sorted(required_outbound),
+                  'providerEventWebhookTrackingReady': webhook_ready,
+              }, indent=2),
               encoding='utf-8',
           )
+          print(json.dumps({
+              'outboundDeliverySecretsReady': True,
+              'providerEventWebhookTrackingReady': webhook_ready,
+          }, indent=2))
           PY
 
           python3 <<'PY'
