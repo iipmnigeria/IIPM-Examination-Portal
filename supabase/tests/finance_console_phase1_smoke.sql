@@ -107,7 +107,7 @@ begin
 end;
 $$;
 
--- Super Administrator receives all active finance permissions implicitly.
+-- Super Administrators receive all active finance permissions implicitly.
 select pg_temp.set_finance_test_actor('31070000-0000-0000-0000-000000000001');
 set local role authenticated;
 
@@ -188,7 +188,9 @@ select public.admin_set_finance_role_permission(
   'Restore approved examination-fee responsibility'
 );
 
--- The authorised Examination Administrator may save a fee, with immutable audit evidence.
+-- The authorised Examination Administrator may save a fee. Audit evidence is
+-- read through the protected Finance Console RPC, not by granting browser-side
+-- access to the immutable audit table.
 reset role;
 select pg_temp.set_finance_test_actor('31070000-0000-0000-0000-000000000002');
 set local role authenticated;
@@ -198,7 +200,8 @@ declare
   v_exam_id uuid;
   v_result jsonb;
   v_price_id uuid;
-  v_audit_id bigint;
+  v_snapshot jsonb;
+  v_audit jsonb;
 begin
   select e.id into v_exam_id
   from public.examinations e
@@ -228,10 +231,40 @@ begin
     raise exception 'The examination fee was not saved correctly: %', v_result;
   end if;
 
+  v_snapshot := public.get_finance_console_snapshot(50);
+  select event into v_audit
+  from jsonb_array_elements(v_snapshot -> 'financeAudit') event
+  where event ->> 'entityType' = 'exam_price'
+    and event ->> 'entityId' = v_price_id::text
+    and event ->> 'action' = 'examination_fee_saved'
+    and event ->> 'actorId' = '31070000-0000-0000-0000-000000000002'
+  limit 1;
+
+  if v_audit is null then
+    raise exception 'The immutable finance audit event was not returned by the protected snapshot.';
+  end if;
+
+  begin
+    perform a.id from public.agilecert_finance_audit_events a limit 1;
+    raise exception 'The authenticated role read the protected finance audit table directly.';
+  exception
+    when insufficient_privilege then
+      null;
+  end;
+end;
+$$;
+
+-- The database-owner harness verifies that even privileged direct mutation is
+-- rejected by the immutable-audit trigger.
+reset role;
+
+DO $$
+declare
+  v_audit_id bigint;
+begin
   select a.id into v_audit_id
   from public.agilecert_finance_audit_events a
   where a.entity_type = 'exam_price'
-    and a.entity_id = v_price_id::text
     and a.action = 'examination_fee_saved'
     and a.actor_id = '31070000-0000-0000-0000-000000000002'
   order by a.created_at desc
@@ -256,7 +289,6 @@ end;
 $$;
 
 -- Candidate accounts have no Finance Console authority.
-reset role;
 select pg_temp.set_finance_test_actor('31070000-0000-0000-0000-000000000003');
 set local role authenticated;
 
@@ -290,7 +322,8 @@ begin
      or not has_function_privilege('authenticated', 'public.finance_upsert_exam_price(uuid,text,bigint,text[],boolean,boolean,timestamptz,timestamptz,text)', 'execute')
      or has_function_privilege('authenticated', 'public.admin_upsert_exam_price(uuid,text,bigint,text[],boolean,boolean,timestamptz,timestamptz)', 'execute')
      or has_table_privilege('authenticated', 'public.agilecert_finance_permission_definitions', 'select')
-     or has_table_privilege('authenticated', 'public.agilecert_finance_role_permissions', 'select') then
+     or has_table_privilege('authenticated', 'public.agilecert_finance_role_permissions', 'select')
+     or has_table_privilege('authenticated', 'public.agilecert_finance_audit_events', 'select') then
     raise exception 'Finance Console function or table privileges are unsafe.';
   end if;
 end;
