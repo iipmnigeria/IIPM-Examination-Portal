@@ -1,0 +1,57 @@
+name: Diagnose CIPMN PNG assets
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - 'src/assets/cipmnCertificateIipmLogo.ts'
+      - 'src/assets/cipmnCertificateCipmnLogo.ts'
+      - 'src/assets/cipmnCertificateBanitoSignature.ts'
+      - '.github/workflows/diagnose-cipmn-png-assets.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate embedded PNG assets
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const assets = [
+            ['IIPM logo', 'src/assets/cipmnCertificateIipmLogo.ts'],
+            ['CIPMN logo', 'src/assets/cipmnCertificateCipmnLogo.ts'],
+            ['Banito signature', 'src/assets/cipmnCertificateBanitoSignature.ts'],
+          ];
+
+          let failed = false;
+          for (const [label, path] of assets) {
+            const source = fs.readFileSync(path, 'utf8');
+            const match = source.match(/data:image\/png;base64,([^'"`\s]+)/);
+            if (!match) {
+              console.error(`${label}: missing PNG data URI`);
+              failed = true;
+              continue;
+            }
+
+            const payload = match[1].replace(/\s+/g, '');
+            const invalid = payload.match(/[^A-Za-z0-9+/=]/g) || [];
+            const bytes = Buffer.from(payload, 'base64');
+            const canonical = bytes.toString('base64').replace(/=+$/, '');
+            const supplied = payload.replace(/=+$/, '');
+            const signatureValid = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
+            const canonicalValid = canonical === supplied;
+            console.log(`${label}: length=${payload.length}; mod4=${payload.length % 4}; invalid=${invalid.length}; bytes=${bytes.length}; signature=${signatureValid}; canonical=${canonicalValid}`);
+            if (!signatureValid || !canonicalValid || invalid.length > 0) failed = true;
+          }
+
+          if (failed) process.exit(1);
+          NODE
