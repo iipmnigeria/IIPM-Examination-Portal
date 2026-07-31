@@ -1,9 +1,7 @@
 import type { jsPDF } from 'jspdf';
-import {
-  BANITO_SIGNATURE_DATA_URI,
-  CIPMN_CERTIFICATE_LOGO_DATA_URI,
-  IIPM_CERTIFICATE_LOGO_DATA_URI,
-} from '../assets/cipmnCertificateAssets';
+import { IIPM_CERTIFICATE_LOGO_DATA_URI } from '../assets/cipmnCertificateIipmLogo';
+import { CIPMN_CERTIFICATE_LOGO_DATA_URI } from '../assets/cipmnCertificateCipmnLogo';
+import { BANITO_SIGNATURE_DATA_URI } from '../assets/cipmnCertificateBanitoSignature';
 
 export interface CipmnCertificateRenderInput {
   holderName: string;
@@ -168,28 +166,31 @@ export function renderCipmnCompletionCertificate(
 
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...RED);
-  let examFontSize = 16;
+  let examFontSize = 15;
   doc.setFontSize(examFontSize);
   let titleLines = doc.splitTextToSize(title.toUpperCase(), 220) as string[];
-  if (titleLines.length > 2) {
-    examFontSize = 13;
+  while (titleLines.length > 2 && examFontSize > 11.5) {
+    examFontSize -= 0.5;
     doc.setFontSize(examFontSize);
     titleLines = doc.splitTextToSize(title.toUpperCase(), 220) as string[];
   }
-  doc.text(titleLines, CENTRE_X, 117, {
+  doc.text(titleLines.slice(0, 2), CENTRE_X, 116.5, {
     align: 'center',
-    lineHeightFactor: 1.08,
+    lineHeightFactor: 1.05,
   });
 
+  const titleEndY = 116.5 + (Math.min(titleLines.length, 2) - 1) * examFontSize * 0.37;
+  const moduleCodeY = Math.max(130.5, titleEndY + 4.5);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(...PRIMARY);
-  doc.text(moduleCode.toUpperCase(), CENTRE_X, 133, { align: 'center' });
+  doc.text(moduleCode.toUpperCase(), CENTRE_X, moduleCodeY, { align: 'center' });
 
+  const collaborationY = Math.max(138, moduleCodeY + 6);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(...MUTED);
-  doc.text('Delivered through IIPM in collaboration with CIPMN.', CENTRE_X, 140, {
+  doc.text('Delivered through IIPM in collaboration with CIPMN.', CENTRE_X, collaborationY, {
     align: 'center',
   });
 
