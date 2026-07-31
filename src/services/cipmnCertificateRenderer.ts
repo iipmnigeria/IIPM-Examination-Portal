@@ -160,9 +160,9 @@ export function renderCipmnCompletionCertificate(
   drawCornerMark(doc, 8.6, 201.4);
   drawCornerMark(doc, 288.4, 201.4);
 
-  // Balanced institutional identity exactly as approved.
-  doc.addImage(IIPM_CERTIFICATE_LOGO_DATA_URI, 'JPEG', 81, 13.1, 35, 35, 'iipm-logo', 'FAST');
-  doc.addImage(CIPMN_CERTIFICATE_LOGO_DATA_URI, 'JPEG', 123, 16.1, 95, 25.5, 'cipmn-logo', 'FAST');
+  // Lossless institutional identity using approved PNG artwork.
+  doc.addImage(IIPM_CERTIFICATE_LOGO_DATA_URI, 'PNG', 81, 13.1, 35, 35, 'iipm-logo', 'NONE');
+  doc.addImage(CIPMN_CERTIFICATE_LOGO_DATA_URI, 'PNG', 123, 16.1, 95, 25.5, 'cipmn-logo', 'NONE');
   doc.setFillColor(255, 255, 255);
   doc.rect(122.8, 15.8, 17.5, 26.2, 'F');
   doc.setDrawColor(...GOLD);
@@ -262,8 +262,8 @@ export function renderCipmnCompletionCertificate(
   drawInformationBox(doc, 90.5, infoY, 52, 'Date of Completion', formatDate(input.completionDate), 'calendar');
   drawInformationBox(doc, 153.5, infoY, 59, 'Certificate Number', input.certificateNumber, 'certificate');
 
-  // Single approved signatory.
-  doc.addImage(BANITO_SIGNATURE_DATA_URI, 'JPEG', 40, 156, 24, 20, 'banito-signature', 'FAST');
+  // Single approved signatory rendered from a transparent lossless PNG.
+  doc.addImage(BANITO_SIGNATURE_DATA_URI, 'PNG', 40, 156, 24, 20, 'banito-signature', 'NONE');
   doc.setDrawColor(139, 159, 179);
   doc.setLineWidth(0.32);
   doc.line(20, 178.4, 86.5, 178.4);
@@ -276,7 +276,7 @@ export function renderCipmnCompletionCertificate(
   doc.setTextColor(...MUTED);
   doc.text('Programme Coordinator / Executive Director, IIPM', 20, 188, { maxWidth: 72 });
 
-  doc.addImage(qrDataUrl, 'PNG', 244.5, 148.2, 29, 29, 'verification-qr', 'FAST');
+  doc.addImage(qrDataUrl, 'PNG', 244.5, 148.2, 29, 29, 'verification-qr', 'NONE');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.3);
   doc.setTextColor(...PRIMARY);
