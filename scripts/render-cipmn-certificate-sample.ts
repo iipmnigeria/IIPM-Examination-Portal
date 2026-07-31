@@ -34,17 +34,24 @@ const render = async (
   await writeFile(output, Buffer.from(doc.output('arraybuffer')));
 };
 
-await render(
-  'cipmn-certificate-standard-sample.pdf',
-  'Sample Candidate',
-  'Project Procurement and Contract Management',
-  'CIPMN-MOD-012',
-  86,
-);
-await render(
-  'cipmn-certificate-long-content-sample.pdf',
-  'Christopher Chukwuemeka Adekunle-Williams',
-  'Project Leadership and Building High-Performing Teams',
-  'CIPMN-MOD-010',
-  74.5,
-);
+const main = async () => {
+  await render(
+    'cipmn-certificate-standard-sample.pdf',
+    'Sample Candidate',
+    'Project Procurement and Contract Management',
+    'CIPMN-MOD-012',
+    86,
+  );
+  await render(
+    'cipmn-certificate-long-content-sample.pdf',
+    'Christopher Chukwuemeka Adekunle-Williams',
+    'Project Leadership and Building High-Performing Teams',
+    'CIPMN-MOD-010',
+    74.5,
+  );
+};
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
