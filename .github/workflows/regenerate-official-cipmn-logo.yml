@@ -20,91 +20,63 @@ jobs:
           ref: fix/cipmn-certificate-lossless-quality
           fetch-depth: 0
 
-      - name: Discover official CIPMN logo sources
+      - name: Inspect authoritative CIPMN logo records
         shell: bash
         run: |
           set -euo pipefail
           UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0 Safari/537.36'
-          for entry in \
-            'government|https://cipmn.gov.ng/' \
-            'application|https://app.cipmn.gov.ng/' \
-            'media-logo|https://cipmn.gov.ng/wp-json/wp/v2/media?search=logo&per_page=100' \
-            'media-cipmn|https://cipmn.gov.ng/wp-json/wp/v2/media?search=CIPMN&per_page=100'
-          do
-            label="${entry%%|*}"
-            url="${entry#*|}"
-            curl --location --silent --show-error --max-time 30 \
-              --user-agent "$UA" \
-              --dump-header "/tmp/${label}.headers" \
-              --output "/tmp/${label}.body" \
-              "$url" || true
-            echo "=== $label ==="
-            grep -iE '^(HTTP/|content-type:|content-length:|location:)' "/tmp/${label}.headers" | tail -n 8 || true
-            echo "bytes=$(wc -c < "/tmp/${label}.body")"
-            file "/tmp/${label}.body"
-          done
+          curl --fail --location --silent --show-error --max-time 30 --user-agent "$UA" \
+            --output /tmp/government.html 'https://cipmn.gov.ng/'
+          curl --fail --location --silent --show-error --max-time 30 --user-agent "$UA" \
+            --output /tmp/application.html 'https://app.cipmn.gov.ng/'
+          curl --fail --location --silent --show-error --max-time 30 --user-agent "$UA" \
+            --output /tmp/media-logo.json 'https://cipmn.gov.ng/wp-json/wp/v2/media?search=logo&per_page=100'
+          curl --fail --location --silent --show-error --max-time 30 --user-agent "$UA" \
+            --output /tmp/media-cipmn.json 'https://cipmn.gov.ng/wp-json/wp/v2/media?search=CIPMN&per_page=100'
 
           python <<'PY'
           import html
           import json
           import pathlib
           import re
-          from urllib.parse import urljoin, urlparse
 
-          sources = {
-              'government': ('https://cipmn.gov.ng/', pathlib.Path('/tmp/government.body')),
-              'application': ('https://app.cipmn.gov.ng/', pathlib.Path('/tmp/application.body')),
-          }
+          print('=== WORDPRESS MEDIA: SEARCH LOGO ===')
+          for source in ('/tmp/media-logo.json', '/tmp/media-cipmn.json'):
+              records = json.loads(pathlib.Path(source).read_text('utf-8'))
+              for record in records:
+                  details = record.get('media_details') or {}
+                  source_url = record.get('source_url') or ''
+                  slug = record.get('slug') or ''
+                  title = html.unescape((record.get('title') or {}).get('rendered') or '')
+                  alt = html.unescape(record.get('alt_text') or '')
+                  haystack = ' '.join((slug, title, alt, source_url)).lower()
+                  if 'logo' not in haystack and 'cipmn' not in haystack:
+                      continue
+                  print(json.dumps({
+                      'id': record.get('id'),
+                      'slug': slug,
+                      'title': title,
+                      'alt': alt,
+                      'source_url': source_url,
+                      'width': details.get('width'),
+                      'height': details.get('height'),
+                      'mime_type': record.get('mime_type'),
+                  }, sort_keys=True))
 
-          candidates = set()
-          attr_pattern = re.compile(r'''(?:src|href|srcset|content)\s*=\s*["']([^"']+)["']''', re.I)
-          url_pattern = re.compile(r'''https?://[^\s"'<>]+''', re.I)
+          print('=== GOVERNMENT HOME IMG TAGS ===')
+          government = pathlib.Path('/tmp/government.html').read_text('utf-8', errors='ignore')
+          for tag in re.findall(r'<img\b[^>]*>', government, flags=re.I):
+              lower = html.unescape(tag).lower()
+              if 'logo' in lower or 'cipmn' in lower:
+                  print(html.unescape(tag)[:1500])
 
-          for label, (base, path) in sources.items():
-              text = path.read_text('utf-8', errors='ignore')
-              for value in attr_pattern.findall(text):
-                  for part in value.split(','):
-                      raw = html.unescape(part.strip().split()[0])
-                      if raw:
-                          candidates.add(urljoin(base, raw))
-              for raw in url_pattern.findall(text):
-                  candidates.add(html.unescape(raw.rstrip('),;')))
-
-          for path in [pathlib.Path('/tmp/media-logo.body'), pathlib.Path('/tmp/media-cipmn.body')]:
-              try:
-                  payload = json.loads(path.read_text('utf-8'))
-              except Exception:
-                  continue
-
-              def walk(value):
-                  if isinstance(value, dict):
-                      for item in value.values():
-                          yield from walk(item)
-                  elif isinstance(value, list):
-                      for item in value:
-                          yield from walk(item)
-                  elif isinstance(value, str):
-                      yield value
-
-              for value in walk(payload):
-                  if value.startswith('http'):
-                      candidates.add(value)
-
-          approved_hosts = {'cipmn.gov.ng', 'www.cipmn.gov.ng', 'app.cipmn.gov.ng'}
-          filtered = []
-          for url in sorted(candidates):
-              parsed = urlparse(url)
-              lower = url.lower()
-              if parsed.netloc.lower() not in approved_hosts:
-                  continue
-              if not any(token in lower for token in ('logo', 'cipmn')):
-                  continue
-              filtered.append(url)
-
-          print('=== OFFICIAL LOGO CANDIDATES ===')
-          for url in filtered[:200]:
-              print(url)
-          print(f'candidate_count={len(filtered)}')
-          if not filtered:
-              raise SystemExit('No official CIPMN logo candidate was discovered.')
+          print('=== APPLICATION CIPMN_LOGO CONTEXT ===')
+          application = pathlib.Path('/tmp/application.html').read_text('utf-8', errors='ignore')
+          matches = list(re.finditer(r'cipmn[_-]?logo', application, flags=re.I))
+          for match in matches[:20]:
+              start = max(0, match.start() - 500)
+              end = min(len(application), match.end() + 500)
+              print(application[start:end])
+              print('---')
+          print(f'application_logo_mentions={len(matches)}')
           PY
