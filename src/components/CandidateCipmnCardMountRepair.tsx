@@ -10,13 +10,18 @@ type CommerceTest = Test & {
 
 const CARD_SELECTOR = '[id^="exam-card-"]';
 const CART_MOUNT_ATTRIBUTE = 'data-agilecert-cipmn-card-cart-mount';
+const PRIMARY_ACTION_ATTRIBUTE = 'data-agilecert-cipmn-primary-action';
 
 const normaliseButtonText = (button: HTMLButtonElement): string =>
   (button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 const isPayAndUnlockButton = (button: HTMLButtonElement): boolean => {
   const text = normaliseButtonText(button);
-  return text.includes('pay and unlock') || text.includes('pay & unlock');
+  return (
+    text.includes('pay and unlock')
+    || text.includes('pay & unlock')
+    || text.includes('pay for re-take')
+  );
 };
 
 const isLaunchButton = (button: HTMLButtonElement): boolean => {
@@ -24,16 +29,8 @@ const isLaunchButton = (button: HTMLButtonElement): boolean => {
   return text.includes('launch secure session') || text.includes('launch secured session');
 };
 
-const hasHiddenAncestor = (element: HTMLElement, boundary: HTMLElement): boolean => {
-  let current: HTMLElement | null = element;
-
-  while (current && current !== boundary) {
-    if (current.hidden || current.classList.contains('hidden')) return true;
-    current = current.parentElement;
-  }
-
-  return false;
-};
+const isInsideCartMount = (button: HTMLButtonElement, examinationId: string): boolean =>
+  Boolean(button.closest(`[${CART_MOUNT_ATTRIBUTE}="${examinationId}"]`));
 
 const removeAccidentalActionLayout = (element: HTMLElement | null) => {
   if (!element) return;
@@ -46,30 +43,39 @@ const removeAccidentalActionLayout = (element: HTMLElement | null) => {
   );
 };
 
-const excludeLockedLaunchButton = (
+const prepareLockedPrimaryAction = (
   button: HTMLButtonElement,
+  card: HTMLElement,
   examinationId: string,
 ) => {
-  button.hidden = true;
-  button.style.display = 'none';
-  button.setAttribute('aria-hidden', 'true');
-  button.setAttribute('tabindex', '-1');
+  if (!button.dataset.iipmOriginalLabel) {
+    button.dataset.iipmOriginalLabel = button.textContent?.trim() || 'Launch Secured Session';
+  }
+  if (!button.dataset.iipmOriginalClass) {
+    button.dataset.iipmOriginalClass = button.className;
+  }
 
-  const container = button.parentElement;
-  if (!container) return;
-
-  removeAccidentalActionLayout(container);
-  container.dataset.agilecertCipmnCardCartMount = `launch-exclusion-${examinationId}`;
-};
-
-const releaseUnlockedLaunchButton = (
-  button: HTMLButtonElement,
-  examinationId: string,
-) => {
+  button.dataset.agilecertCipmnPrimaryAction = examinationId;
   button.hidden = false;
   button.style.removeProperty('display');
   button.removeAttribute('aria-hidden');
   button.removeAttribute('tabindex');
+
+  const completed = (card.textContent || '').includes('Exam Completed');
+  const desiredText = completed ? 'Pay for Re-take' : 'Pay and Unlock';
+  if (button.textContent?.trim() !== desiredText) {
+    button.textContent = desiredText;
+  }
+
+  button.className =
+    'px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 whitespace-nowrap bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-sm hover:shadow';
+
+  // Fail closed until CandidateCommerceOverlay attaches its capture handler.
+  // This prevents the original React launch action from starting a locked exam.
+  button.onclick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
 
   const container = button.parentElement;
   if (
@@ -80,13 +86,32 @@ const releaseUnlockedLaunchButton = (
   }
 };
 
+const prepareUnlockedPrimaryAction = (
+  button: HTMLButtonElement,
+  examinationId: string,
+) => {
+  button.dataset.agilecertCipmnPrimaryAction = examinationId;
+  button.hidden = false;
+  button.style.removeProperty('display');
+  button.removeAttribute('aria-hidden');
+  button.removeAttribute('tabindex');
+  button.onclick = null;
+
+  if (isPayAndUnlockButton(button)) {
+    button.textContent = button.dataset.iipmOriginalLabel || 'Launch Secured Session';
+  }
+  if (button.dataset.iipmOriginalClass) {
+    button.className = button.dataset.iipmOriginalClass;
+  }
+};
+
 const ensureSafeCartMount = (
   card: HTMLElement,
   examinationId: string,
-  payButton: HTMLButtonElement,
+  primaryButton: HTMLButtonElement,
 ) => {
-  const actionArea = payButton.parentElement;
-  if (!actionArea || payButton.parentElement !== actionArea) return;
+  const actionArea = primaryButton.parentElement;
+  if (!actionArea || primaryButton.parentElement !== actionArea) return;
 
   const matchingMounts = Array.from(
     card.querySelectorAll<HTMLElement>(`[${CART_MOUNT_ATTRIBUTE}]`),
@@ -100,13 +125,11 @@ const ensureSafeCartMount = (
     visibleMount = document.createElement('div');
     visibleMount.dataset.agilecertCipmnCardCartMount = examinationId;
     visibleMount.className = 'w-full';
-    visibleMount.style.marginBottom = '0.5rem';
 
-    // The mount is always a newly created empty element. We never move an
-    // existing React portal host or any examination action container.
-    if (payButton.parentElement === actionArea) {
-      actionArea.insertBefore(visibleMount, payButton);
-    }
+    // Keep the primary payment/launch button first in DOM order so the legacy
+    // commerce overlay always selects it, then place the cart control before it
+    // visually with flex ordering. No live React portal host is moved.
+    actionArea.insertBefore(visibleMount, primaryButton.nextSibling);
   }
 
   actionArea.classList.add(
@@ -116,10 +139,12 @@ const ensureSafeCartMount = (
     'items-stretch',
     'gap-2',
   );
+
   visibleMount.classList.add('w-full');
-  visibleMount.style.marginBottom = '0.5rem';
+  visibleMount.style.order = '1';
   visibleMount.style.removeProperty('display');
   visibleMount.removeAttribute('aria-hidden');
+  primaryButton.style.order = '2';
 
   matchingMounts.forEach((mount) => {
     if (mount === visibleMount) return;
@@ -134,6 +159,26 @@ const ensureSafeCartMount = (
 const cardLooksLikeCipmn = (card: HTMLElement): boolean =>
   (card.textContent || '').toUpperCase().includes('CIPMN-MOCK');
 
+const findPrimaryAction = (
+  card: HTMLElement,
+  examinationId: string,
+): HTMLButtonElement | null => {
+  const buttons = Array.from(card.querySelectorAll<HTMLButtonElement>('button'));
+
+  return (
+    buttons.find(
+      (button) => button.dataset.agilecertCipmnPrimaryAction === examinationId,
+    )
+    || buttons.find(
+      (button) => isPayAndUnlockButton(button) && !isInsideCartMount(button, examinationId),
+    )
+    || buttons.find(
+      (button) => isLaunchButton(button) && !isInsideCartMount(button, examinationId),
+    )
+    || null
+  );
+};
+
 const repairCard = (
   card: HTMLElement,
   catalogueById: Map<string, CommerceTest>,
@@ -145,28 +190,26 @@ const repairCard = (
   const cipmnCard = test?.course === 'CIPMN-MOCK' || cardLooksLikeCipmn(card);
   if (!cipmnCard) return;
 
-  const buttons = Array.from(card.querySelectorAll<HTMLButtonElement>('button'));
-  const launchButtons = buttons.filter(isLaunchButton);
-  const payButton = buttons.find(
-    (button) => isPayAndUnlockButton(button) && !hasHiddenAncestor(button, card),
-  );
+  const primaryButton = findPrimaryAction(card, examinationId);
+  if (!primaryButton) return;
 
   const unlocked = Boolean(test?.canLaunch || test?.accessStatus === 'unlocked');
-  const serverConfirmedLocked = Boolean(test && test.course === 'CIPMN-MOCK' && !unlocked);
-  const cardConfirmedLocked = Boolean(
-    payButton
-      || (card.textContent || '').toLowerCase().includes('payment required'),
-  );
-  const locked = serverConfirmedLocked || cardConfirmedLocked;
+  const cardConfirmedLocked = (card.textContent || '')
+    .toLowerCase()
+    .includes('payment required');
+  const locked = test
+    ? test.course === 'CIPMN-MOCK' && !unlocked
+    : cardConfirmedLocked;
 
   if (locked) {
-    launchButtons.forEach((button) => excludeLockedLaunchButton(button, examinationId));
-    if (payButton) ensureSafeCartMount(card, examinationId, payButton);
+    prepareLockedPrimaryAction(primaryButton, card, examinationId);
+    ensureSafeCartMount(card, examinationId, primaryButton);
     return;
   }
 
   if (unlocked) {
-    launchButtons.forEach((button) => releaseUnlockedLaunchButton(button, examinationId));
+    prepareUnlockedPrimaryAction(primaryButton, examinationId);
+    ensureSafeCartMount(card, examinationId, primaryButton);
   }
 };
 
@@ -203,7 +246,7 @@ export default function CandidateCipmnCardMountRepair() {
         catalogueById = new Map(tests.map((test) => [test.id, test]));
         scheduleRepair();
       } catch (error) {
-        // Payment controls rendered on the card remain a safe fallback signal.
+        // The visible payment badge remains a safe fallback signal.
         console.error('Unable to refresh CIPMN card access state.', error);
         scheduleRepair();
       }
