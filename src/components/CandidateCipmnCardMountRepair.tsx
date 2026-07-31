@@ -25,7 +25,7 @@ const hasIntentionallyHiddenAncestor = (
   return false;
 };
 
-const removeIncorrectDisplayOverride = (mount: HTMLElement) => {
+const restoreHiddenActionLayout = (mount: HTMLElement) => {
   const parent = mount.parentElement;
   if (!parent?.classList.contains('hidden')) return;
 
@@ -38,13 +38,90 @@ const removeIncorrectDisplayOverride = (mount: HTMLElement) => {
   );
 };
 
-const unwrapLaunchGuard = (guard: HTMLElement) => {
-  const launchButton = guard.querySelector<HTMLButtonElement>('button');
-  if (launchButton && guard.parentNode) {
-    launchButton.style.removeProperty('display');
-    guard.parentNode.insertBefore(launchButton, guard);
+const releaseLaunchGuard = (guard: HTMLElement) => {
+  guard.hidden = false;
+  guard.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+    button.style.removeProperty('display');
+  });
+};
+
+const guardLockedLaunchButtons = (
+  card: HTMLElement,
+  examinationId: string,
+  launchButtons: HTMLButtonElement[],
+) => {
+  launchButtons.forEach((launchButton) => {
+    let guard = launchButton.closest<HTMLElement>(
+      '[data-agilecert-cipmn-launch-guard="true"]',
+    );
+
+    if (!guard) {
+      const parent = launchButton.parentElement;
+      if (!parent) return;
+
+      guard = document.createElement('div');
+      guard.dataset.agilecertCipmnLaunchGuard = 'true';
+      guard.dataset.agilecertCipmnCardCartMount = `launch-guard-${examinationId}`;
+
+      if (launchButton.parentElement === parent) {
+        parent.insertBefore(guard, launchButton);
+        guard.appendChild(launchButton);
+      }
+    }
+
+    guard.hidden = true;
+    launchButton.style.display = 'none';
+  });
+
+  card
+    .querySelectorAll<HTMLElement>('[data-agilecert-cipmn-launch-guard="true"]')
+    .forEach((guard) => {
+      guard.hidden = true;
+      guard.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+        button.style.display = 'none';
+      });
+    });
+};
+
+const ensureVisibleCartMount = (
+  card: HTMLElement,
+  examinationId: string,
+  payButton: HTMLButtonElement,
+) => {
+  const actionArea = payButton.parentElement;
+  if (!actionArea || payButton.parentElement !== actionArea) return;
+
+  const matchingMounts = Array.from(
+    card.querySelectorAll<HTMLElement>('[data-agilecert-cipmn-card-cart-mount]'),
+  ).filter(
+    (element) => element.dataset.agilecertCipmnCardCartMount === examinationId,
+  );
+
+  let visibleMount = matchingMounts.find((mount) => mount.parentElement === actionArea);
+
+  if (!visibleMount) {
+    visibleMount = document.createElement('div');
+    visibleMount.dataset.agilecertCipmnCardCartMount = examinationId;
+    visibleMount.className = 'w-full';
+    visibleMount.style.marginBottom = '0.5rem';
+
+    if (payButton.parentElement === actionArea) {
+      actionArea.insertBefore(visibleMount, payButton);
+    }
   }
-  guard.remove();
+
+  actionArea.classList.add('flex', 'min-w-[190px]', 'flex-col', 'items-stretch', 'gap-2');
+  visibleMount.classList.add('w-full');
+  visibleMount.style.marginBottom = '0.5rem';
+
+  matchingMounts.forEach((mount) => {
+    if (mount === visibleMount) return;
+
+    restoreHiddenActionLayout(mount);
+    mount.dataset.agilecertCipmnCardCartMount = `stale-${examinationId}`;
+    mount.style.display = 'none';
+    mount.setAttribute('aria-hidden', 'true');
+  });
 };
 
 const repairCard = (card: HTMLElement) => {
@@ -60,63 +137,25 @@ const repairCard = (card: HTMLElement) => {
   if (!payButton) {
     card
       .querySelectorAll<HTMLElement>('[data-agilecert-cipmn-launch-guard="true"]')
-      .forEach(unwrapLaunchGuard);
+      .forEach(releaseLaunchGuard);
     launchButtons.forEach((button) => button.style.removeProperty('display'));
     return;
   }
 
-  launchButtons.forEach((launchButton) => {
-    let guard = launchButton.closest<HTMLElement>(
-      '[data-agilecert-cipmn-launch-guard="true"]',
-    );
-
-    if (!guard) {
-      guard = document.createElement('div');
-      guard.dataset.agilecertCipmnLaunchGuard = 'true';
-      guard.dataset.agilecertCipmnCardCartMount = `launch-guard-${examinationId}`;
-      launchButton.parentNode?.insertBefore(guard, launchButton);
-      guard.appendChild(launchButton);
-    }
-
-    guard.hidden = true;
-    launchButton.style.display = 'none';
-  });
-
-  const actionArea = payButton.parentElement;
-  if (!actionArea) return;
-
-  const matchingMounts = Array.from(
-    card.querySelectorAll<HTMLElement>('[data-agilecert-cipmn-card-cart-mount]'),
-  ).filter(
-    (element) => element.dataset.agilecertCipmnCardCartMount === examinationId,
-  );
-
-  let canonicalMount = matchingMounts.find((element) => element.parentElement === actionArea)
-    || matchingMounts[0];
-
-  if (!canonicalMount) {
-    canonicalMount = document.createElement('div');
-    canonicalMount.dataset.agilecertCipmnCardCartMount = examinationId;
-  }
-
-  matchingMounts.forEach((mount) => {
-    if (mount !== canonicalMount) mount.remove();
-  });
-
-  removeIncorrectDisplayOverride(canonicalMount);
-
-  if (canonicalMount.parentElement !== actionArea || canonicalMount.nextSibling !== payButton) {
-    actionArea.insertBefore(canonicalMount, payButton);
-  }
-
-  canonicalMount.classList.add('w-full');
-  canonicalMount.style.marginBottom = '0.5rem';
+  guardLockedLaunchButtons(card, examinationId, launchButtons);
+  ensureVisibleCartMount(card, examinationId, payButton);
 };
 
 const repairCandidateCards = () => {
   document
     .querySelectorAll<HTMLElement>('[id^="exam-card-"]')
-    .forEach(repairCard);
+    .forEach((card) => {
+      try {
+        repairCard(card);
+      } catch (error) {
+        console.error('Unable to repair the CIPMN examination card actions.', error);
+      }
+    });
 };
 
 export default function CandidateCipmnCardMountRepair() {
