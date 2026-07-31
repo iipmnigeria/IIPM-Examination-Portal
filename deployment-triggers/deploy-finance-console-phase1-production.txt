@@ -1,0 +1,5 @@
+Finance Console Phase 1 controlled production release
+Approved source: 5ba90997027a61c0271510c23de2534a05cc2afe
+Migration: 202607310700_finance_console_pricing_permissions.sql
+Scope: database migration, exact frontend build verification, server-side permission and audit verification.
+Excluded: payment Edge Functions and candidate checkout runtime changes.
