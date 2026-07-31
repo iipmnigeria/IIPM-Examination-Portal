@@ -11,6 +11,20 @@ const isPayAndUnlockButton = (button: HTMLButtonElement): boolean => {
 const isLaunchButton = (button: HTMLButtonElement): boolean =>
   normaliseButtonText(button).includes('launch secure session');
 
+const hasIntentionallyHiddenAncestor = (
+  element: HTMLElement,
+  boundary: HTMLElement,
+): boolean => {
+  let current: HTMLElement | null = element;
+
+  while (current && current !== boundary) {
+    if (current.hidden || current.classList.contains('hidden')) return true;
+    current = current.parentElement;
+  }
+
+  return false;
+};
+
 const removeIncorrectDisplayOverride = (mount: HTMLElement) => {
   const parent = mount.parentElement;
   if (!parent?.classList.contains('hidden')) return;
@@ -38,7 +52,9 @@ const repairCard = (card: HTMLElement) => {
   if (!examinationId) return;
 
   const buttons = Array.from(card.querySelectorAll<HTMLButtonElement>('button'));
-  const payButton = buttons.find(isPayAndUnlockButton);
+  const payButton = buttons.find(
+    (button) => isPayAndUnlockButton(button) && !hasIntentionallyHiddenAncestor(button, card),
+  );
   const launchButtons = buttons.filter(isLaunchButton);
 
   if (!payButton) {
