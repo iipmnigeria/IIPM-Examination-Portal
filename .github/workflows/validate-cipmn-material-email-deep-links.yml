@@ -1,0 +1,76 @@
+name: Validate CIPMN Material Email Deep Links
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - 'src/App.tsx'
+      - 'src/components/CandidatePreparationMaterialsPanel.tsx'
+      - 'supabase/functions/agilecert-communications/index.ts'
+      - 'supabase/migrations/202607310500_cipmn_material_email_deep_links.sql'
+      - '.github/workflows/validate-cipmn-material-email-deep-links.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Type-check changed frontend files
+        run: >-
+          npx tsc --noEmit --skipLibCheck --jsx react-jsx --target ES2022
+          --module ESNext --moduleResolution Bundler --allowSyntheticDefaultImports
+          --esModuleInterop src/vite-env.d.ts src/App.tsx
+          src/components/CandidatePreparationMaterialsPanel.tsx
+
+      - name: Check communications function
+        run: deno check supabase/functions/agilecert-communications/index.ts
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Validate deep-link controls
+        shell: python
+        run: |
+          from pathlib import Path
+
+          app = Path('src/App.tsx').read_text()
+          panel = Path('src/components/CandidatePreparationMaterialsPanel.tsx').read_text()
+          communications = Path('supabase/functions/agilecert-communications/index.ts').read_text()
+          migration = Path('supabase/migrations/202607310500_cipmn_material_email_deep_links.sql').read_text()
+
+          required = [
+              (app, "parameters.get('view') === 'materials'"),
+              (app, "parameters.get('examinationId')"),
+              (app, 'focusedExaminationId={materialsExaminationId}'),
+              (panel, 'Opened from your payment email'),
+              (panel, 'View all materials'),
+              (panel, 'materials-examination-${group.examinationId}'),
+              (communications, 'safePortalActionUrl'),
+              (communications, "cleanText(payload.actionLabel, 80)"),
+              (communications, 'safePortalActionUrl(payload.actionUrl, portalUrl)'),
+              (migration, "'Access My Materials'"),
+              (migration, "'?view=materials&examinationId='"),
+              (migration, "outbox.status in ('queued', 'failed')"),
+          ]
+          missing = [marker for text, marker in required if marker not in text]
+          assert not missing, missing
+          assert migration.rstrip().endswith('commit;')
+          assert 'candidate.origin !== portal.origin' in communications
+          assert "candidate.protocol !== 'https:'" in communications
+          print('Validated CIPMN payment-email deep links, login preservation and module focus.')
