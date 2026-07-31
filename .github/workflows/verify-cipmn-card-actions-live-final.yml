@@ -44,9 +44,9 @@ jobs:
           primary_marker=0
           payment_marker=0
           cart_marker=0
-          printf '%s' "$bundle" | grep -q 'agilecertCipmnPrimaryAction' && primary_marker=1 || true
-          printf '%s' "$bundle" | grep -q 'Pay and Unlock' && payment_marker=1 || true
-          printf '%s' "$bundle" | grep -q 'agilecertCipmnCardCartMount' && cart_marker=1 || true
+          grep -q 'agilecertCipmnPrimaryAction' <<< "$bundle" && primary_marker=1 || true
+          grep -q 'Pay and Unlock' <<< "$bundle" && payment_marker=1 || true
+          grep -q 'agilecertCipmnCardCartMount' <<< "$bundle" && cart_marker=1 || true
           echo "Markers: primary=${primary_marker} payment=${payment_marker} cart=${cart_marker}"
 
           [[ "$primary_marker" == '1' && "$payment_marker" == '1' && "$cart_marker" == '1' ]]
