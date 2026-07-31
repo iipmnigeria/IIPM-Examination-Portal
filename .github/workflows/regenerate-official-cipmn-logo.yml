@@ -1,0 +1,124 @@
+name: Regenerate official CIPMN logo asset
+
+on:
+  push:
+    branches:
+      - fix/cipmn-certificate-lossless-quality
+    paths:
+      - '.github/workflows/regenerate-official-cipmn-logo.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/cipmn-certificate-lossless-quality
+          fetch-depth: 0
+
+      - name: Download and validate official CIPMN PNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            --proto '=https' --tlsv1.2 \
+            --output /tmp/cipmn-official.png \
+            'https://cipmn.org.ng/wp-content/uploads/2018/04/new-logo.png'
+
+          python <<'PY'
+          import base64
+          import binascii
+          import pathlib
+          import struct
+          import zlib
+
+          source = pathlib.Path('/tmp/cipmn-official.png').read_bytes()
+          signature = b'\x89PNG\r\n\x1a\n'
+          if not source.startswith(signature):
+              raise SystemExit('Official CIPMN source is not a PNG.')
+
+          offset = 8
+          chunks = []
+          idat = []
+          width = height = bit_depth = color_type = interlace = None
+          reached_iend = False
+
+          while offset + 12 <= len(source):
+              length = struct.unpack('>I', source[offset:offset + 4])[0]
+              chunk_type = source[offset + 4:offset + 8]
+              data_start = offset + 8
+              data_end = data_start + length
+              crc_end = data_end + 4
+              if crc_end > len(source):
+                  raise SystemExit(f'Truncated PNG chunk: {chunk_type!r}')
+
+              data = source[data_start:data_end]
+              expected_crc = struct.unpack('>I', source[data_end:crc_end])[0]
+              actual_crc = binascii.crc32(chunk_type + data) & 0xffffffff
+              if expected_crc != actual_crc:
+                  raise SystemExit(f'CRC mismatch in {chunk_type.decode("ascii", "replace")} chunk.')
+
+              name = chunk_type.decode('ascii')
+              chunks.append(name)
+              if name == 'IHDR':
+                  if length != 13:
+                      raise SystemExit('Invalid IHDR length.')
+                  width, height, bit_depth, color_type, compression, filtering, interlace = struct.unpack('>IIBBBBB', data)
+                  if compression != 0 or filtering != 0:
+                      raise SystemExit('Unsupported PNG compression or filtering method.')
+              elif name == 'IDAT':
+                  idat.append(data)
+              elif name == 'IEND':
+                  reached_iend = True
+                  offset = crc_end
+                  break
+
+              offset = crc_end
+
+          if not reached_iend or offset != len(source):
+              raise SystemExit('Official CIPMN PNG does not end with a complete IEND chunk.')
+          if not idat or None in (width, height, bit_depth, color_type, interlace):
+              raise SystemExit('Official CIPMN PNG is missing required image data.')
+          if width < 600 or height < 140:
+              raise SystemExit(f'Official CIPMN PNG is too small for print use: {width}x{height}.')
+
+          aspect = width / height
+          if not 2.8 <= aspect <= 4.5:
+              raise SystemExit(f'Unexpected CIPMN logo aspect ratio: {aspect:.3f}.')
+          if interlace != 0:
+              raise SystemExit('Interlaced official PNG is not accepted by this controlled conversion.')
+
+          channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(color_type)
+          if channels is None:
+              raise SystemExit(f'Unsupported PNG colour type: {color_type}.')
+          inflated = zlib.decompress(b''.join(idat))
+          row_bytes = (width * channels * bit_depth + 7) // 8
+          expected = height * (row_bytes + 1)
+          if len(inflated) != expected:
+              raise SystemExit(f'Incomplete PNG scanlines: {len(inflated)} != {expected}.')
+
+          payload = base64.b64encode(source).decode('ascii')
+          output = (
+              "export const CIPMN_CERTIFICATE_LOGO_DATA_URI = "
+              f"'data:image/png;base64,{payload}';\n"
+          )
+          pathlib.Path('src/assets/cipmnCertificateCipmnLogo.ts').write_text(output, encoding='utf-8')
+          print(f'Validated official CIPMN PNG: {width}x{height}, {len(source)} bytes, aspect={aspect:.3f}, chunks={chunks}')
+          PY
+
+      - name: Commit exact official asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/assets/cipmnCertificateCipmnLogo.ts
+          if git diff --cached --quiet; then
+            echo 'Official CIPMN asset already matches the validated source.'
+            exit 0
+          fi
+          git commit -m 'Restore official lossless CIPMN certificate logo'
+          git push origin HEAD:fix/cipmn-certificate-lossless-quality
