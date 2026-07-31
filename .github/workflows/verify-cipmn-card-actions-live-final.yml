@@ -1,0 +1,44 @@
+name: Verify Live CIPMN Card Actions
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/verify-cipmn-card-actions-live-final.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for the authorised Pages release and verify the exact card-action markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          portal='https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+
+          for attempt in $(seq 1 36); do
+            echo "Live verification attempt ${attempt}/36"
+            html="$(curl --fail --silent --show-error --location --retry 3 --retry-delay 2 "${portal}?card-actions-verify=${GITHUB_RUN_ID}-${attempt}" || true)"
+            asset="$(printf '%s' "$html" | grep -oE '/IIPM-Examination-Portal/assets/index-[^"[:space:]]+\.js' | head -n 1 || true)"
+
+            if [[ -n "$asset" ]]; then
+              bundle="$(curl --fail --silent --show-error --location --retry 3 --retry-delay 2 "https://iipmnigeria.github.io${asset}?card-actions-verify=${GITHUB_RUN_ID}-${attempt}" || true)"
+
+              if printf '%s' "$bundle" | grep -q 'agilecertCipmnPrimaryAction' \
+                && printf '%s' "$bundle" | grep -q 'Pay and Unlock' \
+                && printf '%s' "$bundle" | grep -q 'DOCUMENT_POSITION_FOLLOWING' \
+                && printf '%s' "$bundle" | grep -q 'agilecertCipmnCardCartMount'; then
+                echo 'Live GitHub Pages bundle contains the final CIPMN card-action correction.'
+                exit 0
+              fi
+            fi
+
+            sleep 10
+          done
+
+          echo 'The live GitHub Pages bundle did not expose the final CIPMN card-action markers within the verification window.' >&2
+          exit 1
