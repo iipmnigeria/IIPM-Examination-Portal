@@ -158,17 +158,18 @@ begin
     'Validate deterministic programme-scope update'
   );
 
+  v_snapshot := public.get_finance_certification_snapshot(100);
+
   if (
     select count(*)
-    from public.agilecert_certificate_product_scopes scope
-    where scope.product_code = 'achievement'
-      and scope.scope_type = 'programme'
-      and scope.programme_id = v_programme_id
+    from jsonb_array_elements(v_snapshot -> 'scopes') scope
+    where scope ->> 'productCode' = 'achievement'
+      and scope ->> 'scopeType' = 'programme'
+      and (scope ->> 'programmeId')::uuid = v_programme_id
   ) <> 1 then
     raise exception 'The certification applicability update created a duplicate rule.';
   end if;
 
-  v_snapshot := public.get_finance_certification_snapshot(100);
   if jsonb_array_length(v_snapshot -> 'products') <> 2
      or jsonb_array_length(v_snapshot -> 'prices') < 4
      or jsonb_array_length(v_snapshot -> 'scopes') < 4
