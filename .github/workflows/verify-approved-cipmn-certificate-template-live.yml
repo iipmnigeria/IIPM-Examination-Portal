@@ -72,7 +72,7 @@ jobs:
           Path('live-public-bundle/assets.txt').write_text('\n'.join(assets), encoding='utf-8')
           PY
 
-            while IFS= read -r asset; do
+            while IFS= read -r asset || [ -n "$asset" ]; do
               [ -n "$asset" ] || continue
               case "$asset" in
                 http*) url="$asset" ;;
