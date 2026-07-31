@@ -1,0 +1,31 @@
+name: Inspect Finance Console Foundation
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - .github/workflows/inspect-finance-console-foundation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Map pricing, roles, audits and admin UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== MIGRATIONS ==='
+          find supabase/migrations -maxdepth 1 -type f -printf '%f\n' | sort
+          echo '=== ROLE AND ADMIN FUNCTIONS ==='
+          grep -RniE "create (or replace )?function public\.(is_exam_admin|current_user_role)|role.*(candidate|auditor|exam_admin|super_admin)|audit_logs|permissions" supabase/migrations | head -n 500 || true
+          echo '=== PRICE AND COUPON REFERENCES ==='
+          grep -RniE "exam_prices|coupons|quote_exam_purchase|create_exam_order" src supabase/migrations | head -n 500 || true
+          echo '=== ADMIN FILES ==='
+          find src -type f | sort | grep -Ei 'admin|commerce|finance|permission|role' || true
+          echo '=== APP ADMIN WIRING ==='
+          grep -RniE "AdminPortal|Control Hub|userRole === 'admin'|signInAsStaff" src | head -n 300 || true
