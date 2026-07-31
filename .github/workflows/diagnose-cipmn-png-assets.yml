@@ -32,6 +32,21 @@ jobs:
             ['Banito signature', 'src/assets/cipmnCertificateBanitoSignature.ts'],
           ];
 
+          const parsePng = (bytes) => {
+            let offset = 8;
+            const chunks = [];
+            while (offset + 12 <= bytes.length) {
+              const length = bytes.readUInt32BE(offset);
+              const type = bytes.subarray(offset + 4, offset + 8).toString('ascii');
+              const next = offset + 12 + length;
+              if (next > bytes.length) return { valid: false, chunks, offset, reason: `truncated ${type}` };
+              chunks.push(type);
+              offset = next;
+              if (type === 'IEND') return { valid: offset === bytes.length, chunks, offset, reason: offset === bytes.length ? 'complete' : 'trailing bytes' };
+            }
+            return { valid: false, chunks, offset, reason: 'missing IEND' };
+          };
+
           let failed = false;
           for (const [label, path] of assets) {
             const source = fs.readFileSync(path, 'utf8');
@@ -45,13 +60,32 @@ jobs:
             const payload = match[1].replace(/\s+/g, '');
             const invalid = payload.match(/[^A-Za-z0-9+/=]/g) || [];
             const bytes = Buffer.from(payload, 'base64');
-            const canonical = bytes.toString('base64').replace(/=+$/, '');
+            const canonicalPayload = bytes.toString('base64');
+            const canonical = canonicalPayload.replace(/=+$/, '');
             const supplied = payload.replace(/=+$/, '');
             const signatureValid = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
             const canonicalValid = canonical === supplied;
-            console.log(`${label}: length=${payload.length}; mod4=${payload.length % 4}; invalid=${invalid.length}; bytes=${bytes.length}; signature=${signatureValid}; canonical=${canonicalValid}`);
-            if (!signatureValid || !canonicalValid || invalid.length > 0) failed = true;
+            const structure = signatureValid ? parsePng(bytes) : { valid: false, chunks: [], offset: 0, reason: 'bad signature' };
+            console.log(`${label}: length=${payload.length}; mod4=${payload.length % 4}; invalid=${invalid.length}; bytes=${bytes.length}; signature=${signatureValid}; canonical=${canonicalValid}; structure=${structure.valid}; reason=${structure.reason}; tail=${bytes.subarray(-12).toString('hex')}`);
+
+            if (label === 'CIPMN logo' && signatureValid && structure.valid) {
+              fs.mkdirSync('png-diagnostic', { recursive: true });
+              fs.writeFileSync('png-diagnostic/cipmn-logo-canonical.png', bytes);
+              fs.writeFileSync(
+                'png-diagnostic/cipmnCertificateCipmnLogo.ts',
+                `export const CIPMN_CERTIFICATE_LOGO_DATA_URI = 'data:image/png;base64,${canonicalPayload}';\n`,
+              );
+            }
+
+            if (!signatureValid || !structure.valid || !canonicalValid || invalid.length > 0) failed = true;
           }
 
-          if (failed) process.exit(1);
+          if (failed) process.exitCode = 1;
           NODE
+      - name: Upload canonical CIPMN logo evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-logo-canonical-evidence
+          path: png-diagnostic/
+          if-no-files-found: ignore
