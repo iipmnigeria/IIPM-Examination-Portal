@@ -50,9 +50,9 @@ jobs:
       - name: Render dynamic certificate samples
         run: |
           npx esbuild scripts/render-cipmn-certificate-sample.ts \
-            --bundle --platform=node --format=esm \
-            --outfile=/tmp/render-cipmn-certificate-sample.mjs
-          node /tmp/render-cipmn-certificate-sample.mjs
+            --bundle --platform=node --format=cjs \
+            --outfile=/tmp/render-cipmn-certificate-sample.cjs
+          node /tmp/render-cipmn-certificate-sample.cjs
           test -s cipmn-certificate-standard-sample.pdf
           test -s cipmn-certificate-long-content-sample.pdf
 
@@ -92,8 +92,8 @@ jobs:
               (service, 'certificate.verificationCode'),
               (renderer, 'CERTIFICATE OF COMPLETION'),
               (renderer, 'SCORE:'),
-              (renderer, 'DATE OF COMPLETION'),
-              (renderer, 'CERTIFICATE NUMBER'),
+              (renderer, 'Date of Completion'),
+              (renderer, 'Certificate Number'),
               (renderer, 'BANITO_SIGNATURE_DATA_URI'),
               (renderer, 'IIPM_CERTIFICATE_LOGO_DATA_URI'),
               (renderer, 'CIPMN_CERTIFICATE_LOGO_DATA_URI'),
