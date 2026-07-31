@@ -21,16 +21,25 @@ jobs:
           portal='https://iipmnigeria.github.io/IIPM-Examination-Portal/'
           html="$(curl --fail --silent --show-error --location --retry 3 --retry-delay 2 "${portal}?card-actions-verify=${GITHUB_RUN_ID}" || true)"
           echo "HTML bytes: ${#html}"
-          asset="$(printf '%s' "$html" | grep -oE '/IIPM-Examination-Portal/assets/index-[^"[:space:]]+\.js' | head -n 1 || true)"
-          echo "Live asset: ${asset:-none}"
+          script_src="$(printf '%s' "$html" | grep -oE '<script[^>]+src="[^"]+"' | tail -n 1 | sed -E 's/.*src="([^"]+)".*/\1/' || true)"
+          echo "Live script source: ${script_src:-none}"
 
-          if [[ -z "$asset" ]]; then
-            printf '%s' "$html" | head -c 500
+          if [[ -z "$script_src" ]]; then
+            printf '%s' "$html" | head -c 1000
             echo
             exit 1
           fi
 
-          bundle="$(curl --fail --silent --show-error --location --retry 3 --retry-delay 2 "https://iipmnigeria.github.io${asset}?card-actions-verify=${GITHUB_RUN_ID}" || true)"
+          if [[ "$script_src" == https://* ]]; then
+            asset_url="$script_src"
+          elif [[ "$script_src" == /* ]]; then
+            asset_url="https://iipmnigeria.github.io${script_src}"
+          else
+            asset_url="${portal}${script_src#./}"
+          fi
+
+          echo "Live asset URL: ${asset_url}"
+          bundle="$(curl --fail --silent --show-error --location --retry 3 --retry-delay 2 "${asset_url}?card-actions-verify=${GITHUB_RUN_ID}" || true)"
           echo "Bundle bytes: ${#bundle}"
           primary_marker=0
           payment_marker=0
