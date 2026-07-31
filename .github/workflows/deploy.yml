@@ -2,6 +2,7 @@
 # CIPMN secure import console republish: 2026-07-29
 # CIPMN Google Drive video player production release: 2026-07-30
 # Materials search, tags and centred player release: 2026-07-30
+# CIPMN Access My Materials email deep-link release: 2026-07-31
 name: Deploy to GitHub Pages
 
 on:
