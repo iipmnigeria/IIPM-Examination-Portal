@@ -39,12 +39,36 @@ jobs:
               const length = bytes.readUInt32BE(offset);
               const type = bytes.subarray(offset + 4, offset + 8).toString('ascii');
               const next = offset + 12 + length;
-              if (next > bytes.length) return { valid: false, chunks, offset, reason: `truncated ${type}` };
+              if (next > bytes.length) {
+                return {
+                  valid: false,
+                  chunks,
+                  offset,
+                  remaining: bytes.length - offset,
+                  nextLength: length,
+                  nextType: type,
+                  reason: `truncated ${type}`,
+                };
+              }
               chunks.push(type);
               offset = next;
-              if (type === 'IEND') return { valid: offset === bytes.length, chunks, offset, reason: offset === bytes.length ? 'complete' : 'trailing bytes' };
+              if (type === 'IEND') {
+                return {
+                  valid: offset === bytes.length,
+                  chunks,
+                  offset,
+                  remaining: bytes.length - offset,
+                  reason: offset === bytes.length ? 'complete' : 'trailing bytes',
+                };
+              }
             }
-            return { valid: false, chunks, offset, reason: 'missing IEND' };
+            return {
+              valid: false,
+              chunks,
+              offset,
+              remaining: bytes.length - offset,
+              reason: 'missing IEND',
+            };
           };
 
           let failed = false;
@@ -65,8 +89,9 @@ jobs:
             const supplied = payload.replace(/=+$/, '');
             const signatureValid = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
             const canonicalValid = canonical === supplied;
-            const structure = signatureValid ? parsePng(bytes) : { valid: false, chunks: [], offset: 0, reason: 'bad signature' };
-            console.log(`${label}: length=${payload.length}; mod4=${payload.length % 4}; invalid=${invalid.length}; bytes=${bytes.length}; signature=${signatureValid}; canonical=${canonicalValid}; structure=${structure.valid}; reason=${structure.reason}; tail=${bytes.subarray(-12).toString('hex')}`);
+            const structure = signatureValid ? parsePng(bytes) : { valid: false, chunks: [], offset: 0, remaining: bytes.length, reason: 'bad signature' };
+            const lastChunks = structure.chunks.slice(-6).join(',');
+            console.log(`${label}: length=${payload.length}; mod4=${payload.length % 4}; invalid=${invalid.length}; bytes=${bytes.length}; signature=${signatureValid}; canonical=${canonicalValid}; structure=${structure.valid}; reason=${structure.reason}; offset=${structure.offset}; remaining=${structure.remaining}; chunks=${lastChunks}; nextType=${structure.nextType || ''}; nextLength=${structure.nextLength ?? ''}; tail=${bytes.subarray(-24).toString('hex')}`);
 
             if (label === 'CIPMN logo' && signatureValid && structure.valid) {
               fs.mkdirSync('png-diagnostic', { recursive: true });
