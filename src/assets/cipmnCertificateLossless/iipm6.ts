@@ -1,1 +1,0 @@
-export const IIPM_PNG_CHUNK_6 = 'jXV9I6hn2HdoM9EPa/MhLDAYOYva+iTtiHHV3m5MCPf1HWL4...';
