@@ -7,6 +7,7 @@
 # Locked CIPMN payment and cart controls release: 2026-07-31
 # Final visible CIPMN cart and payment actions release: 2026-07-31
 # Approved IIPM and CIPMN certificate template release: 2026-07-31
+# Approved CIPMN sample-layout correction release: 2026-07-31
 name: Deploy to GitHub Pages
 
 on:
