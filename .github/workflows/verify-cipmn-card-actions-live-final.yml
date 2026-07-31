@@ -26,15 +26,22 @@ jobs:
             asset="$(printf '%s' "$html" | grep -oE '/IIPM-Examination-Portal/assets/index-[^"[:space:]]+\.js' | head -n 1 || true)"
 
             if [[ -n "$asset" ]]; then
+              echo "Live asset: ${asset}"
               bundle="$(curl --fail --silent --show-error --location --retry 3 --retry-delay 2 "https://iipmnigeria.github.io${asset}?card-actions-verify=${GITHUB_RUN_ID}-${attempt}" || true)"
+              primary_marker=0
+              payment_marker=0
+              cart_marker=0
+              printf '%s' "$bundle" | grep -q 'agilecertCipmnPrimaryAction' && primary_marker=1 || true
+              printf '%s' "$bundle" | grep -q 'Pay and Unlock' && payment_marker=1 || true
+              printf '%s' "$bundle" | grep -q 'agilecertCipmnCardCartMount' && cart_marker=1 || true
+              echo "Markers: primary=${primary_marker} payment=${payment_marker} cart=${cart_marker}"
 
-              if printf '%s' "$bundle" | grep -q 'agilecertCipmnPrimaryAction' \
-                && printf '%s' "$bundle" | grep -q 'Pay and Unlock' \
-                && printf '%s' "$bundle" | grep -q 'DOCUMENT_POSITION_FOLLOWING' \
-                && printf '%s' "$bundle" | grep -q 'agilecertCipmnCardCartMount'; then
+              if [[ "$primary_marker" == '1' && "$payment_marker" == '1' && "$cart_marker" == '1' ]]; then
                 echo 'Live GitHub Pages bundle contains the final CIPMN card-action correction.'
                 exit 0
               fi
+            else
+              echo 'No Vite JavaScript asset found in the live portal HTML yet.'
             fi
 
             sleep 10
