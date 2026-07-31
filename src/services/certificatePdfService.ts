@@ -5,6 +5,10 @@ import {
   type CertificateRenderPayload,
   type CertificateRenderTemplate,
 } from './certificateCompletionService';
+import {
+  isCipmnCertificate,
+  renderCipmnCompletionCertificate,
+} from './cipmnCertificateRenderer';
 
 const defaultTemplate: Omit<CertificateRenderTemplate, 'id' | 'programmeId'> = {
   productCode: 'achievement',
@@ -20,6 +24,10 @@ const defaultTemplate: Omit<CertificateRenderTemplate, 'id' | 'programmeId'> = {
   primaryColour: '#0f2a4a',
   accentColour: '#d97706',
   layoutConfig: {},
+};
+
+type CertificateWithExaminationCode = CertificateRenderPayload['certificate'] & {
+  examinationCode?: string | null;
 };
 
 const hexToRgb = (hex: string): [number, number, number] => {
@@ -44,25 +52,15 @@ const formatDate = (value: string): string => {
 const safeFilePart = (value: string): string =>
   value.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 80);
 
-export async function renderCertificatePdf(payload: CertificateRenderPayload): Promise<void> {
+const renderDefaultCertificate = (
+  doc: jsPDF,
+  payload: CertificateRenderPayload,
+  template: CertificateRenderTemplate,
+  qrDataUrl: string,
+): void => {
   const certificate = payload.certificate;
-  const template = payload.template || {
-    ...defaultTemplate,
-    id: 'default',
-    programmeId: 'default',
-  };
   const primary = hexToRgb(template.primaryColour);
   const accent = hexToRgb(template.accentColour);
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const qrDataUrl = await QRCode.toDataURL(payload.verificationUrl, {
-    errorCorrectionLevel: 'M',
-    margin: 1,
-    width: 360,
-    color: {
-      dark: template.primaryColour,
-      light: '#ffffff',
-    },
-  });
 
   doc.setFillColor(255, 254, 248);
   doc.rect(0, 0, 297, 210, 'F');
@@ -178,9 +176,47 @@ export async function renderCertificatePdf(payload: CertificateRenderPayload): P
     205,
     { align: 'center', maxWidth: 240 },
   );
+};
+
+export async function renderCertificatePdf(payload: CertificateRenderPayload): Promise<void> {
+  const certificate = payload.certificate as CertificateWithExaminationCode;
+  const template = payload.template || {
+    ...defaultTemplate,
+    id: 'default',
+    programmeId: 'default',
+  };
+  const cipmn = isCipmnCertificate(certificate.programmeCode);
+  const qrColour = cipmn ? '#08523d' : template.primaryColour;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const qrDataUrl = await QRCode.toDataURL(payload.verificationUrl, {
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    width: 360,
+    color: {
+      dark: qrColour,
+      light: '#ffffff',
+    },
+  });
+
+  if (cipmn) {
+    renderCipmnCompletionCertificate(doc, {
+      holderName: certificate.holderName,
+      examinationTitle: certificate.examinationTitle,
+      examinationCode: certificate.examinationCode,
+      programmeCode: certificate.programmeCode,
+      score: certificate.score,
+      completionDate: certificate.issueDate,
+      certificateNumber: certificate.certificateNumber,
+      verificationCode: certificate.verificationCode,
+      verificationUrl: payload.verificationUrl,
+    }, qrDataUrl);
+  } else {
+    renderDefaultCertificate(doc, payload, template, qrDataUrl);
+  }
 
   const safeName = safeFilePart(certificate.holderName) || 'Certificate';
-  doc.save(`IIPM_${safeName}_${certificate.verificationCode}.pdf`);
+  const prefix = cipmn ? 'IIPM_CIPMN' : 'IIPM';
+  doc.save(`${prefix}_${safeName}_${certificate.verificationCode}.pdf`);
 }
 
 export async function downloadCertificatePdf(certificateId: string): Promise<void> {
