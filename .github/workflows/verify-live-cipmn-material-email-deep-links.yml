@@ -1,0 +1,71 @@
+name: Verify Live CIPMN Material Email Deep Links
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/verify-live-cipmn-material-email-deep-links.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify public Pages bundle contains approved deep-link release
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+          test_url="${base}?view=materials&examinationId=2e5fea8b-a4de-5c61-9a43-e53e9d28403f"
+
+          for attempt in $(seq 1 30); do
+            rm -rf /tmp/cipmn-email-live
+            mkdir -p /tmp/cipmn-email-live/assets
+            curl --fail-with-body --silent --show-error \
+              -H 'Cache-Control: no-cache' \
+              "${test_url}&verify=${GITHUB_RUN_ID}-${attempt}" \
+              -o /tmp/cipmn-email-live/index.html
+
+            python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          html = Path('/tmp/cipmn-email-live/index.html').read_text(errors='ignore')
+          assets = sorted(set(re.findall(r'(?:src|href)=["\']([^"\']+\.(?:js|css))["\']', html)))
+          Path('/tmp/cipmn-email-live/assets.txt').write_text('\n'.join(assets) + ('\n' if assets else ''))
+          PY
+
+            while IFS= read -r asset; do
+              [[ -n "$asset" ]] || continue
+              if [[ "$asset" == http* ]]; then
+                url="$asset"
+              elif [[ "$asset" == /* ]]; then
+                url="https://iipmnigeria.github.io${asset}"
+              else
+                url="${base}${asset#./}"
+              fi
+              file="/tmp/cipmn-email-live/assets/$(basename "$asset")"
+              curl --fail-with-body --silent --show-error \
+                -H 'Cache-Control: no-cache' \
+                "${url}?verify=${GITHUB_RUN_ID}-${attempt}" \
+                -o "$file"
+            done < /tmp/cipmn-email-live/assets.txt
+
+            if grep -R -F -q 'Opened from your payment email' /tmp/cipmn-email-live/assets \
+              && grep -R -F -q 'View all materials' /tmp/cipmn-email-live/assets \
+              && grep -R -F -q 'examinationId' /tmp/cipmn-email-live/assets \
+              && grep -R -F -q 'materials-examination-' /tmp/cipmn-email-live/assets; then
+              echo 'Live CIPMN material email deep-link bundle verified.'
+              exit 0
+            fi
+
+            echo "Approved bundle not live yet; retry ${attempt}/30."
+            sleep 15
+          done
+
+          echo 'The approved material email deep-link bundle was not found.' >&2
+          exit 1
