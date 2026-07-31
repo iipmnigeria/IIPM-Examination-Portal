@@ -1,0 +1,2 @@
+Read-only production compatibility inspection for Finance Console Phase 1.
+Release investigation date: 2026-07-31
