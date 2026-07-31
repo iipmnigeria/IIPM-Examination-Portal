@@ -26,8 +26,16 @@ jobs:
           set -euo pipefail
           curl --fail --location --silent --show-error \
             --proto '=https' --tlsv1.2 \
+            --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0 Safari/537.36' \
+            --referer 'https://cipmn.org.ng/' \
+            --dump-header /tmp/cipmn-official.headers \
             --output /tmp/cipmn-official.png \
             'https://cipmn.org.ng/wp-content/uploads/2018/04/new-logo.png'
+
+          echo "Downloaded bytes: $(wc -c < /tmp/cipmn-official.png)"
+          grep -iE '^(HTTP/|content-type:|content-length:|location:)' /tmp/cipmn-official.headers | tail -n 8 || true
+          file /tmp/cipmn-official.png
+          xxd -l 16 -p /tmp/cipmn-official.png
 
           python <<'PY'
           import base64
@@ -39,7 +47,7 @@ jobs:
           source = pathlib.Path('/tmp/cipmn-official.png').read_bytes()
           signature = b'\x89PNG\r\n\x1a\n'
           if not source.startswith(signature):
-              raise SystemExit('Official CIPMN source is not a PNG.')
+              raise SystemExit(f'Official CIPMN source is not a PNG; prefix={source[:16].hex()}.')
 
           offset = 8
           chunks = []
