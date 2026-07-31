@@ -1,0 +1,195 @@
+name: Validate Finance Console Phase 1
+
+on:
+  push:
+    branches: [feature/finance-console-foundation]
+    paths:
+      - 'src/components/AdminFinanceConsole.tsx'
+      - 'src/components/AdminCommerceConsole.tsx'
+      - 'src/services/financeConsoleService.ts'
+      - 'supabase/migrations/202607310700_finance_console_pricing_permissions.sql'
+      - 'supabase/tests/finance_console_phase1_smoke.sql'
+      - '.github/workflows/validate-finance-console-phase1.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/components/AdminFinanceConsole.tsx'
+      - 'src/components/AdminCommerceConsole.tsx'
+      - 'src/services/financeConsoleService.ts'
+      - 'supabase/migrations/202607310700_finance_console_pricing_permissions.sql'
+      - 'supabase/tests/finance_console_phase1_smoke.sql'
+      - '.github/workflows/validate-finance-console-phase1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-console-phase1-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Validate Finance Console frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check Finance Console TypeScript
+        shell: bash
+        run: |
+          set -o pipefail
+          npx tsc --noEmit --pretty false 2>&1 | tee finance-console-typescript.log || true
+          grep 'error TS' finance-console-typescript.log > finance-console-typescript-errors.log || true
+          if grep -E 'src/(components/(AdminFinanceConsole|AdminCommerceConsole)|services/financeConsoleService)\.tsx?' finance-console-typescript-errors.log; then
+            echo 'The Finance Console contains TypeScript errors.' >&2
+            exit 1
+          fi
+      - name: Validate browser-safe TypeScript and build production portal
+        run: |
+          npm run lint
+          npm run build
+      - name: Verify compiled Finance Console controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q "export { default } from './AdminFinanceConsole'" src/components/AdminCommerceConsole.tsx
+          grep -q 'Open Finance Console' src/components/AdminFinanceConsole.tsx
+          grep -q 'Examination Fees' src/components/AdminFinanceConsole.tsx
+          grep -q 'Permissions' src/components/AdminFinanceConsole.tsx
+          grep -q 'get_finance_console_snapshot' src/services/financeConsoleService.ts
+          grep -q 'finance_upsert_exam_price' src/services/financeConsoleService.ts
+          ! grep -R -E 'sk_(live|test)_[A-Za-z0-9]+' src/components/AdminFinanceConsole.tsx src/services/financeConsoleService.ts
+      - name: Upload frontend evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-phase1-frontend
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            finance-console-typescript.log
+            finance-console-typescript-errors.log
+
+  database:
+    name: Reset schema and test Finance Console authority
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: Finance Console test identities are created by the smoke test.
+          commit;
+          SQL
+      - name: Start isolated Supabase services
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee finance-console-supabase-start.log
+      - name: Apply complete repository migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee finance-console-db-reset.log
+      - name: Exercise permissions, examination fees and immutable audit
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_console_phase1_smoke.sql \
+            2>&1 | tee finance-console-behaviour.log
+          grep -q 'finance_permission_definitions' finance-console-behaviour.log
+          grep -q 'exam_admin_finance_grants' finance-console-behaviour.log
+          grep -q 'fee_audit_events' finance-console-behaviour.log
+          grep -q 'current_candidate_console_access' finance-console-behaviour.log
+      - name: Verify protected schema and function authority
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -v ON_ERROR_STOP=1 <<'SQL' | tee finance-console-schema.log
+          select tablename, rowsecurity
+          from pg_tables
+          where schemaname = 'public'
+            and tablename in (
+              'agilecert_finance_permission_definitions',
+              'agilecert_finance_role_permissions',
+              'exam_prices',
+              'coupons'
+            )
+          order by tablename;
+
+          select proname, prosecdef, proconfig
+          from pg_proc
+          where proname in (
+            'agilecert_has_finance_permission',
+            'get_my_finance_console_access',
+            'get_finance_console_snapshot',
+            'admin_set_finance_role_permission',
+            'finance_upsert_exam_price',
+            'finance_set_exam_price_active'
+          )
+          order by proname;
+
+          select permission_key, risk_level
+          from public.agilecert_finance_permission_definitions
+          order by permission_key;
+          SQL
+          grep -q 'agilecert_finance_permission_definitions' finance-console-schema.log
+          grep -q 'finance_upsert_exam_price' finance-console-schema.log
+          grep -q 'finance.permissions.manage' finance-console-schema.log
+      - name: Upload database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-phase1-database
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            finance-console-supabase-start.log
+            finance-console-db-reset.log
+            finance-console-behaviour.log
+            finance-console-schema.log
+      - name: Stop isolated Supabase services
+        if: always()
+        run: supabase stop --no-backup || true
+
+  scope:
+    name: Confirm Phase 1 scope boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Confirm payment and examination runtimes are untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin supabase-integration --depth=1
+          git diff --name-only origin/supabase-integration...HEAD | tee finance-console-changed-files.log
+          if grep -E '^(supabase/functions/(initialize|verify|paystack)|src/components/(CandidateCipmnModuleCart|PaymentReturnHandler|ExamExperience)|src/services/(cartCommerceService|commerceService)\.ts)' finance-console-changed-files.log; then
+            echo 'Phase 1 unexpectedly changed payment, cart or examination runtime files.' >&2
+            exit 1
+          fi
+          grep -q '202607310700_finance_console_pricing_permissions.sql' finance-console-changed-files.log
+          grep -q 'AdminFinanceConsole.tsx' finance-console-changed-files.log
