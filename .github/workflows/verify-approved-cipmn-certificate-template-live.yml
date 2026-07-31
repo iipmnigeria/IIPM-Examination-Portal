@@ -15,7 +15,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
       GITHUB_ACTIONS_TOKEN: ${{ github.token }}
     steps:
@@ -24,98 +24,117 @@ jobs:
         run: |
           set -euo pipefail
           endpoint="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-approved-cipmn-certificate-pages-exact.yml/runs?branch=main&event=push&per_page=1"
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GITHUB_ACTIONS_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "$endpoint" -o exact-pages-runs.json
 
-          for attempt in $(seq 1 30); do
-            curl --fail --silent --show-error --location \
-              -H "Authorization: Bearer ${GITHUB_ACTIONS_TOKEN}" \
-              -H 'Accept: application/vnd.github+json' \
-              "$endpoint" -o /tmp/exact-pages-runs.json
-
-            python3 <<'PY' > /tmp/exact-pages-state.txt
+          python3 <<'PY'
           import json
           from pathlib import Path
-          data = json.loads(Path('/tmp/exact-pages-runs.json').read_text())
+          data = json.loads(Path('exact-pages-runs.json').read_text())
           runs = data.get('workflow_runs') or []
-          if not runs:
-              print('missing|')
-          else:
-              run = runs[0]
-              print(f"{run.get('status') or ''}|{run.get('conclusion') or ''}|{run.get('id') or ''}")
+          assert runs, data
+          run = runs[0]
+          evidence = {
+              'runId': run.get('id'),
+              'status': run.get('status'),
+              'conclusion': run.get('conclusion'),
+              'headSha': run.get('head_sha'),
+          }
+          Path('exact-pages-deployment-verification.json').write_text(
+              json.dumps(evidence, indent=2), encoding='utf-8'
+          )
+          assert evidence['status'] == 'completed', evidence
+          assert evidence['conclusion'] == 'success', evidence
+          print(json.dumps(evidence, indent=2))
           PY
-            IFS='|' read -r status conclusion run_id < /tmp/exact-pages-state.txt
-            echo "Exact Pages deployment run ${run_id:-missing}: status=${status:-missing}, conclusion=${conclusion:-pending}"
 
-            if [ "$status" = 'completed' ] && [ "$conclusion" = 'success' ]; then
-              printf '{"exactPagesDeploymentRunId":%s,"conclusion":"success"}\n' "$run_id" \
-                > exact-pages-deployment-verification.json
-              break
-            fi
-            if [ "$status" = 'completed' ] && [ "$conclusion" != 'success' ]; then
-              echo "Exact Pages deployment failed with conclusion: $conclusion" >&2
-              exit 1
-            fi
-            sleep 10
-          done
-
-          test -s exact-pages-deployment-verification.json
-
-      - name: Verify public bundle contains approved certificate release
+      - name: Capture public bundle and marker evidence
         shell: bash
         run: |
           set -euo pipefail
           base='https://iipmnigeria.github.io/IIPM-Examination-Portal/'
-          rm -rf /tmp/cipmn-live && mkdir -p /tmp/cipmn-live
+          rm -rf live-public-bundle && mkdir -p live-public-bundle
 
-          for attempt in $(seq 1 30); do
-            rm -rf /tmp/cipmn-live/*
-            if curl --fail --silent --show-error --location \
-              -H 'Cache-Control: no-cache' "${base}?certificateRelease=${GITHUB_SHA}-${attempt}" \
-              -o /tmp/cipmn-live/index.html; then
-              python3 <<'PY'
+          for attempt in $(seq 1 6); do
+            rm -rf live-public-bundle/*
+            curl --fail --silent --show-error --location \
+              -H 'Cache-Control: no-cache' \
+              "${base}?certificateRelease=${GITHUB_SHA}-${attempt}-$(date +%s)" \
+              -o live-public-bundle/index.html
+
+            python3 <<'PY'
           import re
           from pathlib import Path
-          html = Path('/tmp/cipmn-live/index.html').read_text(encoding='utf-8')
+          html = Path('live-public-bundle/index.html').read_text(encoding='utf-8')
           assets = sorted(set(re.findall(r'(?:src|href)=["\']([^"\']+\.(?:js|css))["\']', html)))
-          Path('/tmp/cipmn-live/assets.txt').write_text('\n'.join(assets), encoding='utf-8')
+          Path('live-public-bundle/assets.txt').write_text('\n'.join(assets), encoding='utf-8')
           PY
-              while IFS= read -r asset; do
-                [ -n "$asset" ] || continue
-                case "$asset" in
-                  http*) url="$asset" ;;
-                  /*) url="https://iipmnigeria.github.io${asset}" ;;
-                  *) url="${base}${asset#./}" ;;
-                esac
-                file="/tmp/cipmn-live/$(basename "${asset%%\?*}")"
-                curl --fail --silent --show-error --location \
-                  -H 'Cache-Control: no-cache' "${url}?certificateRelease=${GITHUB_SHA}-${attempt}" \
-                  -o "$file" || true
-              done < /tmp/cipmn-live/assets.txt
 
-              cat /tmp/cipmn-live/*.js > /tmp/cipmn-live/all.js 2>/dev/null || true
-              if grep -q 'CERTIFICATE OF COMPLETION' /tmp/cipmn-live/all.js \
-                && grep -q 'IIPM_CIPMN' /tmp/cipmn-live/all.js \
-                && grep -q 'SCAN TO VERIFY' /tmp/cipmn-live/all.js \
-                && grep -q 'Programme Coordinator / Executive Director, IIPM' /tmp/cipmn-live/all.js \
-                && grep -q 'Delivered through IIPM in collaboration with CIPMN' /tmp/cipmn-live/all.js; then
-                sha256sum /tmp/cipmn-live/*.js | sort > live-approved-cipmn-certificate-bundle.sha256
-                printf '{"approvedCipmnCertificateLive":true,"attempt":%s}\n' "$attempt" \
-                  > live-approved-cipmn-certificate-verification.json
-                exit 0
-              fi
+            while IFS= read -r asset; do
+              [ -n "$asset" ] || continue
+              case "$asset" in
+                http*) url="$asset" ;;
+                /*) url="https://iipmnigeria.github.io${asset}" ;;
+                *) url="${base}${asset#./}" ;;
+              esac
+              file="live-public-bundle/$(basename "${asset%%\?*}")"
+              curl --fail --silent --show-error --location \
+                -H 'Cache-Control: no-cache' \
+                "${url}?certificateRelease=${GITHUB_SHA}-${attempt}-$(date +%s)" \
+                -o "$file" || true
+            done < live-public-bundle/assets.txt
+
+            cat live-public-bundle/*.js > live-public-bundle/all.js 2>/dev/null || true
+            python3 <<'PY'
+          import json
+          from pathlib import Path
+          bundle = Path('live-public-bundle/all.js').read_text(encoding='utf-8', errors='ignore') if Path('live-public-bundle/all.js').exists() else ''
+          markers = [
+              'CERTIFICATE OF COMPLETION',
+              'IIPM_CIPMN',
+              'SCAN TO VERIFY',
+              'Programme Coordinator / Executive Director, IIPM',
+              'Delivered through IIPM in collaboration with CIPMN',
+          ]
+          result = {
+              'bundleBytes': len(bundle.encode('utf-8')),
+              'markers': {marker: marker in bundle for marker in markers},
+              'allMarkersPresent': all(marker in bundle for marker in markers),
+          }
+          Path('live-approved-cipmn-certificate-verification.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+            if python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path('live-approved-cipmn-certificate-verification.json').read_text())
+          raise SystemExit(0 if result.get('allMarkersPresent') else 1)
+          PY
+            then
+              sha256sum live-public-bundle/*.js | sort > live-approved-cipmn-certificate-bundle.sha256
+              exit 0
             fi
-            sleep 10
+            sleep 15
           done
 
-          echo 'The approved CIPMN certificate markers did not reach the public bundle in time.' >&2
+          echo 'The public bundle does not yet contain every approved certificate marker.' >&2
           exit 1
 
       - name: Upload read-only verification evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: live-approved-cipmn-certificate-verification
           retention-days: 30
-          if-no-files-found: error
+          if-no-files-found: warn
           path: |
             exact-pages-deployment-verification.json
             live-approved-cipmn-certificate-bundle.sha256
             live-approved-cipmn-certificate-verification.json
+            live-public-bundle/index.html
+            live-public-bundle/assets.txt
