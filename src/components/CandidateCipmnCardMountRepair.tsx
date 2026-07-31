@@ -10,7 +10,6 @@ type CommerceTest = Test & {
 
 const CARD_SELECTOR = '[id^="exam-card-"]';
 const CART_MOUNT_ATTRIBUTE = 'data-agilecert-cipmn-card-cart-mount';
-const PRIMARY_ACTION_ATTRIBUTE = 'data-agilecert-cipmn-primary-action';
 
 const normaliseButtonText = (button: HTMLButtonElement): string =>
   (button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -119,7 +118,12 @@ const ensureSafeCartMount = (
     (element) => element.dataset.agilecertCipmnCardCartMount === examinationId,
   );
 
-  let visibleMount = matchingMounts.find((mount) => mount.parentElement === actionArea);
+  let visibleMount = matchingMounts.find((mount) => {
+    if (mount.parentElement !== actionArea) return false;
+    return Boolean(
+      primaryButton.compareDocumentPosition(mount) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
 
   if (!visibleMount) {
     visibleMount = document.createElement('div');
@@ -149,10 +153,11 @@ const ensureSafeCartMount = (
   matchingMounts.forEach((mount) => {
     if (mount === visibleMount) return;
 
+    // A mount created before the primary action would make the cart button the
+    // first button in DOM order. Remove that detached portal host instead of
+    // moving it; CandidateCipmnModuleCart will switch to the new safe host.
     removeAccidentalActionLayout(mount.parentElement);
-    mount.dataset.agilecertCipmnCardCartMount = `stale-${examinationId}`;
-    mount.style.display = 'none';
-    mount.setAttribute('aria-hidden', 'true');
+    mount.remove();
   });
 };
 
