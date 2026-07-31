@@ -1,0 +1,130 @@
+name: Validate Approved CIPMN Certificate Template
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - 'src/services/certificatePdfService.ts'
+      - 'src/services/cipmnCertificateRenderer.ts'
+      - 'src/assets/cipmnCertificate*.ts'
+      - 'scripts/render-cipmn-certificate-sample.ts'
+      - 'supabase/migrations/202607310600_cipmn_approved_certificate_template.sql'
+      - '.github/workflows/validate-cipmn-approved-certificate-template.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Type-check certificate implementation
+        run: >-
+          npx tsc --noEmit --skipLibCheck --target ES2022
+          --module ESNext --moduleResolution Bundler
+          --allowSyntheticDefaultImports --esModuleInterop
+          src/vite-env.d.ts
+          src/services/certificateCompletionService.ts
+          src/services/certificatePdfService.ts
+          src/services/cipmnCertificateRenderer.ts
+          src/assets/cipmnCertificateIipmLogo.ts
+          src/assets/cipmnCertificateCipmnLogo.ts
+          src/assets/cipmnCertificateBanitoSignature.ts
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Render dynamic certificate samples
+        run: |
+          npx esbuild scripts/render-cipmn-certificate-sample.ts \
+            --bundle --platform=node --format=esm \
+            --outfile=/tmp/render-cipmn-certificate-sample.mjs
+          node /tmp/render-cipmn-certificate-sample.mjs
+          test -s cipmn-certificate-standard-sample.pdf
+          test -s cipmn-certificate-long-content-sample.pdf
+
+      - name: Render certificate pages for visual evidence
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          pdfinfo cipmn-certificate-standard-sample.pdf | tee cipmn-certificate-standard-info.txt
+          pdfinfo cipmn-certificate-long-content-sample.pdf | tee cipmn-certificate-long-info.txt
+          pdftoppm -png -f 1 -singlefile -r 144 \
+            cipmn-certificate-standard-sample.pdf cipmn-certificate-standard-sample
+          pdftoppm -png -f 1 -singlefile -r 144 \
+            cipmn-certificate-long-content-sample.pdf cipmn-certificate-long-content-sample
+          test -s cipmn-certificate-standard-sample.png
+          test -s cipmn-certificate-long-content-sample.png
+          grep -q 'Page size:.*A4' cipmn-certificate-standard-info.txt
+          grep -q 'Pages:.*1' cipmn-certificate-standard-info.txt
+          grep -q 'Pages:.*1' cipmn-certificate-long-info.txt
+
+      - name: Validate dynamic, security and scope controls
+        shell: python
+        run: |
+          from pathlib import Path
+
+          service = Path('src/services/certificatePdfService.ts').read_text(encoding='utf-8')
+          renderer = Path('src/services/cipmnCertificateRenderer.ts').read_text(encoding='utf-8')
+          migration = Path('supabase/migrations/202607310600_cipmn_approved_certificate_template.sql').read_text(encoding='utf-8')
+
+          required = [
+              (service, 'isCipmnCertificate'),
+              (service, 'renderCipmnCompletionCertificate'),
+              (service, 'renderDefaultCertificate'),
+              (service, 'certificate.holderName'),
+              (service, 'certificate.score'),
+              (service, 'certificate.issueDate'),
+              (service, 'certificate.certificateNumber'),
+              (service, 'certificate.verificationCode'),
+              (renderer, 'CERTIFICATE OF COMPLETION'),
+              (renderer, 'SCORE:'),
+              (renderer, 'DATE OF COMPLETION'),
+              (renderer, 'CERTIFICATE NUMBER'),
+              (renderer, 'BANITO_SIGNATURE_DATA_URI'),
+              (renderer, 'IIPM_CERTIFICATE_LOGO_DATA_URI'),
+              (renderer, 'CIPMN_CERTIFICATE_LOGO_DATA_URI'),
+              (renderer, 'SCAN TO VERIFY'),
+              (migration, "upper(p.code) like 'CIPMN%'"),
+              (migration, "'variant', 'cipmn-completion-v1'"),
+              (migration, "'certificateIdentityChanged', false"),
+              (migration, "'examinationCode', v_examination_code"),
+          ]
+          missing = [marker for text, marker in required if marker not in text]
+          assert not missing, missing
+          assert renderer.count('BANITO_SIGNATURE_DATA_URI') == 2
+          assert 'SAMPLE / NOT VALID' not in renderer
+          assert 'SAMPLE - NOT VALID' not in renderer
+          assert migration.rstrip().endswith('commit;')
+          assert 'certificate_number =' not in migration.lower()
+          assert 'verification_code =' not in migration.lower()
+          assert 'revision_number =' not in migration.lower()
+          assert "where upper(p.code) like 'CIPMN%'" in migration
+          print('Validated dynamic CIPMN-only template, identity preservation and non-CIPMN fallback.')
+
+      - name: Upload certificate review evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: approved-cipmn-certificate-template-samples
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            cipmn-certificate-standard-sample.pdf
+            cipmn-certificate-long-content-sample.pdf
+            cipmn-certificate-standard-sample.png
+            cipmn-certificate-long-content-sample.png
+            cipmn-certificate-standard-info.txt
+            cipmn-certificate-long-info.txt
