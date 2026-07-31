@@ -158,14 +158,16 @@ begin
 
   select * into v_product
   from public.agilecert_certificate_products
-  where code = v_product_code
-    and active = true;
+  where code = v_product_code and active = true;
 
   if not found then
     raise exception 'The selected certificate product is unavailable.';
   end if;
 
-  if not public.agilecert_certificate_product_applies(v_product_code, v_eligibility.examination_id) then
+  if not public.agilecert_certificate_product_applies(
+    v_product_code,
+    v_eligibility.examination_id
+  ) then
     raise exception 'The selected certification product is not available for this programme or examination.';
   end if;
 
@@ -310,9 +312,12 @@ begin
     raise exception 'Included or free certification amounts cannot be negative.';
   end if;
 
-  select coalesce(array_agg(distinct upper(trim(code))) filter (
-    where upper(trim(code)) ~ '^[A-Z]{2}$'
-  ), '{}'::text[])
+  select coalesce(
+    array_agg(distinct upper(trim(code))) filter (
+      where upper(trim(code)) ~ '^[A-Z]{2}$'
+    ),
+    '{}'::text[]
+  )
   into v_country_codes
   from unnest(coalesce(p_country_codes, '{}'::text[])) code;
 
@@ -322,27 +327,13 @@ begin
     and price.currency = v_currency;
 
   insert into public.agilecert_certificate_product_prices (
-    product_code,
-    currency,
-    early_amount_minor,
-    standard_amount_minor,
-    pricing_mode,
-    country_codes,
-    effective_from,
-    effective_to,
-    active,
-    updated_by
+    product_code, currency, early_amount_minor, standard_amount_minor,
+    pricing_mode, country_codes, effective_from, effective_to,
+    active, updated_by
   ) values (
-    v_product_code,
-    v_currency,
-    p_early_amount_minor,
-    p_standard_amount_minor,
-    v_mode,
-    v_country_codes,
-    coalesce(p_effective_from, now()),
-    p_effective_to,
-    coalesce(p_is_active, true),
-    v_actor
+    v_product_code, v_currency, p_early_amount_minor, p_standard_amount_minor,
+    v_mode, v_country_codes, coalesce(p_effective_from, now()), p_effective_to,
+    coalesce(p_is_active, true), v_actor
   )
   on conflict (product_code, currency) do update set
     early_amount_minor = excluded.early_amount_minor,
@@ -424,6 +415,8 @@ declare
   v_product_code text := lower(trim(coalesce(p_product_code, '')));
   v_scope_type text := lower(trim(coalesce(p_scope_type, 'all')));
   v_reason text := trim(coalesce(p_change_reason, ''));
+  v_programme_id uuid := case when v_scope_type = 'programme' then p_programme_id else null end;
+  v_examination_id uuid := case when v_scope_type = 'examination' then p_examination_id else null end;
   v_scope public.agilecert_certificate_product_scopes%rowtype;
   v_before jsonb;
 begin
@@ -453,34 +446,12 @@ begin
     select to_jsonb(scope) into v_before
     from public.agilecert_certificate_product_scopes scope
     where scope.id = p_scope_id;
-  end if;
 
-  if p_scope_id is null then
-    insert into public.agilecert_certificate_product_scopes (
-      product_code, scope_type, programme_id, examination_id,
-      is_active, created_by, updated_by
-    ) values (
-      v_product_code, v_scope_type,
-      case when v_scope_type = 'programme' then p_programme_id else null end,
-      case when v_scope_type = 'examination' then p_examination_id else null end,
-      coalesce(p_is_active, true), v_actor, v_actor
-    )
-    on conflict (
-      product_code,
-      scope_type,
-      (coalesce(programme_id, '00000000-0000-0000-0000-000000000000'::uuid)),
-      (coalesce(examination_id, '00000000-0000-0000-0000-000000000000'::uuid))
-    ) do update set
-      is_active = excluded.is_active,
-      updated_by = v_actor,
-      updated_at = now()
-    returning * into v_scope;
-  else
     update public.agilecert_certificate_product_scopes
     set product_code = v_product_code,
         scope_type = v_scope_type,
-        programme_id = case when v_scope_type = 'programme' then p_programme_id else null end,
-        examination_id = case when v_scope_type = 'examination' then p_examination_id else null end,
+        programme_id = v_programme_id,
+        examination_id = v_examination_id,
         is_active = coalesce(p_is_active, true),
         updated_by = v_actor,
         updated_at = now()
@@ -489,6 +460,34 @@ begin
 
     if not found then
       raise exception 'The selected certification applicability rule was not found.';
+    end if;
+  else
+    select * into v_scope
+    from public.agilecert_certificate_product_scopes scope
+    where scope.product_code = v_product_code
+      and scope.scope_type = v_scope_type
+      and scope.programme_id is not distinct from v_programme_id
+      and scope.examination_id is not distinct from v_examination_id
+    limit 1
+    for update;
+
+    if found then
+      v_before := to_jsonb(v_scope);
+      update public.agilecert_certificate_product_scopes
+      set is_active = coalesce(p_is_active, true),
+          updated_by = v_actor,
+          updated_at = now()
+      where id = v_scope.id
+      returning * into v_scope;
+    else
+      insert into public.agilecert_certificate_product_scopes (
+        product_code, scope_type, programme_id, examination_id,
+        is_active, created_by, updated_by
+      ) values (
+        v_product_code, v_scope_type, v_programme_id, v_examination_id,
+        coalesce(p_is_active, true), v_actor, v_actor
+      )
+      returning * into v_scope;
     end if;
   end if;
 
@@ -577,219 +576,21 @@ begin
 end;
 $$;
 
-create or replace function public.get_my_agilecert_certificate_commerce()
-returns jsonb
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_candidate_id uuid := auth.uid();
-  v_currency text;
-  v_country_code text;
-  v_offers jsonb;
-  v_orders jsonb;
-  v_credentials jsonb;
-begin
-  if v_candidate_id is null or not exists (
-    select 1
-    from public.profiles profile
-    where profile.id = v_candidate_id
-      and profile.role = 'candidate'
-      and profile.is_active = true
-  ) then
-    raise exception 'An active candidate account is required.';
-  end if;
+-- Preserve the established Paystack order implementation as an internal
+-- compatibility bridge. The public function name is reintroduced below as a
+-- Phase 1B gate that validates market, effective dates and applicability first.
+alter function public.get_my_agilecert_certificate_commerce()
+  rename to get_my_agilecert_certificate_commerce_phase1b_legacy;
+alter function public.create_agilecert_certificate_order(uuid, text, text)
+  rename to create_agilecert_certificate_order_phase1b_legacy;
+alter function public.create_agilecert_professional_certificate_order(uuid, text)
+  rename to create_agilecert_professional_certificate_order_phase1b_legacy;
 
-  select upper(coalesce(profile.country_code, ''))
-  into v_country_code
-  from public.agilecert_candidate_profiles profile
-  where profile.user_id = v_candidate_id;
-
-  v_currency := coalesce(
-    public.agilecert_certificate_market_currency(v_candidate_id),
-    'USD'
-  );
-
-  select coalesce(jsonb_agg(payload order by passed_at desc, product_code), '[]'::jsonb)
-  into v_offers
-  from (
-    select
-      coalesce(attempt.submitted_at, attempt.graded_at, eligibility.evaluated_at) as passed_at,
-      product.code as product_code,
-      jsonb_build_object(
-        'eligibilityId', eligibility.id,
-        'attemptId', eligibility.attempt_id,
-        'examinationId', eligibility.examination_id,
-        'examinationTitle', examination.title,
-        'programmeCode', programme.code,
-        'score', eligibility.score,
-        'passMark', eligibility.pass_mark,
-        'integrityStatus', eligibility.integrity_status,
-        'eligibilityStatus', eligibility.eligibility_status,
-        'passedAt', coalesce(attempt.submitted_at, attempt.graded_at, eligibility.evaluated_at),
-        'earlyPriceExpiresAt', coalesce(attempt.submitted_at, attempt.graded_at, eligibility.evaluated_at) + interval '7 days',
-        'productCode', product.code,
-        'productTitle', product.title,
-        'productDescription', product.description,
-        'currency', price.currency,
-        'countryCodes', price.country_codes,
-        'pricingMode', price.pricing_mode,
-        'earlyAmountMinor', price.early_amount_minor,
-        'standardAmountMinor', price.standard_amount_minor,
-        'payableAmountMinor', case
-          when price.pricing_mode <> 'separate_payment' then 0
-          when now() <= coalesce(attempt.submitted_at, attempt.graded_at, eligibility.evaluated_at) + interval '7 days'
-            then price.early_amount_minor
-          else price.standard_amount_minor
-        end,
-        'paymentRequired', price.pricing_mode = 'separate_payment',
-        'pricingWindow', case
-          when price.pricing_mode <> 'separate_payment' then 'waived'
-          when now() <= coalesce(attempt.submitted_at, attempt.graded_at, eligibility.evaluated_at) + interval '7 days'
-            then 'early'
-          else 'standard'
-        end,
-        'checkoutAvailable', not product.requires_identity_verification,
-        'blockedReason', case
-          when product.requires_identity_verification then 'identity_verification_required'
-          else null
-        end,
-        'requiresIdentityVerification', product.requires_identity_verification,
-        'includesBadge', product.includes_badge,
-        'includesTranscript', product.includes_transcript,
-        'effectiveFrom', price.effective_from,
-        'effectiveTo', price.effective_to,
-        'benefits', case product.code
-          when 'achievement' then jsonb_build_array(
-            'Digital PDF certificate',
-            'Unique credential number',
-            'Public verification',
-            'Achievement digital badge'
-          )
-          else jsonb_build_array(
-            'Professional certificate',
-            'Enhanced digital badge',
-            'Formal examination transcript',
-            'Public professional credential profile',
-            'LinkedIn-ready credential information'
-          )
-        end
-      ) as payload
-    from public.agilecert_certificate_eligibility_records eligibility
-    join public.attempts attempt on attempt.id = eligibility.attempt_id
-    join public.examinations examination on examination.id = eligibility.examination_id
-    join public.programmes programme on programme.id = examination.programme_id
-    cross join public.agilecert_certificate_products product
-    join public.agilecert_certificate_product_prices price
-      on price.product_code = product.code
-     and price.currency = v_currency
-     and price.active = true
-     and price.effective_from <= now()
-     and (price.effective_to is null or price.effective_to > now())
-     and (
-       cardinality(price.country_codes) = 0
-       or v_country_code = any(price.country_codes)
-     )
-    left join public.agilecert_issued_certificates certificate
-      on certificate.eligibility_id = eligibility.id
-    where eligibility.candidate_id = v_candidate_id
-      and eligibility.integrity_status = 'cleared'
-      and eligibility.eligibility_status in ('eligible', 'requested')
-      and product.active = true
-      and public.agilecert_certificate_product_applies(product.code, eligibility.examination_id)
-      and certificate.id is null
-  ) available;
-
-  select coalesce(jsonb_agg(jsonb_build_object(
-    'orderId', orders.id,
-    'reference', orders.reference,
-    'eligibilityId', orders.eligibility_id,
-    'productCode', orders.product_code,
-    'productTitle', product.title,
-    'currency', orders.currency,
-    'pricingWindow', orders.pricing_window,
-    'pricingMode', orders.metadata ->> 'pricingMode',
-    'listAmountMinor', orders.list_amount_minor,
-    'discountAmountMinor', orders.discount_amount_minor,
-    'payableAmountMinor', orders.payable_amount_minor,
-    'status', orders.status,
-    'paymentProvider', orders.payment_provider,
-    'expiresAt', orders.expires_at,
-    'paidAt', orders.paid_at,
-    'fulfilledAt', orders.fulfilled_at,
-    'createdAt', orders.created_at
-  ) order by orders.created_at desc), '[]'::jsonb)
-  into v_orders
-  from public.agilecert_certificate_orders orders
-  join public.agilecert_certificate_products product on product.code = orders.product_code
-  where orders.candidate_id = v_candidate_id;
-
-  select coalesce(jsonb_agg(jsonb_build_object(
-    'id', credential.id,
-    'orderId', credential.order_id,
-    'certificateId', credential.certificate_id,
-    'productCode', credential.product_code,
-    'productTitle', product.title,
-    'credentialCode', credential.credential_code,
-    'badgeCode', credential.badge_code,
-    'transcriptCode', credential.transcript_code,
-    'verificationUrl', credential.verification_url,
-    'linkedinCredentialName', credential.linkedin_credential_name,
-    'status', credential.status,
-    'issuedAt', credential.issued_at,
-    'certificate', jsonb_build_object(
-      'id', certificate.id,
-      'certificateNumber', certificate.certificate_number,
-      'verificationCode', certificate.verification_code,
-      'holderName', certificate.holder_name,
-      'certificateTitle', certificate.certificate_title,
-      'examinationTitle', certificate.examination_title,
-      'programmeCode', certificate.programme_code,
-      'score', certificate.score,
-      'passMark', certificate.pass_mark,
-      'issueDate', certificate.issue_date,
-      'issuedAt', certificate.issued_at,
-      'status', certificate.status
-    )
-  ) order by credential.issued_at desc), '[]'::jsonb)
-  into v_credentials
-  from public.agilecert_paid_credentials credential
-  join public.agilecert_certificate_products product
-    on product.code = credential.product_code
-  join public.agilecert_issued_certificates certificate
-    on certificate.id = credential.certificate_id
-  where credential.candidate_id = v_candidate_id;
-
-  return jsonb_build_object(
-    'marketCurrency', v_currency,
-    'offers', v_offers,
-    'orders', v_orders,
-    'credentials', v_credentials,
-    'counts', jsonb_build_object(
-      'offers', jsonb_array_length(v_offers),
-      'pendingOrders', (
-        select count(*)
-        from public.agilecert_certificate_orders
-        where candidate_id = v_candidate_id
-          and status in ('pending', 'initialized')
-      ),
-      'paidOrders', (
-        select count(*)
-        from public.agilecert_certificate_orders
-        where candidate_id = v_candidate_id
-          and status in ('paid', 'waived')
-      ),
-      'credentials', jsonb_array_length(v_credentials)
-    )
-  );
-end;
-$$;
-
-create or replace function public.create_agilecert_certificate_order(
+create or replace function public.agilecert_create_no_charge_certificate_order(
   p_eligibility_id uuid,
   p_product_code text,
-  p_currency text default null
+  p_currency text,
+  p_require_identity boolean default false
 )
 returns jsonb
 language plpgsql
@@ -802,6 +603,7 @@ declare
   v_eligibility public.agilecert_certificate_eligibility_records%rowtype;
   v_product public.agilecert_certificate_products%rowtype;
   v_profile public.agilecert_candidate_profiles%rowtype;
+  v_identity public.agilecert_identity_verifications%rowtype;
   v_existing_order public.agilecert_certificate_orders%rowtype;
   v_existing_certificate public.agilecert_issued_certificates%rowtype;
   v_order public.agilecert_certificate_orders%rowtype;
@@ -832,6 +634,11 @@ begin
   where id = p_eligibility_id and candidate_id = v_candidate_id
   for update;
 
+  if v_eligibility.eligibility_status not in ('eligible', 'requested')
+     or v_eligibility.integrity_status <> 'cleared' then
+    raise exception 'This examination result is not eligible for certification.';
+  end if;
+
   select * into v_existing_certificate
   from public.agilecert_issued_certificates
   where eligibility_id = v_eligibility.id;
@@ -846,11 +653,6 @@ begin
     );
   end if;
 
-  if v_eligibility.eligibility_status not in ('eligible', 'requested')
-     or v_eligibility.integrity_status <> 'cleared' then
-    raise exception 'This examination result is not eligible for certificate purchase.';
-  end if;
-
   select * into v_product
   from public.agilecert_certificate_products
   where code = v_product_code and active = true;
@@ -858,21 +660,41 @@ begin
   if not found then
     raise exception 'The selected certificate product is unavailable.';
   end if;
-  if v_product.requires_identity_verification then
-    raise exception 'Professional Certificate checkout requires approved identity assurance.';
-  end if;
 
   select * into v_profile
   from public.agilecert_candidate_profiles
   where user_id = v_candidate_id;
 
   if not found or nullif(trim(coalesce(v_profile.legal_name, '')), '') is null then
-    raise exception 'Complete your legal name and candidate profile before requesting a certificate.';
+    raise exception 'Complete your legal name and candidate profile before requesting certification.';
+  end if;
+
+  if coalesce(p_require_identity, false) then
+    select * into v_identity
+    from public.agilecert_identity_verifications
+    where candidate_id = v_candidate_id
+      and status = 'approved'
+      and (approval_expires_at is null or approval_expires_at > now())
+      and lower(trim(legal_name_snapshot)) = lower(trim(v_profile.legal_name))
+    order by reviewed_at desc
+    limit 1
+    for share;
+
+    if not found then
+      raise exception 'An approved IIPM identity-assurance record is required for Professional Certificate issuance.';
+    end if;
   end if;
 
   v_pricing := public.agilecert_resolve_certificate_pricing(
-    v_candidate_id, v_eligibility.id, v_product_code, p_currency
+    v_candidate_id,
+    v_eligibility.id,
+    v_product_code,
+    p_currency
   );
+
+  if (v_pricing ->> 'paymentRequired')::boolean then
+    raise exception 'The selected certification product requires payment.';
+  end if;
 
   select * into v_existing_order
   from public.agilecert_certificate_orders
@@ -883,46 +705,24 @@ begin
   limit 1
   for update;
 
-  if found then
-    if v_existing_order.status in ('paid', 'waived') then
-      return jsonb_build_object(
-        'orderId', v_existing_order.id,
-        'reference', v_existing_order.reference,
-        'eligibilityId', v_existing_order.eligibility_id,
-        'productCode', v_existing_order.product_code,
-        'currency', v_existing_order.currency,
-        'pricingWindow', v_existing_order.pricing_window,
-        'pricingMode', v_existing_order.metadata ->> 'pricingMode',
-        'listAmountMinor', v_existing_order.list_amount_minor,
-        'discountAmountMinor', v_existing_order.discount_amount_minor,
-        'payableAmountMinor', v_existing_order.payable_amount_minor,
-        'status', v_existing_order.status,
-        'paymentRequired', false,
-        'alreadyPaid', true,
-        'fulfilledAt', v_existing_order.fulfilled_at
-      );
-    end if;
-
-    if v_existing_order.expires_at is null or v_existing_order.expires_at > now() then
-      return jsonb_build_object(
-        'orderId', v_existing_order.id,
-        'reference', v_existing_order.reference,
-        'eligibilityId', v_existing_order.eligibility_id,
-        'productCode', v_existing_order.product_code,
-        'currency', v_existing_order.currency,
-        'pricingWindow', v_existing_order.pricing_window,
-        'pricingMode', v_existing_order.metadata ->> 'pricingMode',
-        'listAmountMinor', v_existing_order.list_amount_minor,
-        'discountAmountMinor', v_existing_order.discount_amount_minor,
-        'payableAmountMinor', v_existing_order.payable_amount_minor,
-        'status', v_existing_order.status,
-        'authorizationUrl', v_existing_order.gateway_authorization_url,
-        'accessCode', v_existing_order.gateway_access_code,
-        'expiresAt', v_existing_order.expires_at,
-        'paymentRequired', true
-      );
-    end if;
-
+  if found and v_existing_order.status in ('paid', 'waived') then
+    return jsonb_build_object(
+      'orderId', v_existing_order.id,
+      'reference', v_existing_order.reference,
+      'eligibilityId', v_existing_order.eligibility_id,
+      'productCode', v_existing_order.product_code,
+      'currency', v_existing_order.currency,
+      'pricingWindow', v_existing_order.pricing_window,
+      'pricingMode', v_existing_order.metadata ->> 'pricingMode',
+      'listAmountMinor', v_existing_order.list_amount_minor,
+      'discountAmountMinor', v_existing_order.discount_amount_minor,
+      'payableAmountMinor', v_existing_order.payable_amount_minor,
+      'status', v_existing_order.status,
+      'paymentRequired', false,
+      'alreadyPaid', true,
+      'fulfilledAt', v_existing_order.fulfilled_at
+    );
+  elsif found then
     update public.agilecert_certificate_orders
     set status = 'expired',
         gateway_authorization_url = null,
@@ -932,8 +732,8 @@ begin
   end if;
 
   v_reference := case
-    when v_pricing ->> 'paymentRequired' = 'true'
-      then 'AGC-CERT-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20))
+    when v_product_code = 'professional'
+      then 'AGC-PRO-NC-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 16))
     else 'AGC-NOCHARGE-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 16))
   end;
 
@@ -948,22 +748,21 @@ begin
     v_eligibility.id,
     v_product_code,
     v_pricing ->> 'currency',
-    v_pricing ->> 'pricingWindow',
+    'waived',
     (v_pricing ->> 'listAmountMinor')::bigint,
     (v_pricing ->> 'discountAmountMinor')::bigint,
-    (v_pricing ->> 'payableAmountMinor')::bigint,
-    case when v_pricing ->> 'paymentRequired' = 'true' then 'pending' else 'waived' end,
+    0,
+    'waived',
     case
       when v_pricing ->> 'pricingMode' = 'included' then 'included_with_examination'
-      when v_pricing ->> 'pricingMode' = 'free' then 'no_charge'
-      else 'paystack'
+      else 'no_charge'
     end,
-    case when v_pricing ->> 'paymentRequired' = 'true' then now() + interval '30 minutes' else null end,
-    case when v_pricing ->> 'paymentRequired' = 'true' then null else now() end,
+    null,
+    now(),
     case
-      when v_pricing ->> 'pricingMode' = 'included' then 'Certification included in the applicable examination arrangement.'
-      when v_pricing ->> 'pricingMode' = 'free' then 'Certification configured as free by authorised finance administration.'
-      else null
+      when v_pricing ->> 'pricingMode' = 'included'
+        then 'Certification included in the applicable examination arrangement.'
+      else 'Certification configured as free by authorised finance administration.'
     end,
     jsonb_build_object(
       'passedAt', v_pricing ->> 'passedAt',
@@ -972,7 +771,9 @@ begin
       'pricingMode', v_pricing ->> 'pricingMode',
       'countryCode', v_pricing ->> 'countryCode',
       'effectiveFrom', v_pricing ->> 'effectiveFrom',
-      'effectiveTo', v_pricing ->> 'effectiveTo'
+      'effectiveTo', v_pricing ->> 'effectiveTo',
+      'identityVerificationId', case when p_require_identity then v_identity.id else null end,
+      'identityVerifiedAt', case when p_require_identity then v_identity.reviewed_at else null end
     )
   ) returning * into v_order;
 
@@ -982,17 +783,28 @@ begin
     v_candidate_id,
     v_candidate_id,
     v_order.id,
-    case when v_order.status = 'waived' then 'no_charge_order_created' else 'order_created' end,
+    case
+      when v_product_code = 'professional' then 'professional_no_charge_order_created'
+      else 'no_charge_order_created'
+    end,
     jsonb_build_object(
       'productCode', v_product_code,
       'currency', v_order.currency,
       'pricingMode', v_pricing ->> 'pricingMode',
-      'pricingWindow', v_order.pricing_window,
-      'payableAmountMinor', v_order.payable_amount_minor
+      'payableAmountMinor', 0
     )
   );
 
-  if v_order.status = 'waived' then
+  if p_require_identity then
+    v_result := public.agilecert_issue_identity_verified_certificate_for_order(
+      v_order.id,
+      null,
+      case
+        when v_pricing ->> 'pricingMode' = 'included' then 'included_with_examination'
+        else 'configured_no_charge'
+      end
+    );
+  else
     v_result := public.agilecert_issue_certificate_for_order(
       v_order.id,
       null,
@@ -1001,40 +813,117 @@ begin
         else 'configured_no_charge'
       end
     );
-
-    return v_result || jsonb_build_object(
-      'orderId', v_order.id,
-      'reference', v_order.reference,
-      'eligibilityId', v_order.eligibility_id,
-      'productCode', v_order.product_code,
-      'productTitle', v_product.title,
-      'currency', v_order.currency,
-      'pricingWindow', v_order.pricing_window,
-      'pricingMode', v_pricing ->> 'pricingMode',
-      'listAmountMinor', v_order.list_amount_minor,
-      'discountAmountMinor', v_order.discount_amount_minor,
-      'payableAmountMinor', 0,
-      'status', 'waived',
-      'paymentRequired', false,
-      'autoIssued', true
-    );
   end if;
 
-  return jsonb_build_object(
+  return v_result || jsonb_build_object(
     'orderId', v_order.id,
     'reference', v_order.reference,
     'eligibilityId', v_order.eligibility_id,
     'productCode', v_order.product_code,
     'productTitle', v_product.title,
     'currency', v_order.currency,
-    'pricingWindow', v_order.pricing_window,
+    'pricingWindow', 'waived',
     'pricingMode', v_pricing ->> 'pricingMode',
     'listAmountMinor', v_order.list_amount_minor,
     'discountAmountMinor', v_order.discount_amount_minor,
-    'payableAmountMinor', v_order.payable_amount_minor,
-    'status', v_order.status,
-    'expiresAt', v_order.expires_at,
-    'paymentRequired', true
+    'payableAmountMinor', 0,
+    'status', 'waived',
+    'paymentRequired', false,
+    'autoIssued', true
+  );
+end;
+$$;
+
+create or replace function public.get_my_agilecert_certificate_commerce()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_candidate_id uuid := auth.uid();
+  v_payload jsonb;
+  v_offer jsonb;
+  v_pricing jsonb;
+  v_offers jsonb := '[]'::jsonb;
+  v_counts jsonb;
+begin
+  v_payload := public.get_my_agilecert_certificate_commerce_phase1b_legacy();
+
+  for v_offer in
+    select value from jsonb_array_elements(coalesce(v_payload -> 'offers', '[]'::jsonb))
+  loop
+    begin
+      v_pricing := public.agilecert_resolve_certificate_pricing(
+        v_candidate_id,
+        (v_offer ->> 'eligibilityId')::uuid,
+        v_offer ->> 'productCode',
+        v_offer ->> 'currency'
+      );
+
+      v_offer := v_offer || jsonb_build_object(
+        'countryCodes', v_pricing -> 'countryCodes',
+        'pricingMode', v_pricing ->> 'pricingMode',
+        'earlyAmountMinor', (v_pricing ->> 'earlyAmountMinor')::bigint,
+        'standardAmountMinor', (v_pricing ->> 'standardAmountMinor')::bigint,
+        'payableAmountMinor', (v_pricing ->> 'payableAmountMinor')::bigint,
+        'paymentRequired', (v_pricing ->> 'paymentRequired')::boolean,
+        'pricingWindow', v_pricing ->> 'pricingWindow',
+        'effectiveFrom', v_pricing ->> 'effectiveFrom',
+        'effectiveTo', v_pricing ->> 'effectiveTo'
+      );
+      v_offers := v_offers || jsonb_build_array(v_offer);
+    exception
+      when others then
+        null;
+    end;
+  end loop;
+
+  v_counts := coalesce(v_payload -> 'counts', '{}'::jsonb)
+    || jsonb_build_object('offers', jsonb_array_length(v_offers));
+
+  return jsonb_set(
+    jsonb_set(v_payload, '{offers}', v_offers, true),
+    '{counts}',
+    v_counts,
+    true
+  );
+end;
+$$;
+
+create or replace function public.create_agilecert_certificate_order(
+  p_eligibility_id uuid,
+  p_product_code text,
+  p_currency text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_pricing jsonb;
+begin
+  v_pricing := public.agilecert_resolve_certificate_pricing(
+    auth.uid(),
+    p_eligibility_id,
+    p_product_code,
+    p_currency
+  );
+
+  if (v_pricing ->> 'paymentRequired')::boolean then
+    return public.create_agilecert_certificate_order_phase1b_legacy(
+      p_eligibility_id,
+      p_product_code,
+      p_currency
+    );
+  end if;
+
+  return public.agilecert_create_no_charge_certificate_order(
+    p_eligibility_id,
+    p_product_code,
+    p_currency,
+    false
   );
 end;
 $$;
@@ -1049,258 +938,27 @@ security definer
 set search_path = public
 as $$
 declare
-  v_candidate_id uuid := auth.uid();
-  v_eligibility public.agilecert_certificate_eligibility_records%rowtype;
-  v_product public.agilecert_certificate_products%rowtype;
-  v_profile public.agilecert_candidate_profiles%rowtype;
-  v_identity public.agilecert_identity_verifications%rowtype;
-  v_existing_order public.agilecert_certificate_orders%rowtype;
-  v_existing_certificate public.agilecert_issued_certificates%rowtype;
-  v_order public.agilecert_certificate_orders%rowtype;
   v_pricing jsonb;
-  v_reference text;
-  v_result jsonb;
 begin
-  if v_candidate_id is null then
-    raise exception 'Authentication is required.';
-  end if;
-
-  select * into v_eligibility
-  from public.agilecert_certificate_eligibility_records
-  where id = p_eligibility_id and candidate_id = v_candidate_id
-  for update;
-
-  if not found then
-    raise exception 'The certificate eligibility record was not found.';
-  end if;
-
-  perform public.evaluate_agilecert_certificate_eligibility(v_eligibility.attempt_id);
-
-  select * into v_eligibility
-  from public.agilecert_certificate_eligibility_records
-  where id = p_eligibility_id and candidate_id = v_candidate_id
-  for update;
-
-  select * into v_existing_certificate
-  from public.agilecert_issued_certificates
-  where eligibility_id = v_eligibility.id;
-
-  if found then
-    return jsonb_build_object(
-      'status', 'already_issued',
-      'paymentRequired', false,
-      'certificateId', v_existing_certificate.id,
-      'certificateNumber', v_existing_certificate.certificate_number,
-      'verificationCode', v_existing_certificate.verification_code
-    );
-  end if;
-
-  if v_eligibility.eligibility_status not in ('eligible', 'requested')
-     or v_eligibility.integrity_status <> 'cleared' then
-    raise exception 'This examination result is not eligible for certificate purchase.';
-  end if;
-
-  select * into v_profile
-  from public.agilecert_candidate_profiles
-  where user_id = v_candidate_id;
-
-  if not found or nullif(trim(coalesce(v_profile.legal_name, '')), '') is null then
-    raise exception 'Complete your legal name and candidate profile before requesting a Professional Certificate.';
-  end if;
-
-  select * into v_identity
-  from public.agilecert_identity_verifications
-  where candidate_id = v_candidate_id
-    and status = 'approved'
-    and (approval_expires_at is null or approval_expires_at > now())
-    and lower(trim(legal_name_snapshot)) = lower(trim(v_profile.legal_name))
-  order by reviewed_at desc
-  limit 1
-  for share;
-
-  if not found then
-    raise exception 'An approved IIPM identity-assurance record is required for Professional Certificate checkout.';
-  end if;
-
-  select * into v_product
-  from public.agilecert_certificate_products
-  where code = 'professional' and active = true;
-
-  if not found then
-    raise exception 'The Professional Certificate product is unavailable.';
-  end if;
-
   v_pricing := public.agilecert_resolve_certificate_pricing(
-    v_candidate_id, v_eligibility.id, 'professional', p_currency
-  );
-
-  select * into v_existing_order
-  from public.agilecert_certificate_orders
-  where eligibility_id = v_eligibility.id
-    and product_code = 'professional'
-    and status in ('pending', 'initialized', 'paid', 'waived')
-  order by created_at desc
-  limit 1
-  for update;
-
-  if found then
-    if v_existing_order.status in ('paid', 'waived') then
-      return jsonb_build_object(
-        'orderId', v_existing_order.id,
-        'reference', v_existing_order.reference,
-        'eligibilityId', v_existing_order.eligibility_id,
-        'productCode', v_existing_order.product_code,
-        'currency', v_existing_order.currency,
-        'pricingWindow', v_existing_order.pricing_window,
-        'pricingMode', v_existing_order.metadata ->> 'pricingMode',
-        'listAmountMinor', v_existing_order.list_amount_minor,
-        'discountAmountMinor', v_existing_order.discount_amount_minor,
-        'payableAmountMinor', v_existing_order.payable_amount_minor,
-        'status', v_existing_order.status,
-        'paymentRequired', false,
-        'alreadyPaid', true,
-        'fulfilledAt', v_existing_order.fulfilled_at
-      );
-    end if;
-
-    if v_existing_order.expires_at is null or v_existing_order.expires_at > now() then
-      return jsonb_build_object(
-        'orderId', v_existing_order.id,
-        'reference', v_existing_order.reference,
-        'eligibilityId', v_existing_order.eligibility_id,
-        'productCode', v_existing_order.product_code,
-        'currency', v_existing_order.currency,
-        'pricingWindow', v_existing_order.pricing_window,
-        'pricingMode', v_existing_order.metadata ->> 'pricingMode',
-        'listAmountMinor', v_existing_order.list_amount_minor,
-        'discountAmountMinor', v_existing_order.discount_amount_minor,
-        'payableAmountMinor', v_existing_order.payable_amount_minor,
-        'status', v_existing_order.status,
-        'authorizationUrl', v_existing_order.gateway_authorization_url,
-        'accessCode', v_existing_order.gateway_access_code,
-        'expiresAt', v_existing_order.expires_at,
-        'paymentRequired', true
-      );
-    end if;
-
-    update public.agilecert_certificate_orders
-    set status = 'expired',
-        gateway_authorization_url = null,
-        gateway_access_code = null,
-        updated_at = now()
-    where id = v_existing_order.id;
-  end if;
-
-  v_reference := case
-    when v_pricing ->> 'paymentRequired' = 'true'
-      then 'AGC-PRO-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 21))
-    else 'AGC-PRO-NC-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 16))
-  end;
-
-  insert into public.agilecert_certificate_orders (
-    reference, candidate_id, eligibility_id, product_code, currency,
-    pricing_window, list_amount_minor, discount_amount_minor,
-    payable_amount_minor, status, payment_provider, expires_at,
-    waived_at, waiver_reason, metadata
-  ) values (
-    v_reference,
-    v_candidate_id,
-    v_eligibility.id,
+    auth.uid(),
+    p_eligibility_id,
     'professional',
-    v_pricing ->> 'currency',
-    v_pricing ->> 'pricingWindow',
-    (v_pricing ->> 'listAmountMinor')::bigint,
-    (v_pricing ->> 'discountAmountMinor')::bigint,
-    (v_pricing ->> 'payableAmountMinor')::bigint,
-    case when v_pricing ->> 'paymentRequired' = 'true' then 'pending' else 'waived' end,
-    case
-      when v_pricing ->> 'pricingMode' = 'included' then 'included_with_examination'
-      when v_pricing ->> 'pricingMode' = 'free' then 'no_charge'
-      else 'paystack'
-    end,
-    case when v_pricing ->> 'paymentRequired' = 'true' then now() + interval '30 minutes' else null end,
-    case when v_pricing ->> 'paymentRequired' = 'true' then null else now() end,
-    case
-      when v_pricing ->> 'pricingMode' = 'included' then 'Professional Certificate included in the applicable examination arrangement.'
-      when v_pricing ->> 'pricingMode' = 'free' then 'Professional Certificate configured as free by authorised finance administration.'
-      else null
-    end,
-    jsonb_build_object(
-      'passedAt', v_pricing ->> 'passedAt',
-      'earlyPriceExpiresAt', v_pricing ->> 'earlyPriceExpiresAt',
-      'createdFrom', 'candidate_checkout',
-      'pricingMode', v_pricing ->> 'pricingMode',
-      'countryCode', v_pricing ->> 'countryCode',
-      'effectiveFrom', v_pricing ->> 'effectiveFrom',
-      'effectiveTo', v_pricing ->> 'effectiveTo',
-      'identityVerificationId', v_identity.id,
-      'identityVerifiedAt', v_identity.reviewed_at,
-      'verificationMethod', 'manual_iipm_review',
-      'verifiedLegalName', v_identity.legal_name_snapshot
-    )
-  ) returning * into v_order;
-
-  insert into public.agilecert_certificate_commerce_audits (
-    actor_id, candidate_id, order_id, action, metadata
-  ) values (
-    v_candidate_id,
-    v_candidate_id,
-    v_order.id,
-    case when v_order.status = 'waived' then 'professional_no_charge_order_created' else 'professional_order_created' end,
-    jsonb_build_object(
-      'identityVerificationId', v_identity.id,
-      'currency', v_order.currency,
-      'pricingMode', v_pricing ->> 'pricingMode',
-      'pricingWindow', v_order.pricing_window,
-      'payableAmountMinor', v_order.payable_amount_minor
-    )
+    p_currency
   );
 
-  if v_order.status = 'waived' then
-    v_result := public.agilecert_issue_identity_verified_certificate_for_order(
-      v_order.id,
-      null,
-      case
-        when v_pricing ->> 'pricingMode' = 'included' then 'included_with_examination'
-        else 'configured_no_charge'
-      end
-    );
-
-    return v_result || jsonb_build_object(
-      'orderId', v_order.id,
-      'reference', v_order.reference,
-      'eligibilityId', v_order.eligibility_id,
-      'productCode', v_order.product_code,
-      'productTitle', v_product.title,
-      'currency', v_order.currency,
-      'pricingWindow', v_order.pricing_window,
-      'pricingMode', v_pricing ->> 'pricingMode',
-      'listAmountMinor', v_order.list_amount_minor,
-      'discountAmountMinor', v_order.discount_amount_minor,
-      'payableAmountMinor', 0,
-      'status', 'waived',
-      'paymentRequired', false,
-      'autoIssued', true,
-      'identityVerificationId', v_identity.id
+  if (v_pricing ->> 'paymentRequired')::boolean then
+    return public.create_agilecert_professional_certificate_order_phase1b_legacy(
+      p_eligibility_id,
+      p_currency
     );
   end if;
 
-  return jsonb_build_object(
-    'orderId', v_order.id,
-    'reference', v_order.reference,
-    'eligibilityId', v_order.eligibility_id,
-    'productCode', v_order.product_code,
-    'productTitle', v_product.title,
-    'currency', v_order.currency,
-    'pricingWindow', v_order.pricing_window,
-    'pricingMode', v_pricing ->> 'pricingMode',
-    'listAmountMinor', v_order.list_amount_minor,
-    'discountAmountMinor', v_order.discount_amount_minor,
-    'payableAmountMinor', v_order.payable_amount_minor,
-    'status', v_order.status,
-    'expiresAt', v_order.expires_at,
-    'identityVerificationId', v_identity.id,
-    'paymentRequired', true
+  return public.agilecert_create_no_charge_certificate_order(
+    p_eligibility_id,
+    'professional',
+    p_currency,
+    true
   );
 end;
 $$;
@@ -1514,6 +1172,14 @@ $$;
 revoke all on function public.agilecert_certificate_product_applies(text, uuid)
   from public, anon, authenticated;
 revoke all on function public.agilecert_resolve_certificate_pricing(uuid, uuid, text, text)
+  from public, anon, authenticated;
+revoke all on function public.agilecert_create_no_charge_certificate_order(uuid, text, text, boolean)
+  from public, anon, authenticated;
+revoke all on function public.get_my_agilecert_certificate_commerce_phase1b_legacy()
+  from public, anon, authenticated;
+revoke all on function public.create_agilecert_certificate_order_phase1b_legacy(uuid, text, text)
+  from public, anon, authenticated;
+revoke all on function public.create_agilecert_professional_certificate_order_phase1b_legacy(uuid, text)
   from public, anon, authenticated;
 
 revoke all on function public.finance_upsert_certificate_product_price_rule(
