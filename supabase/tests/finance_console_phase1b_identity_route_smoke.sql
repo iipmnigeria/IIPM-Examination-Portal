@@ -78,14 +78,16 @@ begin
     raise exception 'The approved candidate certificate-order functions are not executable by authenticated candidates.';
   end if;
 
+  -- A PUBLIC execute grant is inherited by both browser roles, so checking anon
+  -- and authenticated also proves that no PUBLIC grant exposes these helpers.
   foreach v_internal_function in array array[
     v_legacy_generic_oid,
     v_legacy_professional_oid,
     v_no_charge_oid
   ] loop
-    foreach v_role in array array['public'::name, 'anon'::name, 'authenticated'::name] loop
+    foreach v_role in array array['anon'::name, 'authenticated'::name] loop
       if has_function_privilege(v_role, v_internal_function, 'execute') then
-        raise exception 'Internal certificate function % is executable by role %.',
+        raise exception 'Internal certificate function % is executable by browser role %.',
           v_internal_function,
           v_role;
       end if;
