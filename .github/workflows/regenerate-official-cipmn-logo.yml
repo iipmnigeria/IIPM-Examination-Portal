@@ -8,7 +8,7 @@ on:
       - '.github/workflows/regenerate-official-cipmn-logo.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   regenerate:
@@ -16,67 +16,179 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: fix/cipmn-certificate-lossless-quality
-          fetch-depth: 0
 
-      - name: Inspect authoritative CIPMN logo records
+      - name: Download and validate official CIPMN SVG
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p official-cipmn-logo-review
           UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0 Safari/537.36'
-          curl --fail --location --silent --show-error --max-time 30 --user-agent "$UA" \
-            --output /tmp/government.html 'https://cipmn.gov.ng/'
-          curl --fail --location --silent --show-error --max-time 30 --user-agent "$UA" \
-            --output /tmp/application.html 'https://app.cipmn.gov.ng/'
-          curl --fail --location --silent --show-error --max-time 30 --user-agent "$UA" \
-            --output /tmp/media-logo.json 'https://cipmn.gov.ng/wp-json/wp/v2/media?search=logo&per_page=100'
-          curl --fail --location --silent --show-error --max-time 30 --user-agent "$UA" \
-            --output /tmp/media-cipmn.json 'https://cipmn.gov.ng/wp-json/wp/v2/media?search=CIPMN&per_page=100'
+          curl --fail --location --silent --show-error --max-time 30 \
+            --proto '=https' --tlsv1.2 \
+            --user-agent "$UA" \
+            --referer 'https://app.cipmn.gov.ng/' \
+            --dump-header /tmp/cipmn-logo.headers \
+            --output official-cipmn-logo-review/cipmn-logo-official.svg \
+            'https://app.cipmn.gov.ng/cipmn_logo.svg'
+
+          grep -iE '^(HTTP/|content-type:|content-length:|location:)' /tmp/cipmn-logo.headers | tail -n 8 || true
+          file official-cipmn-logo-review/cipmn-logo-official.svg
 
           python <<'PY'
-          import html
-          import json
+          import hashlib
           import pathlib
           import re
+          import xml.etree.ElementTree as ET
 
-          print('=== WORDPRESS MEDIA: SEARCH LOGO ===')
-          for source in ('/tmp/media-logo.json', '/tmp/media-cipmn.json'):
-              records = json.loads(pathlib.Path(source).read_text('utf-8'))
-              for record in records:
-                  details = record.get('media_details') or {}
-                  source_url = record.get('source_url') or ''
-                  slug = record.get('slug') or ''
-                  title = html.unescape((record.get('title') or {}).get('rendered') or '')
-                  alt = html.unescape(record.get('alt_text') or '')
-                  haystack = ' '.join((slug, title, alt, source_url)).lower()
-                  if 'logo' not in haystack and 'cipmn' not in haystack:
-                      continue
-                  print(json.dumps({
-                      'id': record.get('id'),
-                      'slug': slug,
-                      'title': title,
-                      'alt': alt,
-                      'source_url': source_url,
-                      'width': details.get('width'),
-                      'height': details.get('height'),
-                      'mime_type': record.get('mime_type'),
-                  }, sort_keys=True))
+          path = pathlib.Path('official-cipmn-logo-review/cipmn-logo-official.svg')
+          data = path.read_bytes()
+          if len(data) < 100 or len(data) > 2_000_000:
+              raise SystemExit(f'Unexpected official SVG size: {len(data)} bytes.')
 
-          print('=== GOVERNMENT HOME IMG TAGS ===')
-          government = pathlib.Path('/tmp/government.html').read_text('utf-8', errors='ignore')
-          for tag in re.findall(r'<img\b[^>]*>', government, flags=re.I):
-              lower = html.unescape(tag).lower()
-              if 'logo' in lower or 'cipmn' in lower:
-                  print(html.unescape(tag)[:1500])
+          text = data.decode('utf-8-sig')
+          if '<!DOCTYPE' in text.upper() or '<!ENTITY' in text.upper():
+              raise SystemExit('Official SVG contains a forbidden document type or entity declaration.')
 
-          print('=== APPLICATION CIPMN_LOGO CONTEXT ===')
-          application = pathlib.Path('/tmp/application.html').read_text('utf-8', errors='ignore')
-          matches = list(re.finditer(r'cipmn[_-]?logo', application, flags=re.I))
-          for match in matches[:20]:
-              start = max(0, match.start() - 500)
-              end = min(len(application), match.end() + 500)
-              print(application[start:end])
-              print('---')
-          print(f'application_logo_mentions={len(matches)}')
+          root = ET.fromstring(text)
+          local = lambda tag: tag.rsplit('}', 1)[-1].lower()
+          if local(root.tag) != 'svg':
+              raise SystemExit('Official source root element is not SVG.')
+
+          forbidden_elements = {'script', 'foreignobject', 'iframe', 'object', 'embed'}
+          drawable_elements = {'path', 'circle', 'ellipse', 'rect', 'polygon', 'polyline', 'line', 'text', 'use'}
+          forbidden_found = []
+          external_refs = []
+          event_handlers = []
+          drawables = 0
+
+          for element in root.iter():
+              name = local(element.tag)
+              if name in forbidden_elements:
+                  forbidden_found.append(name)
+              if name in drawable_elements:
+                  drawables += 1
+              for key, value in element.attrib.items():
+                  attr = local(key)
+                  if attr.startswith('on'):
+                      event_handlers.append(attr)
+                  if attr in {'href', 'src'}:
+                      candidate = value.strip().lower()
+                      if candidate and not candidate.startswith('#') and not candidate.startswith('data:'):
+                          external_refs.append(value)
+
+          if forbidden_found or external_refs or event_handlers:
+              raise SystemExit(
+                  f'Unsafe official SVG content: forbidden={forbidden_found}, external={external_refs}, events={event_handlers}'
+              )
+          if drawables < 3:
+              raise SystemExit(f'Official SVG contains too few drawable elements: {drawables}.')
+
+          view_box = root.attrib.get('viewBox') or root.attrib.get('viewbox')
+          width = root.attrib.get('width')
+          height = root.attrib.get('height')
+          if not view_box and not (width and height):
+              raise SystemExit('Official SVG has neither viewBox nor explicit dimensions.')
+
+          if view_box:
+              numbers = [float(value) for value in re.split(r'[\s,]+', view_box.strip()) if value]
+              if len(numbers) != 4 or numbers[2] <= 0 or numbers[3] <= 0:
+                  raise SystemExit(f'Invalid official SVG viewBox: {view_box}.')
+              aspect = numbers[2] / numbers[3]
+          else:
+              def number(value):
+                  match = re.match(r'\s*([0-9.]+)', value or '')
+                  if not match:
+                      raise SystemExit(f'Invalid SVG dimension: {value}.')
+                  return float(match.group(1))
+              aspect = number(width) / number(height)
+
+          if not 0.65 <= aspect <= 1.55:
+              raise SystemExit(f'Unexpected official CIPMN emblem aspect ratio: {aspect:.3f}.')
+
+          digest = hashlib.sha256(data).hexdigest()
+          pathlib.Path('official-cipmn-logo-review/source-metadata.txt').write_text(
+              '\n'.join([
+                  'source=https://app.cipmn.gov.ng/cipmn_logo.svg',
+                  f'bytes={len(data)}',
+                  f'sha256={digest}',
+                  f'viewBox={view_box or ""}',
+                  f'width={width or ""}',
+                  f'height={height or ""}',
+                  f'aspect={aspect:.6f}',
+                  f'drawable_elements={drawables}',
+              ]) + '\n',
+              encoding='utf-8',
+          )
+          print(f'Validated official CIPMN SVG: bytes={len(data)}, aspect={aspect:.3f}, drawables={drawables}, sha256={digest}')
           PY
+
+      - name: Render lossless print review PNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v rsvg-convert >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq librsvg2-bin
+          fi
+          rsvg-convert \
+            --keep-aspect-ratio \
+            --width 1200 \
+            --height 1200 \
+            --background-color white \
+            --output official-cipmn-logo-review/cipmn-logo-print-review.png \
+            official-cipmn-logo-review/cipmn-logo-official.svg
+
+          python <<'PY'
+          import binascii
+          import pathlib
+          import struct
+          import zlib
+
+          path = pathlib.Path('official-cipmn-logo-review/cipmn-logo-print-review.png')
+          data = path.read_bytes()
+          if not data.startswith(b'\x89PNG\r\n\x1a\n'):
+              raise SystemExit('Rendered review is not PNG.')
+
+          offset = 8
+          width = height = None
+          idat = []
+          reached_iend = False
+          chunks = []
+          while offset + 12 <= len(data):
+              length = struct.unpack('>I', data[offset:offset + 4])[0]
+              chunk_type = data[offset + 4:offset + 8]
+              start = offset + 8
+              end = start + length
+              crc_end = end + 4
+              if crc_end > len(data):
+                  raise SystemExit(f'Truncated rendered PNG chunk: {chunk_type!r}.')
+              expected_crc = struct.unpack('>I', data[end:crc_end])[0]
+              actual_crc = binascii.crc32(chunk_type + data[start:end]) & 0xffffffff
+              if expected_crc != actual_crc:
+                  raise SystemExit(f'CRC failure in rendered PNG chunk: {chunk_type!r}.')
+              name = chunk_type.decode('ascii')
+              chunks.append(name)
+              if name == 'IHDR':
+                  width, height = struct.unpack('>II', data[start:start + 8])
+              elif name == 'IDAT':
+                  idat.append(data[start:end])
+              elif name == 'IEND':
+                  reached_iend = True
+                  offset = crc_end
+                  break
+              offset = crc_end
+
+          if not reached_iend or offset != len(data) or not idat:
+              raise SystemExit('Rendered PNG is incomplete.')
+          if width is None or height is None or max(width, height) < 1100:
+              raise SystemExit(f'Rendered PNG resolution is too low: {width}x{height}.')
+          zlib.decompress(b''.join(idat))
+          print(f'Validated lossless PNG review: {width}x{height}, bytes={len(data)}, chunks={chunks}.')
+          PY
+
+      - name: Upload official logo review
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-cipmn-logo-review
+          path: official-cipmn-logo-review/
+          if-no-files-found: error
