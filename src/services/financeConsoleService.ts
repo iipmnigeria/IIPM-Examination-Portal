@@ -16,6 +16,8 @@ export type FinancePermissionKey =
 
 export type FinanceCertificateProductCode = 'achievement' | 'professional';
 export type FinanceCertificateCurrency = 'NGN' | 'USD';
+export type FinanceCertificationPricingMode = 'separate_payment' | 'included' | 'free';
+export type FinanceCertificationScopeType = 'all' | 'programme' | 'examination';
 
 export interface FinanceConsoleAccess {
   actorId: string;
@@ -81,14 +83,80 @@ export interface FinanceCertificationPrice {
   currency: FinanceCertificateCurrency;
   earlyAmountMinor: number;
   standardAmountMinor: number;
+  pricingMode: FinanceCertificationPricingMode;
+  countryCodes: string[];
+  effectiveFrom: string;
+  effectiveTo?: string | null;
   active: boolean;
   requiresIdentityVerification: boolean;
+  updatedAt: string;
+}
+
+export interface FinanceCertificationScope {
+  id: string;
+  productCode: FinanceCertificateProductCode;
+  scopeType: FinanceCertificationScopeType;
+  programmeId?: string | null;
+  programmeCode?: string | null;
+  programmeName?: string | null;
+  examinationId?: string | null;
+  examinationTitle?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FinanceCertificationOrder {
+  orderId: string;
+  reference: string;
+  candidateId: string;
+  candidateName: string;
+  candidateEmail: string;
+  eligibilityId: string;
+  examinationTitle: string;
+  programmeCode: string;
+  productCode: FinanceCertificateProductCode;
+  productTitle: string;
+  currency: FinanceCertificateCurrency;
+  pricingWindow: 'early' | 'standard' | 'waived';
+  pricingMode?: FinanceCertificationPricingMode | null;
+  listAmountMinor: number;
+  discountAmountMinor: number;
+  payableAmountMinor: number;
+  status: string;
+  paymentProvider: string;
+  paidAt?: string | null;
+  fulfilledAt?: string | null;
+  waivedAt?: string | null;
+  waiverReason?: string | null;
+  expiresAt?: string | null;
+  createdAt: string;
+}
+
+export interface FinanceCertificationPayment {
+  id: string;
+  orderId: string;
+  reference: string;
+  provider: string;
+  providerTransactionId?: string | null;
+  candidateName: string;
+  candidateEmail: string;
+  productCode: FinanceCertificateProductCode;
+  productTitle: string;
+  examinationTitle: string;
+  programmeCode: string;
+  status: string;
+  amountMinor: number;
+  currency: FinanceCertificateCurrency;
+  verifiedAt?: string | null;
+  createdAt: string;
   updatedAt: string;
 }
 
 export interface FinanceCertificationSummary {
   activeProducts: number;
   activePrices: number;
+  activeScopes: number;
   pendingOrders: number;
   paidOrders: number;
   waivedOrders: number;
@@ -98,6 +166,9 @@ export interface FinanceCertificationSummary {
 export interface FinanceCertificationSnapshot {
   products: FinanceCertificationProduct[];
   prices: FinanceCertificationPrice[];
+  scopes: FinanceCertificationScope[];
+  orders: FinanceCertificationOrder[];
+  payments: FinanceCertificationPayment[];
   audit: FinanceAuditEvent[];
   summary: FinanceCertificationSummary;
 }
@@ -109,6 +180,9 @@ export interface FinanceConsoleSnapshot extends AdminCommerceSnapshot {
   financeAudit: FinanceAuditEvent[];
   certificationProducts: FinanceCertificationProduct[];
   certificationPrices: FinanceCertificationPrice[];
+  certificationScopes: FinanceCertificationScope[];
+  certificationOrders: FinanceCertificationOrder[];
+  certificationPayments: FinanceCertificationPayment[];
   certificationSummary: FinanceCertificationSummary;
   certificationAudit: FinanceAuditEvent[];
 }
@@ -116,10 +190,14 @@ export interface FinanceConsoleSnapshot extends AdminCommerceSnapshot {
 const emptyCertificationSnapshot: FinanceCertificationSnapshot = {
   products: [],
   prices: [],
+  scopes: [],
+  orders: [],
+  payments: [],
   audit: [],
   summary: {
     activeProducts: 0,
     activePrices: 0,
+    activeScopes: 0,
     pendingOrders: 0,
     paidOrders: 0,
     waivedOrders: 0,
@@ -156,6 +234,9 @@ export async function getFinanceConsoleSnapshot(limit = 200): Promise<FinanceCon
     ...(financeResult.data as FinanceConsoleSnapshot),
     certificationProducts: Array.isArray(certification.products) ? certification.products : [],
     certificationPrices: Array.isArray(certification.prices) ? certification.prices : [],
+    certificationScopes: Array.isArray(certification.scopes) ? certification.scopes : [],
+    certificationOrders: Array.isArray(certification.orders) ? certification.orders : [],
+    certificationPayments: Array.isArray(certification.payments) ? certification.payments : [],
     certificationAudit: Array.isArray(certification.audit) ? certification.audit : [],
     certificationSummary: {
       ...emptyCertificationSnapshot.summary,
@@ -208,20 +289,28 @@ export async function saveFinanceCertificationPrice(input: {
   currency: FinanceCertificateCurrency;
   earlyAmountMinor: number;
   standardAmountMinor: number;
+  pricingMode: FinanceCertificationPricingMode;
+  countryCodes: string[];
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
   isActive: boolean;
   changeReason: string;
 }): Promise<FinanceCertificationPrice> {
-  const { data, error } = await supabase.rpc('finance_upsert_certificate_product_price', {
+  const { data, error } = await supabase.rpc('finance_upsert_certificate_product_price_rule', {
     p_product_code: input.productCode,
     p_currency: input.currency,
     p_early_amount_minor: input.earlyAmountMinor,
     p_standard_amount_minor: input.standardAmountMinor,
+    p_pricing_mode: input.pricingMode,
+    p_country_codes: input.countryCodes,
+    p_effective_from: input.effectiveFrom || new Date().toISOString(),
+    p_effective_to: input.effectiveTo || null,
     p_is_active: input.isActive,
     p_change_reason: input.changeReason.trim(),
   });
   if (error) throw new Error(error.message);
   if (!data || typeof data !== 'object') {
-    throw new Error('The certification fee update was not returned.');
+    throw new Error('The certification pricing-rule update was not returned.');
   }
   return data as FinanceCertificationPrice;
 }
@@ -248,6 +337,44 @@ export async function setFinanceCertificationProductActive(input: {
 }): Promise<void> {
   const { error } = await supabase.rpc('finance_set_certificate_product_active', {
     p_product_code: input.productCode,
+    p_is_active: input.isActive,
+    p_change_reason: input.changeReason.trim(),
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function saveFinanceCertificationScope(input: {
+  scopeId?: string | null;
+  productCode: FinanceCertificateProductCode;
+  scopeType: FinanceCertificationScopeType;
+  programmeId?: string | null;
+  examinationId?: string | null;
+  isActive: boolean;
+  changeReason: string;
+}): Promise<FinanceCertificationScope> {
+  const { data, error } = await supabase.rpc('finance_upsert_certificate_product_scope', {
+    p_scope_id: input.scopeId || null,
+    p_product_code: input.productCode,
+    p_scope_type: input.scopeType,
+    p_programme_id: input.scopeType === 'programme' ? input.programmeId || null : null,
+    p_examination_id: input.scopeType === 'examination' ? input.examinationId || null : null,
+    p_is_active: input.isActive,
+    p_change_reason: input.changeReason.trim(),
+  });
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== 'object') {
+    throw new Error('The certification applicability rule was not returned.');
+  }
+  return data as FinanceCertificationScope;
+}
+
+export async function setFinanceCertificationScopeActive(input: {
+  scopeId: string;
+  isActive: boolean;
+  changeReason: string;
+}): Promise<void> {
+  const { error } = await supabase.rpc('finance_set_certificate_product_scope_active', {
+    p_scope_id: input.scopeId,
     p_is_active: input.isActive,
     p_change_reason: input.changeReason.trim(),
   });
