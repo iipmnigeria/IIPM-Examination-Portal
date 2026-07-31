@@ -1,0 +1,3 @@
+Deploy exact approved CIPMN certificate source commit 115221e095f2af9d2305ac67a3f13b3c7bdd14bb.
+Apply only migration 202607310600_cipmn_approved_certificate_template.sql.
+Preserve certificate numbers, verification codes, scores, revision numbers and lifecycle statuses.
