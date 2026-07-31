@@ -6,15 +6,59 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'verification-triggers/verify-approved-cipmn-certificate-template-live.txt'
+      - '.github/workflows/verify-approved-cipmn-certificate-template-live.yml'
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      GITHUB_ACTIONS_TOKEN: ${{ github.token }}
     steps:
+      - name: Require successful exact-source Pages deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-approved-cipmn-certificate-pages-exact.yml/runs?branch=main&event=push&per_page=1"
+
+          for attempt in $(seq 1 30); do
+            curl --fail --silent --show-error --location \
+              -H "Authorization: Bearer ${GITHUB_ACTIONS_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              "$endpoint" -o /tmp/exact-pages-runs.json
+
+            python3 <<'PY' > /tmp/exact-pages-state.txt
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/exact-pages-runs.json').read_text())
+          runs = data.get('workflow_runs') or []
+          if not runs:
+              print('missing|')
+          else:
+              run = runs[0]
+              print(f"{run.get('status') or ''}|{run.get('conclusion') or ''}|{run.get('id') or ''}")
+          PY
+            IFS='|' read -r status conclusion run_id < /tmp/exact-pages-state.txt
+            echo "Exact Pages deployment run ${run_id:-missing}: status=${status:-missing}, conclusion=${conclusion:-pending}"
+
+            if [ "$status" = 'completed' ] && [ "$conclusion" = 'success' ]; then
+              printf '{"exactPagesDeploymentRunId":%s,"conclusion":"success"}\n' "$run_id" \
+                > exact-pages-deployment-verification.json
+              break
+            fi
+            if [ "$status" = 'completed' ] && [ "$conclusion" != 'success' ]; then
+              echo "Exact Pages deployment failed with conclusion: $conclusion" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+          test -s exact-pages-deployment-verification.json
+
       - name: Verify public bundle contains approved certificate release
         shell: bash
         run: |
@@ -59,7 +103,7 @@ jobs:
                 exit 0
               fi
             fi
-            sleep 20
+            sleep 10
           done
 
           echo 'The approved CIPMN certificate markers did not reach the public bundle in time.' >&2
@@ -72,5 +116,6 @@ jobs:
           retention-days: 30
           if-no-files-found: error
           path: |
+            exact-pages-deployment-verification.json
             live-approved-cipmn-certificate-bundle.sha256
             live-approved-cipmn-certificate-verification.json
