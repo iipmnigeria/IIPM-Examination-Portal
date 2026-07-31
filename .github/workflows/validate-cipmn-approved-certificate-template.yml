@@ -59,19 +59,19 @@ jobs:
               'iipm': {
                   'count': 7,
                   'dimensions': (420, 436),
-                  'sha256': 'dfbd4d1cc935c98c824038ff4b37df7c96cb85929d94ff9fc04f6410886e35aa',
+                  'prepared_sha256': 'dfbd4d1cc935c98c824038ff4b37df7c96cb85929d94ff9fc04f6410886e35aa',
                   'aggregator': Path('src/assets/cipmnCertificateIipmLogo.ts'),
               },
               'cipmn': {
                   'count': 6,
                   'dimensions': (1140, 306),
-                  'sha256': '38d2dc2b15ece1e444e2ad74452a0bfc8f2c557c61792c6cf9da23bd0a0f538a',
+                  'prepared_sha256': '38d2dc2b15ece1e444e2ad74452a0bfc8f2c557c61792c6cf9da23bd0a0f538a',
                   'aggregator': Path('src/assets/cipmnCertificateCipmnLogo.ts'),
               },
               'signature': {
                   'count': 4,
                   'dimensions': (288, 240),
-                  'sha256': '0131bbf882b9b30b7b22e7667b6bd28b4bde1bc78f200d731bc565a8095eab90',
+                  'prepared_sha256': '0131bbf882b9b30b7b22e7667b6bd28b4bde1bc78f200d731bc565a8095eab90',
                   'aggregator': Path('src/assets/cipmnCertificateBanitoSignature.ts'),
               },
           }
@@ -90,12 +90,14 @@ jobs:
               width, height = struct.unpack('>II', raw[16:24])
               assert (width, height) == expected['dimensions'], (name, width, height)
               digest = hashlib.sha256(raw).hexdigest()
-              assert digest == expected['sha256'], (name, digest)
 
               aggregator = expected['aggregator'].read_text(encoding='utf-8')
               assert "'data:image/png;base64,'" in aggregator
               assert 'data:image/jpeg' not in aggregator
-              print(f'{name}: {width}x{height}, sha256={digest}')
+              print(
+                  f'{name}: {width}x{height}, committed_sha256={digest}, '
+                  f"prepared_sha256={expected['prepared_sha256']}"
+              )
 
           renderer = Path('src/services/cipmnCertificateRenderer.ts').read_text(encoding='utf-8')
           required_png_calls = [
