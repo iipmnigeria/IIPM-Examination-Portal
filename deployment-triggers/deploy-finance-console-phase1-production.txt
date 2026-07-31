@@ -1,0 +1,7 @@
+Finance Console Phase 1 controlled production release retry
+Approved source: 0793caab245b0942bc4b779826a60a2f3a977a45
+Migrations:
+- 202607310699_finance_console_legacy_rpc_compatibility.sql
+- 202607310700_finance_console_pricing_permissions.sql
+Scope: production migration, exact frontend build verification, server-side permission and audit verification.
+Excluded: payment Edge Functions and candidate checkout runtime changes.
