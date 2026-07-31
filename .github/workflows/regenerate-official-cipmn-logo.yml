@@ -1,9 +1,9 @@
 name: Regenerate official CIPMN logo asset
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/cipmn-certificate-lossless-quality
+      - supabase-integration
     paths:
       - '.github/workflows/regenerate-official-cipmn-logo.yml'
 
@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   regenerate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/cipmn-certificate-lossless-quality'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
