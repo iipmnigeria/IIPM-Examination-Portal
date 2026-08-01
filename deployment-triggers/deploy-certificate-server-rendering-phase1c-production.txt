@@ -1,0 +1,1 @@
+Deploy the validated Phase 1C database migration and render-certificate-pdf Edge Function from exact approved source commit 0e42b3ea39835f897e04c13aece5ec08c3d7c56d. Do not activate any certificate master assignment.
