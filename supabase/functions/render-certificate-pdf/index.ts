@@ -43,8 +43,17 @@ const safeFileName = (value: string): string => {
   return cleaned.toLowerCase().endsWith('.pdf') ? cleaned : `${cleaned}.pdf`;
 };
 
+const toExactArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+};
+
 const sha256 = async (bytes: Uint8Array): Promise<string> => {
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    toExactArrayBuffer(bytes),
+  );
   return Array.from(new Uint8Array(digest))
     .map((value) => value.toString(16).padStart(2, '0'))
     .join('');
@@ -141,7 +150,7 @@ const pdfResponse = (
   fileName: string,
   jobId: string,
 ): Response =>
-  new Response(bytes, {
+  new Response(toExactArrayBuffer(bytes), {
     status: 200,
     headers: {
       ...corsHeaders(request),
