@@ -1,0 +1,6 @@
+Read-only production verification for the Finance Console completion frontend.
+
+Expected source commit: 39255e9ea56178ef2b362a089bd0788846dcbbd7
+Live site: https://iipmnigeria.github.io/IIPM-Examination-Portal/
+
+The workflow builds the exact approved source and verifies that the live GitHub Pages index and referenced application assets match the generated files byte-for-byte. It performs no production mutation.
