@@ -1714,10 +1714,10 @@ begin
       ), '[]'::jsonb),
       'dailyPerformance', coalesce((
         select jsonb_agg(jsonb_build_object(
-          'date',daily.day,'currency',daily.currency,'paidAmountMinor',daily.paid_amount,'discountAmountMinor',daily.discount_amount,'orders',daily.orders
-        ) order by daily.day)
+          'date',daily.metric_day,'currency',daily.currency,'paidAmountMinor',daily.paid_amount,'discountAmountMinor',daily.discount_amount,'orders',daily.orders
+        ) order by daily.metric_day)
         from (
-          select date_trunc('day',created_at)::date day,currency,sum(payable_amount_minor)::bigint paid_amount,sum(discount_amount_minor)::bigint discount_amount,count(*)::integer orders
+          select date_trunc('day',created_at)::date as metric_day,currency,sum(payable_amount_minor)::bigint paid_amount,sum(discount_amount_minor)::bigint discount_amount,count(*)::integer orders
           from public.exam_orders order_row
           where order_row.created_at between v_from and v_to and order_row.status in ('paid','waived')
           group by date_trunc('day',created_at)::date,currency
