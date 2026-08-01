@@ -1,0 +1,149 @@
+name: Verify Certificate Console Phase 1A Frontend
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/verify-certificate-console-phase1a-frontend.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-certificate-console-phase1a-frontend
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify live GitHub Pages bundle
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: supabase-integration
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build expected production bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npx vite build
+          test -s dist/index.html
+
+          python3 <<'PY'
+          import re
+          from pathlib import Path
+
+          html = Path('dist/index.html').read_text(encoding='utf-8')
+          matches = re.findall(r'<script[^>]+src="([^"]+\.js)"', html)
+          assert matches, html
+          main = next((item for item in matches if '/assets/index-' in item), matches[0])
+          Path('expected-main-asset.txt').write_text(main + '\n', encoding='utf-8')
+          local_path = Path('dist') / main.lstrip('/').replace('IIPM-Examination-Portal/', '', 1)
+          assert local_path.is_file(), (main, local_path)
+          content = local_path.read_text(encoding='utf-8', errors='ignore')
+          for marker in (
+              'get_certificate_management_console_snapshot',
+              'Certificate Management Console',
+              'Master Templates',
+              'certificate-masters',
+              'certificate-assets',
+          ):
+              assert marker in content, marker
+          Path('expected-main-file.txt').write_text(str(local_path) + '\n', encoding='utf-8')
+          PY
+
+          expected_file=$(cat expected-main-file.txt)
+          sha256sum "$expected_file" > expected-main.sha256
+          cat expected-main-asset.txt
+          cat expected-main.sha256
+
+      - name: Wait for and verify live Phase 1A bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_asset=$(cat expected-main-asset.txt)
+          expected_file=$(cat expected-main-file.txt)
+          base_url='https://iipmnigeria.github.io/IIPM-Examination-Portal'
+          matched='false'
+
+          for attempt in $(seq 1 36); do
+            cache_bust="$(date +%s)-${attempt}"
+            curl --fail-with-body --silent --show-error \
+              -H 'Cache-Control: no-cache' \
+              "${base_url}/?certificate-console-phase1a=${cache_bust}" \
+              -o live-index.html
+
+            live_asset=$(python3 <<'PY'
+          import re
+          from pathlib import Path
+          html = Path('live-index.html').read_text(encoding='utf-8')
+          matches = re.findall(r'<script[^>]+src="([^"]+\.js)"', html)
+          print(next((item for item in matches if '/assets/index-' in item), matches[0] if matches else ''))
+          PY
+            )
+
+            printf 'attempt=%s expected=%s live=%s\n' "$attempt" "$expected_asset" "$live_asset" \
+              | tee -a frontend-verification-attempts.log
+
+            if [ "$live_asset" = "$expected_asset" ]; then
+              curl --fail-with-body --silent --show-error \
+                -H 'Cache-Control: no-cache' \
+                "${base_url}${live_asset}?certificate-console-phase1a=${cache_bust}" \
+                -o live-main.js
+              cmp "$expected_file" live-main.js
+              sha256sum live-main.js > live-main.sha256
+              matched='true'
+              break
+            fi
+            sleep 10
+          done
+
+          test "$matched" = 'true'
+          diff -u expected-main.sha256 live-main.sha256
+          grep -q 'get_certificate_management_console_snapshot' live-main.js
+          grep -q 'Certificate Management Console' live-main.js
+          grep -q 'Master Templates' live-main.js
+          grep -q 'certificate-masters' live-main.js
+          grep -q 'certificate-assets' live-main.js
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          evidence = {
+              'pagesUrl': 'https://iipmnigeria.github.io/IIPM-Examination-Portal/',
+              'expectedAsset': Path('expected-main-asset.txt').read_text().strip(),
+              'expectedHash': Path('expected-main.sha256').read_text().split()[0],
+              'liveHash': Path('live-main.sha256').read_text().split()[0],
+              'phase1aMarkersVerified': True,
+              'byteForByteMatch': True,
+          }
+          Path('certificate-console-phase1a-frontend-evidence.json').write_text(
+              json.dumps(evidence, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload sanitized frontend evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: certificate-console-phase1a-frontend-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            expected-main-asset.txt
+            expected-main.sha256
+            live-main.sha256
+            frontend-verification-attempts.log
+            certificate-console-phase1a-frontend-evidence.json
