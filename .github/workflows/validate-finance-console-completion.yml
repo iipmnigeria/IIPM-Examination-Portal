@@ -1,0 +1,153 @@
+name: Validate Finance Console Completion
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/components/AdminFinanceConsole.tsx'
+      - 'src/components/FinanceConsoleCompletionPanel.tsx'
+      - 'src/services/financeConsoleCompletionService.ts'
+      - 'supabase/migrations/202608010600_finance_console_completion.sql'
+      - 'supabase/functions/admin-verify-exam-payment/index.ts'
+      - 'supabase/functions/finance-gateway-status/index.ts'
+      - 'supabase/tests/finance_console_completion_smoke.sql'
+      - 'docs/FINANCE_CONSOLE_COMPLETION_SCOPE.md'
+      - '.github/workflows/validate-finance-console-completion.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-console-completion-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Validate completed Finance Console frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript and production build
+        run: |
+          npm run lint
+          npm run build
+      - name: Verify completion markers and browser safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'Advanced examination pricing' src/components/FinanceConsoleCompletionPanel.tsx
+          grep -q 'General finance settings' src/components/FinanceConsoleCompletionPanel.tsx
+          grep -q 'Revenue dashboard' src/components/FinanceConsoleCompletionPanel.tsx
+          grep -q 'admin-verify-exam-payment' src/services/financeConsoleCompletionService.ts
+          grep -q 'finance_upsert_coupon_advanced' src/services/financeConsoleCompletionService.ts
+          ! grep -R -E 'sk_(live|test)_[A-Za-z0-9]+' \
+            src/components/AdminFinanceConsole.tsx \
+            src/components/FinanceConsoleCompletionPanel.tsx \
+            src/services/financeConsoleCompletionService.ts
+
+  edge:
+    name: Validate administrator Paystack verifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check server-only finance functions
+        run: |
+          deno check supabase/functions/admin-verify-exam-payment/index.ts
+          deno check supabase/functions/finance-gateway-status/index.ts
+      - name: Confirm verification boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'finance.transactions.reconcile' supabase/functions/admin-verify-exam-payment/index.ts
+          grep -q 'verifyPaystackTransaction' supabase/functions/admin-verify-exam-payment/index.ts
+          grep -q 'fulfil_paid_exam_order' supabase/functions/admin-verify-exam-payment/index.ts
+          grep -q 'fulfil_paid_exam_bulk_order' supabase/functions/admin-verify-exam-payment/index.ts
+          grep -q 'transactionEmail !== candidateEmail' supabase/functions/admin-verify-exam-payment/index.ts
+          ! grep -E 'sk_(live|test)_[A-Za-z0-9]{20,}' supabase/functions/admin-verify-exam-payment/index.ts supabase/functions/finance-gateway-status/index.ts
+
+  database:
+    name: Reset schema and validate finance completion authority
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: no production identity bootstrap.
+          commit;
+          SQL
+      - name: Start isolated Supabase services
+        run: supabase start
+      - name: Apply complete migration history
+        run: supabase db reset --local
+      - name: Run Finance Console completion smoke test
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_console_completion_smoke.sql \
+            | tee finance-console-completion-smoke.log
+          grep -q 'completionAuthorityVerified' finance-console-completion-smoke.log
+      - name: Stop isolated Supabase services
+        if: always()
+        run: supabase stop --no-backup || true
+
+  boundaries:
+    name: Confirm protected-system boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restrict changed files to the completion package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only origin/supabase-integration...HEAD | sort > changed-files.txt
+          cat > allowed-files.txt <<'EOF'
+          .github/workflows/validate-finance-console-completion.yml
+          docs/FINANCE_CONSOLE_COMPLETION_SCOPE.md
+          src/components/AdminFinanceConsole.tsx
+          src/components/FinanceConsoleCompletionPanel.tsx
+          src/services/financeConsoleCompletionService.ts
+          supabase/functions/admin-verify-exam-payment/index.ts
+          supabase/functions/finance-gateway-status/index.ts
+          supabase/migrations/202608010600_finance_console_completion.sql
+          supabase/tests/finance_console_completion_smoke.sql
+          EOF
+          sort -o allowed-files.txt allowed-files.txt
+          diff -u allowed-files.txt changed-files.txt
+      - name: Confirm existing checkout and runtime files are untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --quiet origin/supabase-integration...HEAD -- \
+            supabase/functions/initialize-exam-payment/index.ts \
+            supabase/functions/verify-exam-payment/index.ts \
+            supabase/functions/initialize-exam-cart-payment/index.ts \
+            supabase/functions/verify-exam-cart-payment/index.ts \
+            supabase/functions/paystack-webhook/index.ts \
+            src/components/ExamScreen.tsx \
+            src/services/examService.ts
