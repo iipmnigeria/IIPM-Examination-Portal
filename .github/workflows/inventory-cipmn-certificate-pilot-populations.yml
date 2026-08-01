@@ -1,0 +1,359 @@
+name: Inventory CIPMN Certificate Pilot Populations
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/inventory-cipmn-certificate-pilot-populations.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inventory-cipmn-certificate-pilot-populations
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    name: Inventory sanitized CIPMN examination and certificate populations
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPECTED_COMMIT: '21d1c18403c28ba9313cc4969d954648c2f95454'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - name: Verify exact approved source and read-only boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -s supabase/migrations/202608012400_certificate_template_contract_phase1d.sql
+          test -s scripts/certificate-masters/cipmn-approved-completion-master.ts
+          grep -q 'CIPMN_COMPLETION_APPROVED' \
+            scripts/certificate-masters/cipmn-approved-completion-master.ts
+
+      - name: Query sanitized production populations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with examination_inventory as (
+            select
+              examination.id as examination_id,
+              examination.code as examination_code,
+              examination.title as examination_title,
+              examination.programme_id,
+              programme.code as programme_code,
+              programme.name as programme_name,
+              (
+                upper(coalesce(examination.code, '')) like '%CIPMN%'
+                or upper(coalesce(examination.title, '')) like '%CIPMN%'
+                or upper(coalesce(programme.code, '')) like '%CIPMN%'
+                or upper(coalesce(programme.name, '')) like '%CIPMN%'
+                or upper(coalesce(examination.code, '')) like 'CIPMN-MOD-%'
+              ) as cipmn_signal
+            from public.examinations examination
+            left join public.programmes programme
+              on programme.id = examination.programme_id
+          ), certificate_distribution as (
+            select
+              certificate.examination_id,
+              certificate.status as certificate_status,
+              nullif(trim(certificate.certificate_title), '') as certificate_title,
+              nullif(trim(certificate.metadata->>'certificateCategoryCode'), '')
+                as raw_category_code,
+              nullif(trim(certificate.metadata->>'productCode'), '')
+                as raw_product_code,
+              lower(coalesce(
+                nullif(trim(certificate.metadata->>'certificateCategoryCode'), ''),
+                case
+                  when lower(coalesce(certificate.certificate_title, '')) like '%completion%'
+                    then 'completion'
+                  when lower(coalesce(certificate.metadata->>'productCode', '')) = 'professional'
+                    then 'professional'
+                  else 'achievement'
+                end
+              )) as derived_category_code,
+              count(*) as certificates
+            from public.agilecert_issued_certificates certificate
+            group by
+              certificate.examination_id,
+              certificate.status,
+              nullif(trim(certificate.certificate_title), ''),
+              nullif(trim(certificate.metadata->>'certificateCategoryCode'), ''),
+              nullif(trim(certificate.metadata->>'productCode'), ''),
+              lower(coalesce(
+                nullif(trim(certificate.metadata->>'certificateCategoryCode'), ''),
+                case
+                  when lower(coalesce(certificate.certificate_title, '')) like '%completion%'
+                    then 'completion'
+                  when lower(coalesce(certificate.metadata->>'productCode', '')) = 'professional'
+                    then 'professional'
+                  else 'achievement'
+                end
+              ))
+          ), examination_population as (
+            select
+              inventory.examination_id,
+              inventory.examination_code,
+              inventory.examination_title,
+              inventory.programme_id,
+              inventory.programme_code,
+              inventory.programme_name,
+              inventory.cipmn_signal,
+              coalesce(sum(distribution.certificates), 0) as total_certificates,
+              coalesce(sum(distribution.certificates) filter (
+                where distribution.certificate_status = 'active'
+              ), 0) as active_certificates,
+              coalesce(jsonb_agg(
+                jsonb_build_object(
+                  'status', distribution.certificate_status,
+                  'certificateTitle', distribution.certificate_title,
+                  'rawCategoryCode', distribution.raw_category_code,
+                  'rawProductCode', distribution.raw_product_code,
+                  'derivedCategoryCode', distribution.derived_category_code,
+                  'certificates', distribution.certificates
+                ) order by
+                  distribution.certificate_status,
+                  distribution.derived_category_code,
+                  distribution.certificate_title
+              ) filter (where distribution.examination_id is not null), '[]'::jsonb)
+                as classifications
+            from examination_inventory inventory
+            left join certificate_distribution distribution
+              on distribution.examination_id = inventory.examination_id
+            group by
+              inventory.examination_id,
+              inventory.examination_code,
+              inventory.examination_title,
+              inventory.programme_id,
+              inventory.programme_code,
+              inventory.programme_name,
+              inventory.cipmn_signal
+          ), category_population as (
+            select
+              distribution.derived_category_code,
+              distribution.certificate_status,
+              sum(distribution.certificates) as certificates
+            from certificate_distribution distribution
+            group by distribution.derived_category_code, distribution.certificate_status
+          ), recommended as (
+            select population.*
+            from examination_population population
+            where population.cipmn_signal
+              and population.active_certificates > 0
+            order by
+              population.active_certificates,
+              population.total_certificates,
+              population.examination_title,
+              population.examination_id
+            limit 1
+          )
+          select jsonb_build_object(
+            'migrationApplied', exists (
+              select 1 from supabase_migrations.schema_migrations
+              where version = '202608012400'
+            ),
+            'totalExaminations', (select count(*) from examination_population),
+            'cipmnSignalExaminations', (
+              select count(*) from examination_population where cipmn_signal
+            ),
+            'cipmnExaminationsWithCertificates', (
+              select count(*) from examination_population
+              where cipmn_signal and total_certificates > 0
+            ),
+            'cipmnExaminationsWithActiveCertificates', (
+              select count(*) from examination_population
+              where cipmn_signal and active_certificates > 0
+            ),
+            'issuedCertificates', (
+              select count(*) from public.agilecert_issued_certificates
+            ),
+            'activeIssuedCertificates', (
+              select count(*) from public.agilecert_issued_certificates
+              where status = 'active'
+            ),
+            'categoryDefinitions', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'code', category.code,
+                'name', category.name,
+                'isActive', category.is_active
+              ) order by category.sort_order, category.code)
+              from public.agilecert_certificate_categories category
+            ), '[]'::jsonb),
+            'categoryPopulation', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'derivedCategoryCode', derived_category_code,
+                'status', certificate_status,
+                'certificates', certificates
+              ) order by derived_category_code, certificate_status)
+              from category_population
+            ), '[]'::jsonb),
+            'recommendedCipmnExamination', (
+              select jsonb_build_object(
+                'examinationId', examination_id,
+                'examinationCode', examination_code,
+                'examinationTitle', examination_title,
+                'programmeId', programme_id,
+                'programmeCode', programme_code,
+                'programmeName', programme_name,
+                'activeCertificates', active_certificates,
+                'totalCertificates', total_certificates,
+                'classifications', classifications
+              ) from recommended
+            ),
+            'cipmnExaminations', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'examinationId', examination_id,
+                'examinationCode', examination_code,
+                'examinationTitle', examination_title,
+                'programmeId', programme_id,
+                'programmeCode', programme_code,
+                'programmeName', programme_name,
+                'activeCertificates', active_certificates,
+                'totalCertificates', total_certificates,
+                'classifications', classifications
+              ) order by active_certificates, total_certificates, examination_title)
+              from examination_population
+              where cipmn_signal
+            ), '[]'::jsonb),
+            'activeCertificateExaminations', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'examinationId', examination_id,
+                'examinationCode', examination_code,
+                'examinationTitle', examination_title,
+                'programmeCode', programme_code,
+                'programmeName', programme_name,
+                'cipmnSignal', cipmn_signal,
+                'activeCertificates', active_certificates,
+                'totalCertificates', total_certificates,
+                'classifications', classifications
+              ) order by active_certificates, examination_title)
+              from examination_population
+              where active_certificates > 0
+            ), '[]'::jsonb),
+            'masterTemplates', (
+              select count(*) from public.agilecert_certificate_master_templates
+            ),
+            'masterVersions', (
+              select count(*) from public.agilecert_certificate_master_versions
+            ),
+            'masterAssignments', (
+              select count(*) from public.agilecert_certificate_master_assignments
+            ),
+            'rendererEnabledAssignments', (
+              select count(*) from public.agilecert_certificate_master_assignments
+              where renderer_enabled
+            ),
+            'renderBindings', (
+              select count(*) from public.agilecert_certificate_render_bindings
+            ),
+            'renderJobs', (
+              select count(*) from public.agilecert_certificate_render_jobs
+            ),
+            'targetStorageObjects', (
+              select count(*) from storage.objects
+              where bucket_id = 'certificate-masters'
+                and name = 'managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf'
+            )
+          ) as inventory;
+          """
+          Path('/tmp/cipmn-population-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          status=$(curl --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/cipmn-population-query.json \
+            -o cipmn-population-response.json \
+            -w '%{http_code}')
+          case "$status" in
+            2??) ;;
+            *) cat cipmn-population-response.json; exit 1 ;;
+          esac
+
+      - name: Validate zero mutation and sanitize evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          raw = json.loads(Path('cipmn-population-response.json').read_text())
+          assert isinstance(raw, list) and len(raw) == 1, raw
+          inventory = raw[0].get('inventory') or {}
+          assert inventory.get('migrationApplied') is True, inventory
+          assert inventory.get('masterTemplates') == 0, inventory
+          assert inventory.get('masterVersions') == 0, inventory
+          assert inventory.get('masterAssignments') == 0, inventory
+          assert inventory.get('rendererEnabledAssignments') == 0, inventory
+          assert inventory.get('renderBindings') == 0, inventory
+          assert inventory.get('renderJobs') == 0, inventory
+          assert inventory.get('targetStorageObjects') == 0, inventory
+
+          recommendation = inventory.get('recommendedCipmnExamination')
+          status = (
+              'ACTIVE_CIPMN_POPULATION_FOUND'
+              if recommendation
+              else 'NO_ACTIVE_CIPMN_POPULATION'
+          )
+          evidence = {
+              'status': status,
+              'productionSourceCommit': '21d1c18403c28ba9313cc4969d954648c2f95454',
+              **inventory,
+          }
+          Path('cipmn-certificate-pilot-population-inventory.json').write_text(
+              json.dumps(evidence, indent=2), encoding='utf-8'
+          )
+
+          lines = [
+              '# CIPMN Certificate Pilot Population Inventory',
+              '',
+              f"Status: **{status}**",
+              f"CIPMN-signal examinations: **{inventory.get('cipmnSignalExaminations', 0)}**",
+              f"CIPMN examinations with issued certificates: **{inventory.get('cipmnExaminationsWithCertificates', 0)}**",
+              f"CIPMN examinations with active certificates: **{inventory.get('cipmnExaminationsWithActiveCertificates', 0)}**",
+              f"All active issued certificates: **{inventory.get('activeIssuedCertificates', 0)}**",
+          ]
+          if recommendation:
+              lines += [
+                  '',
+                  '## Recommended examination',
+                  f"- Examination: `{recommendation.get('examinationCode')}` — {recommendation.get('examinationTitle')}",
+                  f"- Programme: `{recommendation.get('programmeCode')}` — {recommendation.get('programmeName')}",
+                  f"- Active certificates: {recommendation.get('activeCertificates')}",
+                  f"- Total certificates: {recommendation.get('totalCertificates')}",
+              ]
+          Path('cipmn-certificate-pilot-population-inventory.md').write_text(
+              '\n'.join(lines) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload sanitized inventory evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-certificate-pilot-population-inventory
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            cipmn-certificate-pilot-population-inventory.json
+            cipmn-certificate-pilot-population-inventory.md
