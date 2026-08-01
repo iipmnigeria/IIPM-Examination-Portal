@@ -23,56 +23,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  repair_migration_alias:
-    name: Repair reserved reporting alias once
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/complete-finance-console-v2'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-      - name: Replace only the verified reserved alias
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('supabase/migrations/202608010600_finance_console_completion.sql')
-          original = path.read_text(encoding='utf-8')
-          updated = original
-          replacements = (
-              ("'date',daily.day,", "'date',daily.metric_day,"),
-              ("order by daily.day)", "order by daily.metric_day)"),
-              ("select date_trunc('day',created_at)::date day,currency,", "select date_trunc('day',created_at)::date as metric_day,currency,"),
-          )
-
-          for old, new in replacements:
-              count = updated.count(old)
-              if count == 1:
-                  updated = updated.replace(old, new, 1)
-              elif count == 0 and new in updated:
-                  continue
-              else:
-                  raise SystemExit(f'Unexpected occurrence count for {old!r}: {count}')
-
-          if updated != original:
-              path.write_text(updated, encoding='utf-8')
-          PY
-          git diff --check
-          if git diff --quiet -- supabase/migrations/202608010600_finance_console_completion.sql; then
-            echo 'Migration alias is already repaired.'
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add supabase/migrations/202608010600_finance_console_completion.sql
-          git commit -m 'Fix Finance Console daily reporting alias'
-          git push origin HEAD:${{ github.head_ref }}
-
   frontend:
     name: Validate completed Finance Console frontend
     runs-on: ubuntu-latest
