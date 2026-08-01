@@ -1,0 +1,88 @@
+name: Patch Phase 1D Deno Types Once
+
+on:
+  push:
+    branches: [supabase-integration]
+    paths:
+      - '.github/workflows/patch-phase1d-deno-types-once.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: patch-phase1d-deno-types-once
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: supabase-integration
+          fetch-depth: 0
+
+      - name: Patch feature branch and self-clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git worktree add /tmp/phase1d origin/feature/certificate-master-bootstrap-phase1d
+          cd /tmp/phase1d
+          git switch -c phase1d-deno-type-fix
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          generator = Path('scripts/certificate-masters/cipmn-approved-completion-master.ts')
+          content = generator.read_text(encoding='utf-8')
+          old_import = "import { jsPDF } from 'npm:jspdf@4.2.1';\n"
+          new_import = (
+              "import { jsPDF } from 'npm:jspdf@4.2.1';\n"
+              "\n"
+              "type JsPdfDocument = InstanceType<typeof jsPDF>;\n"
+          )
+          if content.count(old_import) != 1:
+              raise SystemExit('Expected exactly one jsPDF import.')
+          content = content.replace(old_import, new_import, 1)
+          replacements = content.count('doc: jsPDF')
+          if replacements != 4:
+              raise SystemExit(f'Expected four jsPDF parameter annotations, found {replacements}.')
+          content = content.replace('doc: jsPDF', 'doc: JsPdfDocument')
+          generator.write_text(content, encoding='utf-8')
+
+          test = Path('scripts/certificate-masters/cipmn-approved-completion-master.test.ts')
+          test_content = test.read_text(encoding='utf-8')
+          old_assert = """const assert = (condition: unknown, message: string): asserts condition => {
+            if (!condition) throw new Error(message);
+          };
+          """
+          new_assert = """function assert(condition: unknown, message: string): asserts condition {
+            if (!condition) throw new Error(message);
+          }
+          """
+          if test_content.count(old_assert) != 1:
+              raise SystemExit('Expected exactly one assertion helper block.')
+          test.write_text(test_content.replace(old_assert, new_assert), encoding='utf-8')
+          PY
+
+          grep -q 'type JsPdfDocument = InstanceType<typeof jsPDF>;' \
+            scripts/certificate-masters/cipmn-approved-completion-master.ts
+          test "$(grep -c 'doc: JsPdfDocument' scripts/certificate-masters/cipmn-approved-completion-master.ts)" -eq 4
+          ! grep -q 'doc: jsPDF' scripts/certificate-masters/cipmn-approved-completion-master.ts
+          grep -q '^function assert(condition: unknown, message: string): asserts condition {' \
+            scripts/certificate-masters/cipmn-approved-completion-master.test.ts
+
+          git add \
+            scripts/certificate-masters/cipmn-approved-completion-master.ts \
+            scripts/certificate-masters/cipmn-approved-completion-master.test.ts
+          git diff --cached --check
+          git commit -m 'Fix Phase 1D Deno type compatibility'
+          git push origin HEAD:feature/certificate-master-bootstrap-phase1d
+
+          cd "$GITHUB_WORKSPACE"
+          git rm .github/workflows/patch-phase1d-deno-types-once.yml
+          git commit -m 'Remove one-use Phase 1D type patch control'
+          git push origin HEAD:supabase-integration
