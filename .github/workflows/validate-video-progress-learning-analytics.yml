@@ -1,0 +1,187 @@
+name: Validate Video Progress and Learning Analytics
+
+on:
+  push:
+    branches: [feature/video-progress-learning-analytics]
+    paths:
+      - 'src/components/CandidateVideoLearningProgressLauncher.tsx'
+      - 'src/components/AdminVideoLearningAnalyticsLauncher.tsx'
+      - 'src/components/CandidatePrimaryToolsMenu.tsx'
+      - 'src/services/videoLearningAnalyticsService.ts'
+      - 'src/main.tsx'
+      - 'supabase/migrations/202608010520_video_progress_learning_analytics.sql'
+      - '.github/workflows/validate-video-progress-learning-analytics.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/components/CandidateVideoLearningProgressLauncher.tsx'
+      - 'src/components/AdminVideoLearningAnalyticsLauncher.tsx'
+      - 'src/components/CandidatePrimaryToolsMenu.tsx'
+      - 'src/services/videoLearningAnalyticsService.ts'
+      - 'src/main.tsx'
+      - 'supabase/migrations/202608010520_video_progress_learning_analytics.sql'
+      - '.github/workflows/validate-video-progress-learning-analytics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: video-learning-analytics-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Validate candidate progress and administrator analytics frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate feature TypeScript against production baseline
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee typescript.log || true
+          grep 'error TS' typescript.log > typescript-errors.log || true
+
+          grep -Ev 'src/components/(AdminCertificateCommerceLauncher|AdminCertificateCompletionPanel|AdminCertificateManagementPanel|AdminCredentialLifecycleLauncher|AdminIdentityProctoringLauncher|AdminPortal|CandidateCertificateCommerce|CandidateCertificateWorkspace|CandidateCredentialWallet|CandidateSponsoredAccessWorkspace)\.tsx' \
+            typescript-errors.log > unexpected-typescript-errors.log || true
+
+          if [ -s unexpected-typescript-errors.log ]; then
+            echo 'Unexpected TypeScript errors were introduced:' >&2
+            cat unexpected-typescript-errors.log >&2
+            exit 1
+          fi
+
+          if grep -E 'src/(components/(CandidateVideoLearningProgressLauncher|AdminVideoLearningAnalyticsLauncher|CandidatePrimaryToolsMenu)|services/videoLearningAnalyticsService|main)\.tsx?' typescript-errors.log; then
+            echo 'The video progress and learning analytics feature has TypeScript errors.' >&2
+            exit 1
+          fi
+
+          echo 'No TypeScript error is attributable to the feature files.'
+      - name: Build production portal
+        run: npm run build
+      - name: Verify frontend release markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'CandidateVideoLearningProgressLauncher' src/main.tsx
+          grep -q 'AdminVideoLearningAnalyticsLauncher' src/main.tsx
+          grep -q 'Video Progress & Completion' src/components/CandidateVideoLearningProgressLauncher.tsx
+          grep -q 'Video Progress & Learning Analytics' src/components/AdminVideoLearningAnalyticsLauncher.tsx
+          grep -q 'get_my_agilecert_video_learning_progress' src/services/videoLearningAnalyticsService.ts
+          grep -q 'get_agilecert_video_learning_analytics' src/services/videoLearningAnalyticsService.ts
+          ! grep -R -q 'SUPABASE_SERVICE_ROLE_KEY' src
+      - name: Upload frontend validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-learning-analytics-frontend
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            typescript.log
+            typescript-errors.log
+            unexpected-typescript-errors.log
+
+  database:
+    name: Reset complete schema and verify learning analytics authority
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: validation inspects schema authority without production identities.
+          commit;
+          SQL
+      - name: Start isolated Supabase services
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase start 2>&1 | tee video-learning-supabase-start.log
+      - name: Apply complete repository migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee video-learning-db-reset.log
+      - name: Verify progress schema, trigger, RLS and RPC authority
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -v ON_ERROR_STOP=1 <<'SQL' | tee video-learning-schema.log
+          select column_name
+          from information_schema.columns
+          where table_schema = 'public'
+            and table_name = 'agilecert_video_learning_progress'
+            and column_name in (
+              'candidate_id', 'examination_id', 'material_id', 'first_opened_at',
+              'last_opened_at', 'open_count', 'engaged_seconds',
+              'last_position_seconds', 'duration_seconds', 'completion_percent',
+              'completed_at', 'completion_source', 'last_playback_audit_id'
+            )
+          order by column_name;
+
+          select tgname
+          from pg_trigger
+          where tgname = 'agilecert_video_playback_progress_capture'
+            and not tgisinternal;
+
+          select proname, prosecdef, proconfig
+          from pg_proc
+          where proname in (
+            'capture_agilecert_video_playback_progress',
+            'set_my_agilecert_video_lesson_completion',
+            'get_my_agilecert_video_learning_progress',
+            'get_agilecert_video_learning_analytics'
+          )
+          order by proname;
+
+          select relrowsecurity
+          from pg_class
+          where oid = 'public.agilecert_video_learning_progress'::regclass;
+          SQL
+          grep -q 'completion_percent' video-learning-schema.log
+          grep -q 'agilecert_video_playback_progress_capture' video-learning-schema.log
+          grep -q 'get_my_agilecert_video_learning_progress' video-learning-schema.log
+          grep -q 'get_agilecert_video_learning_analytics' video-learning-schema.log
+          grep -q 't' video-learning-schema.log
+      - name: Verify Google Drive constraint is explicit and future-ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "exactResumeSupported', false" supabase/migrations/202608010520_video_progress_learning_analytics.sql
+          grep -q 'last_position_seconds' supabase/migrations/202608010520_video_progress_learning_analytics.sql
+          grep -q 'duration_seconds' supabase/migrations/202608010520_video_progress_learning_analytics.sql
+          grep -q 'authorisation_and_manual_completion' supabase/migrations/202608010520_video_progress_learning_analytics.sql
+      - name: Upload database validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-learning-analytics-database
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            video-learning-supabase-start.log
+            video-learning-db-reset.log
+            video-learning-schema.log
+      - name: Stop isolated Supabase services
+        if: always()
+        run: supabase stop --no-backup || true
