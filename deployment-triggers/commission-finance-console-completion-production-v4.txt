@@ -1,0 +1,3 @@
+Authorised Finance Console completion production commissioning trigger.
+
+When production has no active Examination Administrator, the harness uses the protected update_agilecert_person_admin RPC to apply a transaction-scoped role, then rolls back and verifies profile, finance, order, payment, coupon, price, permission and audit hashes.
