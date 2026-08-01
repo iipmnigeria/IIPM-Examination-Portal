@@ -1,3 +1,4 @@
+# One-use patch; self-removes after success.
 name: Patch Dormant Pilot Diagnostics Once
 on:
   push:
