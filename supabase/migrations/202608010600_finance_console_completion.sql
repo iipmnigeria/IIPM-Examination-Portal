@@ -1725,10 +1725,10 @@ begin
       ), '[]'::jsonb),
       'weeklyPerformance', coalesce((
         select jsonb_agg(jsonb_build_object(
-          'week',weekly.week,'currency',weekly.currency,'paidAmountMinor',weekly.paid_amount,'discountAmountMinor',weekly.discount_amount,'orders',weekly.orders
-        ) order by weekly.week)
+          'week',weekly.metric_week,'currency',weekly.currency,'paidAmountMinor',weekly.paid_amount,'discountAmountMinor',weekly.discount_amount,'orders',weekly.orders
+        ) order by weekly.metric_week)
         from (
-          select to_char(date_trunc('week',created_at),'IYYY-"W"IW') week,currency,sum(payable_amount_minor)::bigint paid_amount,sum(discount_amount_minor)::bigint discount_amount,count(*)::integer orders
+          select to_char(date_trunc('week',created_at),'IYYY-"W"IW') as metric_week,currency,sum(payable_amount_minor)::bigint paid_amount,sum(discount_amount_minor)::bigint discount_amount,count(*)::integer orders
           from public.exam_orders order_row
           where order_row.created_at between v_from and v_to and order_row.status in ('paid','waived')
           group by to_char(date_trunc('week',created_at),'IYYY-"W"IW'),currency
@@ -1736,10 +1736,10 @@ begin
       ), '[]'::jsonb),
       'monthlyPerformance', coalesce((
         select jsonb_agg(jsonb_build_object(
-          'month',monthly.month,'currency',monthly.currency,'paidAmountMinor',monthly.paid_amount,'discountAmountMinor',monthly.discount_amount,'orders',monthly.orders
-        ) order by monthly.month)
+          'month',monthly.metric_month,'currency',monthly.currency,'paidAmountMinor',monthly.paid_amount,'discountAmountMinor',monthly.discount_amount,'orders',monthly.orders
+        ) order by monthly.metric_month)
         from (
-          select to_char(date_trunc('month',created_at),'YYYY-MM') month,currency,sum(payable_amount_minor)::bigint paid_amount,sum(discount_amount_minor)::bigint discount_amount,count(*)::integer orders
+          select to_char(date_trunc('month',created_at),'YYYY-MM') as metric_month,currency,sum(payable_amount_minor)::bigint paid_amount,sum(discount_amount_minor)::bigint discount_amount,count(*)::integer orders
           from public.exam_orders order_row
           where order_row.created_at between v_from and v_to and order_row.status in ('paid','waived')
           group by to_char(date_trunc('month',created_at),'YYYY-MM'),currency
