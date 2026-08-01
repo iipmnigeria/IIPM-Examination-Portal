@@ -1,4 +1,6 @@
 import { jsPDF } from 'npm:jspdf@4.2.1';
+
+type JsPdfDocument = InstanceType<typeof jsPDF>;
 import type { CertificateOverlayElement } from '../../supabase/functions/render-certificate-pdf/render.ts';
 import { IIPM_CERTIFICATE_LOGO_DATA_URI } from '../../src/assets/cipmnCertificateIipmLogo.ts';
 import { CIPMN_CERTIFICATE_LOGO_DATA_URI } from '../../src/assets/cipmnCertificateCipmnLogo.ts';
@@ -225,14 +227,14 @@ const LIGHT_GREEN: [number, number, number] = [246, 250, 247];
 const BORDER_GREEN: [number, number, number] = [5, 77, 57];
 const BOX_BORDER: [number, number, number] = [191, 219, 205];
 
-const drawCornerMark = (doc: jsPDF, x: number, y: number): void => {
+const drawCornerMark = (doc: JsPdfDocument, x: number, y: number): void => {
   doc.setFillColor(...BORDER_GREEN);
   doc.circle(x, y, 1.15, 'F');
   doc.setFillColor(...GOLD);
   doc.circle(x, y, 0.45, 'F');
 };
 
-const drawCalendarIcon = (doc: jsPDF, x: number, y: number): void => {
+const drawCalendarIcon = (doc: JsPdfDocument, x: number, y: number): void => {
   doc.setDrawColor(...PRIMARY);
   doc.setLineWidth(0.55);
   doc.roundedRect(x, y + 1.2, 6.4, 6.2, 0.7, 0.7, 'S');
@@ -244,7 +246,7 @@ const drawCalendarIcon = (doc: jsPDF, x: number, y: number): void => {
   doc.circle(x + 4.4, y + 4.7, 0.32, 'F');
 };
 
-const drawCertificateIcon = (doc: jsPDF, x: number, y: number): void => {
+const drawCertificateIcon = (doc: JsPdfDocument, x: number, y: number): void => {
   doc.setDrawColor(...PRIMARY);
   doc.setLineWidth(0.5);
   doc.roundedRect(x, y, 7.2, 6.1, 0.6, 0.6, 'S');
@@ -256,7 +258,7 @@ const drawCertificateIcon = (doc: jsPDF, x: number, y: number): void => {
 };
 
 const drawInformationBoxShell = (
-  doc: jsPDF,
+  doc: JsPdfDocument,
   x: number,
   y: number,
   width: number,
