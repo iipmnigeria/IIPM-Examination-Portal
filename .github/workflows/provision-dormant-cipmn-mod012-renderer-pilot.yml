@@ -1,0 +1,394 @@
+name: Provision Dormant CIPMN MOD-012 Renderer Pilot
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/provision-dormant-cipmn-mod012-renderer-pilot.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provision-dormant-cipmn-mod012-renderer-pilot
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Provision approved master without renderer activation
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPECTED_COMMIT: '21d1c18403c28ba9313cc4969d954648c2f95454'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      MASTER_SHA256: 'fb1efa5fc41546d49ae319dd9bcb511e5728986a5ff9d23796b96fc20147ec8d'
+      MASTER_URI: 'ss:///certificate-masters/managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf'
+      MASTER_PATH: 'managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.5.6
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact approved source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          test -s scripts/certificate-masters/cipmn-approved-completion-master.ts
+          test -s supabase/migrations/202608012400_certificate_template_contract_phase1d.sql
+          grep -q 'CIPMN_COMPLETION_APPROVED' scripts/certificate-masters/cipmn-approved-completion-master.ts
+          grep -q 'A global assignment is prohibited' docs/CERTIFICATE_MASTER_BOOTSTRAP_PHASE1D.md
+
+      - name: Rebuild and generate exact approved master
+        shell: bash
+        env:
+          PHASE1D_ARTIFACT_DIR: phase1d-dormant-artifacts
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          rm -rf phase1d-dormant-artifacts
+          deno test --node-modules-dir=auto --allow-env --allow-read --allow-write \
+            scripts/certificate-masters/cipmn-approved-completion-master.test.ts \
+            2>&1 | tee dormant-master-tests.log
+          grep -q 'certificateMasterBootstrapPhase1DVerified' dormant-master-tests.log
+          echo "$MASTER_SHA256  phase1d-dormant-artifacts/cipmn-approved-completion-master-v1.pdf" | sha256sum -c -
+
+      - name: Link project and require current ledger
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+          supabase db push --linked --dry-run 2>&1 | tee dormant-ledger-before.log
+          grep -q 'Remote database is up to date' dormant-ledger-before.log
+
+      - name: Snapshot production and verify dormant target
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          query = r"""
+          with actor as (
+            select id from public.profiles
+            where role = 'super_admin' and is_active
+            order by created_at, id limit 1
+          ), target as (
+            select examination.id, examination.code, examination.title,
+                   examination.programme_id, programme.code as programme_code,
+                   programme.name as programme_name
+            from public.examinations examination
+            left join public.programmes programme on programme.id = examination.programme_id
+            where examination.code = 'CIPMN-MOD-012'
+            limit 1
+          ), protected_functions as (
+            select p.oid::regprocedure::text as identity,
+                   md5(pg_get_functiondef(p.oid)) as definition_hash
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.proname in (
+              'evaluate_agilecert_certificate_eligibility','issue_agilecert_certificate',
+              'verify_agilecert_certificate','create_exam_order','fulfil_paid_exam_order',
+              'create_exam_bulk_order','fulfil_paid_exam_bulk_order',
+              'get_agilecert_certificate_server_render_context',
+              'complete_agilecert_certificate_server_render'
+            )
+          )
+          select jsonb_build_object(
+            'actorId',(select id from actor),
+            'target',(select jsonb_build_object(
+              'examinationId',id,'examinationCode',code,'examinationTitle',title,
+              'programmeId',programme_id,'programmeCode',programme_code,'programmeName',programme_name
+            ) from target),
+            'targetCertificates',(select count(*) from public.agilecert_issued_certificates c where c.examination_id=(select id from target)),
+            'profiles',(select count(*) from public.profiles),
+            'profileHash',(select md5(coalesce(string_agg(id::text||':'||role||':'||is_active::text,'|' order by id),'')) from public.profiles),
+            'examinations',(select count(*) from public.examinations),
+            'attempts',(select count(*) from public.attempts),
+            'issuedCertificates',(select count(*) from public.agilecert_issued_certificates),
+            'certificateHash',(select md5(coalesce(string_agg(id::text||':'||certificate_number||':'||verification_code||':'||status,'|' order by id),'')) from public.agilecert_issued_certificates),
+            'examOrders',(select count(*) from public.exam_orders),
+            'examPayments',(select count(*) from public.exam_payments),
+            'bulkOrders',(select count(*) from public.exam_bulk_orders),
+            'bulkPayments',(select count(*) from public.exam_bulk_payments),
+            'institutions',(select count(*) from public.agilecert_certificate_institutions),
+            'templates',(select count(*) from public.agilecert_certificate_master_templates),
+            'versions',(select count(*) from public.agilecert_certificate_master_versions),
+            'assignments',(select count(*) from public.agilecert_certificate_master_assignments),
+            'rendererEnabled',(select count(*) from public.agilecert_certificate_master_assignments where renderer_enabled),
+            'globalAssignments',(select count(*) from public.agilecert_certificate_master_assignments where scope_type='global'),
+            'bindings',(select count(*) from public.agilecert_certificate_render_bindings),
+            'jobs',(select count(*) from public.agilecert_certificate_render_jobs),
+            'targetObject',(select count(*) from storage.objects where bucket_id='certificate-masters' and name='managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf'),
+            'bucketPrivate',exists(select 1 from storage.buckets where id='certificate-masters' and public=false),
+            'protectedFunctionHash',(select md5(coalesce(string_agg(identity||':'||definition_hash,'|' order by identity),'')) from protected_functions)
+          ) as snapshot;
+          """
+          Path('/tmp/dormant-pre-query.json').write_text(json.dumps({'query':query}),encoding='utf-8')
+          PY
+          curl --fail-with-body --silent --show-error -X POST \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" -H 'Content-Type: application/json' \
+            --data-binary @/tmp/dormant-pre-query.json -o dormant-pre-response.json
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          rows=json.loads(Path('dormant-pre-response.json').read_text())
+          s=rows[0]['snapshot']
+          assert s['actorId'] and s['target'],s
+          assert s['target']['examinationCode']=='CIPMN-MOD-012',s
+          assert s['targetCertificates']==0,s
+          assert s['bucketPrivate'] is True,s
+          for k in ('templates','versions','assignments','rendererEnabled','globalAssignments','bindings','jobs','targetObject'):
+              assert s[k]==0,(k,s)
+          Path('dormant-pre-private.json').write_text(json.dumps(s,indent=2),encoding='utf-8')
+          safe={k:v for k,v in s.items() if k!='actorId'}
+          Path('dormant-pre-safe.json').write_text(json.dumps(safe,indent=2),encoding='utf-8')
+          print(json.dumps(safe,indent=2))
+          PY
+
+      - name: Upload and verify private master
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase storage cp phase1d-dormant-artifacts/cipmn-approved-completion-master-v1.pdf \
+            "$MASTER_URI" --experimental --linked --content-type application/pdf \
+            --cache-control 'private, no-store' 2>&1 | tee dormant-storage-upload.log
+          touch dormant-storage-uploaded.flag
+          rm -f /tmp/dormant-master.pdf
+          supabase storage cp "$MASTER_URI" /tmp/dormant-master.pdf --experimental --linked \
+            2>&1 | tee dormant-storage-download.log
+          echo "$MASTER_SHA256  /tmp/dormant-master.pdf" | sha256sum -c -
+          cmp phase1d-dormant-artifacts/cipmn-approved-completion-master-v1.pdf /tmp/dormant-master.pdf
+
+      - name: Register published master and dormant examination assignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          pre=json.loads(Path('dormant-pre-private.json').read_text())
+          manifest=json.loads(Path('phase1d-dormant-artifacts/cipmn-approved-completion-manifest-v1.json').read_text())
+          overlay=json.loads(Path('phase1d-dormant-artifacts/cipmn-approved-completion-overlay-v1.json').read_text())
+          report=json.loads(Path('phase1d-dormant-artifacts/cipmn-approved-completion-test-report-v1.json').read_text())
+          actor=pre['actorId']; exam=pre['target']['examinationId']
+          def j(v): return json.dumps(v,separators=(',',':'),ensure_ascii=False)
+          quality={
+            'pilotScope':'dormant_single_examination',
+            'physicalPrintReview':'pending_before_activation',
+            'rendererActivationAllowed':False,
+            'sourceValidationRun':30722002471,
+            'masterSha256':manifest['master']['sha256'],
+            'overlaySha256':manifest['overlay']['sha256'],
+            'testReport':report
+          }
+          query=f"""
+          begin;
+          create temp table dormant_result(institution_id uuid,template_id uuid,version_id uuid,assignment_id uuid) on commit preserve rows;
+          select set_config('request.jwt.claim.sub','{actor}',true);
+          select set_config('request.jwt.claim.role','authenticated',true);
+          do $body$
+          declare v_institution uuid; v_category uuid; v_template uuid; v_version uuid; v_assignment uuid;
+          begin
+            if not public.agilecert_certificate_has_permission('certificate.templates.manage')
+              or not public.agilecert_certificate_has_permission('certificate.templates.publish')
+              or not public.agilecert_certificate_has_permission('certificate.templates.approve')
+              or not public.agilecert_certificate_has_permission('certificate.assignments.manage') then
+              raise exception 'Commissioning actor lacks required authority.';
+            end if;
+            if (select count(*) from public.agilecert_certificate_master_templates)<>0
+              or (select count(*) from public.agilecert_certificate_master_versions)<>0
+              or (select count(*) from public.agilecert_certificate_master_assignments)<>0 then
+              raise exception 'Certificate master state changed after readiness approval.';
+            end if;
+            if not exists(select 1 from storage.objects where bucket_id='certificate-masters' and name='{manifest['master']['storagePath']}') then
+              raise exception 'Approved private master object is unavailable.';
+            end if;
+            v_institution := (public.certificate_admin_upsert_institution(
+              null,'IIPM-CIPMN','Integrated Institute of Professional Management in Collaboration with CIPMN',
+              'IIPM / CIPMN','Integrated Institute of Professional Management',
+              'IIPM RC1257013; CIPMN approved training collaboration','NG','https://iipmi.org',null,true
+            )->>'id')::uuid;
+            select id into v_category from public.agilecert_certificate_categories where code='completion' and is_active;
+            if v_category is null then raise exception 'Completion category unavailable.'; end if;
+            v_template := (public.certificate_admin_create_template(
+              v_institution,v_category,'CIPMN_COMPLETION_APPROVED',
+              'Approved CIPMN Licensing Module Completion Certificate',
+              'Managed A4 landscape master reproducing the approved CIPMN completion certificate composition.',
+              'landscape','A4','Dormant CIPMN-MOD-012 pilot; renderer activation prohibited pending print review.'
+            )->>'id')::uuid;
+            perform public.certificate_admin_set_template_contract(
+              v_template,$required${j(manifest['requiredFields'])}$required$::jsonb,
+              $standard${j(manifest['contract']['template']['qualityStandard'])}$standard$::jsonb,
+              'Approved fixed-artwork master with eight controlled dynamic fields.'
+            );
+            v_version := (public.certificate_admin_register_template_version(
+              v_template,'pdf','certificate-masters','{manifest['master']['storagePath']}',
+              'cipmn-approved-completion-master-v1.pdf','application/pdf',18369,
+              '{manifest['master']['sha256']}','Deterministic Phase 1D master; activation remains prohibited.'
+            )->>'id')::uuid;
+            perform public.certificate_admin_save_template_design(
+              v_version,$overlay${j(overlay)}$overlay$::jsonb,$sample${j(manifest['previewSample'])}$sample$::jsonb,
+              '{{"showSafeArea":true,"showGrid":false,"zoom":1,"backgroundMode":"master"}}'::jsonb,
+              841.89,595.28,'Eight-field overlay verified against immutable master.'
+            );
+            perform public.certificate_admin_transition_template_version(v_version,'submit_review','Submit deterministic master for dormant pilot review.');
+            perform public.certificate_admin_record_quality_review(
+              v_version,'waived',$report${j(quality)}$report$::jsonb,
+              'Digital quality checks passed. Physical print review remains mandatory before renderer activation.'
+            );
+            perform public.certificate_admin_transition_template_version(v_version,'approve','Approve only for dormant examination-specific provisioning.');
+            perform public.certificate_admin_transition_template_version(v_version,'publish','Publish without renderer activation.');
+            v_assignment := (public.certificate_admin_assign_template(
+              v_template,v_version,'examination',null,'{exam}'::uuid,10,now(),null
+            )->>'id')::uuid;
+            if not exists(select 1 from public.agilecert_certificate_master_assignments
+              where id=v_assignment and scope_type='examination' and examination_id='{exam}'::uuid
+                and is_active and renderer_enabled=false) then
+              raise exception 'Dormant examination assignment was not created correctly.';
+            end if;
+            if exists(select 1 from public.agilecert_certificate_master_assignments where scope_type in ('global','programme')) then
+              raise exception 'A prohibited broad assignment was created.';
+            end if;
+            if public.resolve_agilecert_certificate_render_master('{exam}'::uuid,'completion',now()) is not null then
+              raise exception 'Dormant assignment unexpectedly resolves for managed rendering.';
+            end if;
+            if exists(select 1 from public.agilecert_certificate_render_bindings)
+              or exists(select 1 from public.agilecert_certificate_render_jobs) then
+              raise exception 'Provisioning unexpectedly created render activity.';
+            end if;
+            insert into dormant_result values(v_institution,v_template,v_version,v_assignment);
+          end;$body$;
+          commit;
+          select jsonb_build_object('institutionId',institution_id,'templateId',template_id,'versionId',version_id,'assignmentId',assignment_id) as provisioning from dormant_result;
+          """
+          Path('/tmp/dormant-provision-query.json').write_text(json.dumps({'query':query}),encoding='utf-8')
+          PY
+          status=$(curl --silent --show-error -X POST \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" -H 'Content-Type: application/json' \
+            --data-binary @/tmp/dormant-provision-query.json -o dormant-provision-response.json -w '%{http_code}')
+          case "$status" in 2??) touch dormant-provision-committed.flag;; *) cat dormant-provision-response.json; exit 1;; esac
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          rows=json.loads(Path('dormant-provision-response.json').read_text())
+          result=next((r['provisioning'] for r in rows if isinstance(r,dict) and r.get('provisioning')),None)
+          assert result,rows
+          Path('dormant-provision-safe.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
+          print(json.dumps(result,indent=2))
+          PY
+
+      - name: Verify dormant production state and preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          ids=json.loads(Path('dormant-provision-safe.json').read_text())
+          pre=json.loads(Path('dormant-pre-private.json').read_text())
+          query=f"""
+          select jsonb_build_object(
+            'profiles',(select count(*) from public.profiles),
+            'profileHash',(select md5(coalesce(string_agg(id::text||':'||role||':'||is_active::text,'|' order by id),'')) from public.profiles),
+            'examinations',(select count(*) from public.examinations),
+            'attempts',(select count(*) from public.attempts),
+            'issuedCertificates',(select count(*) from public.agilecert_issued_certificates),
+            'certificateHash',(select md5(coalesce(string_agg(id::text||':'||certificate_number||':'||verification_code||':'||status,'|' order by id),'')) from public.agilecert_issued_certificates),
+            'examOrders',(select count(*) from public.exam_orders),'examPayments',(select count(*) from public.exam_payments),
+            'bulkOrders',(select count(*) from public.exam_bulk_orders),'bulkPayments',(select count(*) from public.exam_bulk_payments),
+            'institutions',(select count(*) from public.agilecert_certificate_institutions),
+            'templates',(select count(*) from public.agilecert_certificate_master_templates),
+            'versions',(select count(*) from public.agilecert_certificate_master_versions),
+            'assignments',(select count(*) from public.agilecert_certificate_master_assignments),
+            'rendererEnabled',(select count(*) from public.agilecert_certificate_master_assignments where renderer_enabled),
+            'globalAssignments',(select count(*) from public.agilecert_certificate_master_assignments where scope_type='global'),
+            'programmeAssignments',(select count(*) from public.agilecert_certificate_master_assignments where scope_type='programme'),
+            'bindings',(select count(*) from public.agilecert_certificate_render_bindings),
+            'jobs',(select count(*) from public.agilecert_certificate_render_jobs),
+            'targetObject',(select count(*) from storage.objects where bucket_id='certificate-masters' and name='{pre['target']['examinationCode'] and 'managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf'}'),
+            'template',(select jsonb_build_object('code',code,'status',status,'currentVersionId',current_version_id,'requiredFields',required_fields) from public.agilecert_certificate_master_templates where id='{ids['templateId']}'::uuid),
+            'version',(select jsonb_build_object('status',status,'qualityStatus',quality_status,'sha256',sha256,'fileSizeBytes',file_size_bytes,'overlayElements',jsonb_array_length(overlay_schema),'overlayValid',(public.certificate_designer_validate_overlay(id,overlay_schema)->>'valid')::boolean) from public.agilecert_certificate_master_versions where id='{ids['versionId']}'::uuid),
+            'assignment',(select jsonb_build_object('scopeType',scope_type,'examinationId',examination_id,'isActive',is_active,'rendererEnabled',renderer_enabled) from public.agilecert_certificate_master_assignments where id='{ids['assignmentId']}'::uuid),
+            'resolver',public.resolve_agilecert_certificate_render_master('{pre['target']['examinationId']}'::uuid,'completion',now())
+          ) as verification;
+          """
+          Path('/tmp/dormant-post-query.json').write_text(json.dumps({'query':query}),encoding='utf-8')
+          PY
+          curl --fail-with-body --silent --show-error -X POST \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" -H 'Content-Type: application/json' \
+            --data-binary @/tmp/dormant-post-query.json -o dormant-post-response.json
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          pre=json.loads(Path('dormant-pre-private.json').read_text()); post=json.loads(Path('dormant-post-response.json').read_text())[0]['verification']
+          for k in ('profiles','profileHash','examinations','attempts','issuedCertificates','certificateHash','examOrders','examPayments','bulkOrders','bulkPayments','bindings','jobs'):
+              assert post[k]==pre[k],(k,pre[k],post[k])
+          assert post['institutions']==pre['institutions']+1,post
+          assert post['templates']==1 and post['versions']==1 and post['assignments']==1,post
+          assert post['rendererEnabled']==0 and post['globalAssignments']==0 and post['programmeAssignments']==0,post
+          assert post['bindings']==0 and post['jobs']==0 and post['targetObject']==1,post
+          assert post['resolver'] is None,post
+          assert post['template']['code']=='CIPMN_COMPLETION_APPROVED' and post['template']['status']=='published',post
+          assert len(post['template']['requiredFields'])==8,post
+          assert post['version']['status']=='published' and post['version']['qualityStatus']=='waived',post
+          assert post['version']['sha256']=='fb1efa5fc41546d49ae319dd9bcb511e5728986a5ff9d23796b96fc20147ec8d',post
+          assert post['version']['fileSizeBytes']==18369 and post['version']['overlayElements']==8 and post['version']['overlayValid'] is True,post
+          assert post['assignment']['scopeType']=='examination' and post['assignment']['examinationId']==pre['target']['examinationId'],post
+          assert post['assignment']['isActive'] is True and post['assignment']['rendererEnabled'] is False,post
+          post['target']=pre['target']; Path('dormant-post-safe.json').write_text(json.dumps(post,indent=2),encoding='utf-8'); print(json.dumps(post,indent=2))
+          PY
+          supabase db push --linked --dry-run 2>&1 | tee dormant-ledger-final.log
+          grep -q 'Remote database is up to date' dormant-ledger-final.log
+
+      - name: Remove uploaded object after pre-commit failure
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          if [ -f dormant-storage-uploaded.flag ] && [ ! -f dormant-provision-committed.flag ]; then
+            supabase storage rm "$MASTER_URI" --experimental --linked 2>&1 | tee dormant-storage-cleanup.log
+          fi
+
+      - name: Upload sanitized provisioning evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dormant-cipmn-mod012-renderer-pilot-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            dormant-master-tests.log
+            dormant-ledger-before.log
+            dormant-pre-safe.json
+            dormant-storage-upload.log
+            dormant-storage-download.log
+            dormant-provision-safe.json
+            dormant-post-safe.json
+            dormant-ledger-final.log
+            dormant-storage-cleanup.log
+            phase1d-dormant-artifacts/
