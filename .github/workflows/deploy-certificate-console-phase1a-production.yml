@@ -1,0 +1,412 @@
+name: Deploy Certificate Console Phase 1A Production
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-certificate-console-phase1a-production.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-certificate-console-phase1a-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Deploy and verify Certificate Console Phase 1A
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPECTED_COMMIT: 'f37851d8ade02956d8ac55739884806abff2c7a0'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Check out exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact approved release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+
+          cat > certificate-console-expected-migrations.txt <<'EOF'
+          202608011300_certificate_master_console_phase1a.sql
+          EOF
+
+          test -s supabase/migrations/202608011300_certificate_master_console_phase1a.sql
+          test -s supabase/tests/certificate_management_console_phase1a_smoke.sql
+          test -s src/components/AdminCertificateManagementLauncher.tsx
+          test -s src/components/AdminCertificateTemplateConsole.tsx
+          test -s src/services/certificateTemplateAdminService.ts
+
+          grep -q 'agilecert_certificate_master_templates' supabase/migrations/202608011300_certificate_master_console_phase1a.sql
+          grep -q 'agilecert_certificate_master_versions' supabase/migrations/202608011300_certificate_master_console_phase1a.sql
+          grep -q 'agilecert_certificate_master_assignments' supabase/migrations/202608011300_certificate_master_console_phase1a.sql
+          grep -q 'certificate-masters' supabase/migrations/202608011300_certificate_master_console_phase1a.sql
+          grep -q 'certificate-assets' supabase/migrations/202608011300_certificate_master_console_phase1a.sql
+          grep -q 'resolve_agilecert_certificate_master' supabase/migrations/202608011300_certificate_master_console_phase1a.sql
+          grep -q 'revoke all on function public.resolve_agilecert_certificate_master' supabase/migrations/202608011300_certificate_master_console_phase1a.sql
+          ! grep -R -E '(sk_(live|test)_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9]{20,})' \
+            supabase/migrations/202608011300_certificate_master_console_phase1a.sql \
+            src/components/AdminCertificateTemplateConsole.tsx \
+            src/services/certificateTemplateAdminService.ts
+
+      - name: Validate exact frontend source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum \
+            > certificate-console-approved-dist.sha256
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Snapshot protected production authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with protected_functions as (
+            select
+              p.oid::regprocedure::text as identity,
+              md5(pg_get_functiondef(p.oid)) as definition_hash
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in (
+                'evaluate_agilecert_certificate_eligibility',
+                'issue_agilecert_certificate',
+                'set_agilecert_certificate_status',
+                'verify_agilecert_certificate',
+                'create_exam_order',
+                'fulfil_paid_exam_order',
+                'create_exam_bulk_order',
+                'fulfil_paid_exam_bulk_order'
+              )
+          ), legacy_columns as (
+            select md5(coalesce(string_agg(
+              column_name || ':' || data_type || ':' || is_nullable,
+              '|' order by ordinal_position
+            ), '')) as definition_hash
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'agilecert_certificate_templates'
+          )
+          select jsonb_build_object(
+            'legacyTemplateRelation', to_regclass('public.agilecert_certificate_templates')::text,
+            'legacyTemplateColumnsHash', (select definition_hash from legacy_columns),
+            'protectedFunctionCount', (select count(*) from protected_functions),
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(identity || ':' || definition_hash, '|' order by identity), ''))
+              from protected_functions
+            ),
+            'legacyTemplates', (select count(*) from public.agilecert_certificate_templates),
+            'eligibilityRecords', (select count(*) from public.agilecert_certificate_eligibility_records),
+            'issuedCertificates', (select count(*) from public.agilecert_issued_certificates),
+            'attempts', (select count(*) from public.attempts),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments)
+          ) as verification;
+          """
+          Path('/tmp/certificate-console-pre-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/certificate-console-pre-query.json \
+            -o certificate-console-pre-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('certificate-console-pre-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('legacyTemplateRelation') == 'agilecert_certificate_templates', result
+          assert result.get('protectedFunctionCount', 0) >= 4, result
+          Path('certificate-console-pre-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Require exactly one approved pending migration
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee certificate-console-production-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' \
+            certificate-console-production-dry-run.log \
+            | sort -u > certificate-console-production-pending.txt || true
+          diff -u certificate-console-expected-migrations.txt \
+            certificate-console-production-pending.txt
+          test "$(wc -l < certificate-console-production-pending.txt | tr -d ' ')" -eq 1
+
+      - name: Apply approved Phase 1A migration
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked 2>&1 \
+            | tee certificate-console-production-deploy.log
+          grep -q 'Applying migration 202608011300_certificate_master_console_phase1a.sql' \
+            certificate-console-production-deploy.log
+          grep -q 'Finished supabase db push' certificate-console-production-deploy.log
+
+      - name: Verify live Certificate Console authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with protected_functions as (
+            select
+              p.oid::regprocedure::text as identity,
+              md5(pg_get_functiondef(p.oid)) as definition_hash
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in (
+                'evaluate_agilecert_certificate_eligibility',
+                'issue_agilecert_certificate',
+                'set_agilecert_certificate_status',
+                'verify_agilecert_certificate',
+                'create_exam_order',
+                'fulfil_paid_exam_order',
+                'create_exam_bulk_order',
+                'fulfil_paid_exam_bulk_order'
+              )
+          ), legacy_columns as (
+            select md5(coalesce(string_agg(
+              column_name || ':' || data_type || ':' || is_nullable,
+              '|' order by ordinal_position
+            ), '')) as definition_hash
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'agilecert_certificate_templates'
+          ), required_tables(table_name) as (
+            values
+              ('agilecert_certificate_permission_definitions'),
+              ('agilecert_certificate_role_permissions'),
+              ('agilecert_certificate_institutions'),
+              ('agilecert_certificate_categories'),
+              ('agilecert_certificate_assets'),
+              ('agilecert_certificate_master_templates'),
+              ('agilecert_certificate_master_versions'),
+              ('agilecert_certificate_master_assignments'),
+              ('agilecert_certificate_master_audit')
+          ), required_functions(function_name) as (
+            values
+              ('get_my_certificate_management_access'),
+              ('get_certificate_management_console_snapshot'),
+              ('certificate_admin_upsert_institution'),
+              ('certificate_admin_upsert_category'),
+              ('certificate_admin_create_template'),
+              ('certificate_admin_register_template_version'),
+              ('certificate_admin_review_template_quality'),
+              ('certificate_admin_transition_template_version'),
+              ('certificate_admin_register_asset'),
+              ('certificate_admin_set_asset_status'),
+              ('certificate_admin_assign_template'),
+              ('certificate_admin_set_assignment_active'),
+              ('certificate_admin_set_role_permission'),
+              ('resolve_agilecert_certificate_master')
+          )
+          select jsonb_build_object(
+            'migrationApplied', exists (
+              select 1 from supabase_migrations.schema_migrations
+              where version = '202608011300'
+            ),
+            'legacyTemplateRelation', to_regclass('public.agilecert_certificate_templates')::text,
+            'legacyTemplateColumnsHash', (select definition_hash from legacy_columns),
+            'requiredTables', (
+              select count(*) from required_tables required
+              where to_regclass('public.' || required.table_name) is not null
+            ),
+            'rlsTables', (
+              select count(*)
+              from required_tables required
+              join pg_class relation on relation.relname = required.table_name
+              join pg_namespace namespace on namespace.oid = relation.relnamespace
+              where namespace.nspname = 'public' and relation.relrowsecurity = true
+            ),
+            'securityDefinerFunctions', (
+              select count(distinct required.function_name)
+              from required_functions required
+              join pg_proc function_row on function_row.proname = required.function_name
+              join pg_namespace namespace_row on namespace_row.oid = function_row.pronamespace
+              where namespace_row.nspname = 'public'
+                and function_row.prosecdef = true
+            ),
+            'resolverDeniedToAuthenticated', not has_function_privilege(
+              'authenticated', 'public.resolve_agilecert_certificate_master(text,uuid,uuid,timestamptz)', 'execute'
+            ),
+            'directAuthenticatedGrants', (
+              select count(*)
+              from information_schema.role_table_grants grant_row
+              join required_tables required on required.table_name = grant_row.table_name
+              where grant_row.table_schema = 'public'
+                and grant_row.grantee in ('authenticated', 'anon', 'PUBLIC')
+            ),
+            'institutions', (
+              select count(*) from public.agilecert_certificate_institutions
+              where code in ('IIPM', 'CIPMN') and is_active = true
+            ),
+            'categories', (
+              select count(*) from public.agilecert_certificate_categories
+              where code in ('completion', 'achievement', 'professional') and is_active = true
+            ),
+            'permissionDefinitions', (
+              select count(*) from public.agilecert_certificate_permission_definitions
+              where permission_key like 'certificate.%' and is_active = true
+            ),
+            'examAdminDefaultGrants', (
+              select count(*) from public.agilecert_certificate_role_permissions
+              where role = 'exam_admin' and is_granted = true
+            ),
+            'examAdminRestrictedGrants', (
+              select count(*) from public.agilecert_certificate_role_permissions
+              where role = 'exam_admin'
+                and permission_key in (
+                  'certificate.institutions.manage',
+                  'certificate.categories.manage',
+                  'certificate.templates.approve',
+                  'certificate.templates.publish',
+                  'certificate.assets.approve',
+                  'certificate.assignments.manage',
+                  'certificate.permissions.manage'
+                )
+                and is_granted = true
+            ),
+            'privateBuckets', (
+              select count(*) from storage.buckets
+              where id in ('certificate-masters', 'certificate-assets')
+                and public = false
+            ),
+            'protectedFunctionCount', (select count(*) from protected_functions),
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(identity || ':' || definition_hash, '|' order by identity), ''))
+              from protected_functions
+            ),
+            'legacyTemplates', (select count(*) from public.agilecert_certificate_templates),
+            'eligibilityRecords', (select count(*) from public.agilecert_certificate_eligibility_records),
+            'issuedCertificates', (select count(*) from public.agilecert_issued_certificates),
+            'attempts', (select count(*) from public.attempts),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments)
+          ) as verification;
+          """
+          Path('/tmp/certificate-console-post-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/certificate-console-post-query.json \
+            -o certificate-console-post-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          pre = json.loads(Path('certificate-console-pre-verification.json').read_text())[0]['verification']
+          post = json.loads(Path('certificate-console-post-verification.json').read_text())[0]['verification']
+          assert post.get('migrationApplied') is True, post
+          assert post.get('legacyTemplateRelation') == pre.get('legacyTemplateRelation'), (pre, post)
+          assert post.get('legacyTemplateColumnsHash') == pre.get('legacyTemplateColumnsHash'), (pre, post)
+          assert post.get('requiredTables') == 9, post
+          assert post.get('rlsTables') == 9, post
+          assert post.get('securityDefinerFunctions') == 14, post
+          assert post.get('resolverDeniedToAuthenticated') is True, post
+          assert post.get('directAuthenticatedGrants') == 0, post
+          assert post.get('institutions') == 2, post
+          assert post.get('categories') == 3, post
+          assert post.get('permissionDefinitions') == 11, post
+          assert post.get('examAdminDefaultGrants') == 4, post
+          assert post.get('examAdminRestrictedGrants') == 0, post
+          assert post.get('privateBuckets') == 2, post
+          assert post.get('protectedFunctionCount') == pre.get('protectedFunctionCount'), (pre, post)
+          assert post.get('protectedFunctionHash') == pre.get('protectedFunctionHash'), (pre, post)
+          for key in (
+              'legacyTemplates', 'eligibilityRecords', 'issuedCertificates',
+              'attempts', 'examOrders', 'examPayments'
+          ):
+              assert post.get(key, 0) >= pre.get(key, 0), (key, pre, post)
+          Path('certificate-console-post-safe.json').write_text(
+              json.dumps(post, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(post, indent=2))
+          PY
+
+      - name: Confirm no migration remains pending
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee certificate-console-post-deploy-dry-run.log
+          grep -Eo '202608011300_[A-Za-z0-9._-]+\.sql' \
+            certificate-console-post-deploy-dry-run.log \
+            | sort -u > certificate-console-post-deploy-pending.txt || true
+          test ! -s certificate-console-post-deploy-pending.txt
+          grep -q 'Remote database is up to date' certificate-console-post-deploy-dry-run.log
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: certificate-console-phase1a-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            certificate-console-expected-migrations.txt
+            certificate-console-approved-dist.sha256
+            certificate-console-pre-safe.json
+            certificate-console-production-dry-run.log
+            certificate-console-production-pending.txt
+            certificate-console-production-deploy.log
+            certificate-console-post-safe.json
+            certificate-console-post-deploy-dry-run.log
+            certificate-console-post-deploy-pending.txt
