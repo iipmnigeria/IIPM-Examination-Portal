@@ -1,5 +1,0 @@
-Deploy the validated Finance Console snapshot coupon-aggregation hotfix.
-
-Approved source commit: 4175b8f6cda2e3f1bc34ade449d43490ef12e21b
-Approved migration: 202608011130_finance_console_snapshot_coupon_aggregate_fix.sql
-No frontend or Edge Function deployment is included.
