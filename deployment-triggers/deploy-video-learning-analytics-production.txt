@@ -1,0 +1,4 @@
+Approved source commit: c29e18cc137ca1ee43f704171d5d4fb1691824c7
+Approved migration: 202608010520_video_progress_learning_analytics.sql
+Triggered: 2026-08-01
+Purpose: controlled production deployment and verification of video progress and learning analytics.
