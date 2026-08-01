@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Award, FileCheck2, ShieldCheck, X } from 'lucide-react';
+import { Award, FileCheck2, Paintbrush, ShieldCheck, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getCurrentPortalUser } from '../services/authService';
+import AdminCertificateDesigner from './AdminCertificateDesigner';
 import AdminCertificateManagementPanel from './AdminCertificateManagementPanel';
 import AdminCertificateTemplateConsole from './AdminCertificateTemplateConsole';
 
-type CertificateWorkspace = 'issuance' | 'templates';
+type CertificateWorkspace = 'issuance' | 'templates' | 'designer';
 
 export default function AdminCertificateManagementLauncher() {
   const [isAuthorised, setIsAuthorised] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
-  const [activeWorkspace, setActiveWorkspace] = useState<CertificateWorkspace>('templates');
+  const [activeWorkspace, setActiveWorkspace] = useState<CertificateWorkspace>('designer');
 
   useEffect(() => {
     const refreshAuthorisation = async () => {
@@ -42,19 +43,19 @@ export default function AdminCertificateManagementLauncher() {
     return (
       <div className="fixed inset-0 z-[130] overflow-y-auto bg-slate-50">
         <header className="sticky top-0 z-[145] border-b border-slate-800 bg-slate-950 px-4 py-3 text-white shadow-xl md:px-6">
-          <div className="mx-auto flex max-w-[1500px] flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="mx-auto flex max-w-[1720px] flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-400">
                 Protected certificate administration
               </p>
               <h1 className="mt-1 text-lg font-black">Certificate Management Console</h1>
               <p className="mt-1 text-xs text-slate-400">
-                Issuance, lifecycle, institutions, categories, master templates, assets and assignments
+                Issuance, lifecycle, master templates, visual design, assets and assignments
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <nav className="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-900 p-1">
+              <nav className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-700 bg-slate-900 p-1">
                 <button
                   type="button"
                   onClick={() => setActiveWorkspace('issuance')}
@@ -77,6 +78,17 @@ export default function AdminCertificateManagementLauncher() {
                 >
                   <FileCheck2 className="h-4 w-4" /> Master Templates
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveWorkspace('designer')}
+                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-black transition ${
+                    activeWorkspace === 'designer'
+                      ? 'bg-violet-100 text-violet-950'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                  }`}
+                >
+                  <Paintbrush className="h-4 w-4" /> Visual Designer
+                </button>
               </nav>
 
               <button
@@ -93,8 +105,10 @@ export default function AdminCertificateManagementLauncher() {
 
         {activeWorkspace === 'issuance' ? (
           <AdminCertificateManagementPanel />
-        ) : (
+        ) : activeWorkspace === 'templates' ? (
           <AdminCertificateTemplateConsole />
+        ) : (
+          <AdminCertificateDesigner />
         )}
       </div>
     );
