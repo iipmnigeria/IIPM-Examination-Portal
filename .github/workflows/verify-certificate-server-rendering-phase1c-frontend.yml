@@ -58,7 +58,7 @@ jobs:
           for marker in (
               'Server Rendering',
               'certificate.render.manage',
-              'tryDownloadManagedCertificatePdf',
+              'iipm-examination-portal-phase1c',
               'LEGACY_RENDER_REQUIRED',
               'render-certificate-pdf',
           ):
@@ -117,7 +117,7 @@ jobs:
           diff -u expected-main.sha256 live-main.sha256
           grep -q 'Server Rendering' live-main.js
           grep -q 'certificate.render.manage' live-main.js
-          grep -q 'tryDownloadManagedCertificatePdf' live-main.js
+          grep -q 'iipm-examination-portal-phase1c' live-main.js
           grep -q 'LEGACY_RENDER_REQUIRED' live-main.js
           grep -q 'render-certificate-pdf' live-main.js
 
