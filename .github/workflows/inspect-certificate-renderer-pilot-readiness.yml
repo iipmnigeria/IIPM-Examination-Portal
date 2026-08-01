@@ -61,6 +61,7 @@ jobs:
               assignment.renderer_enabled,
               category.code as category_code,
               category.name as category_name,
+              institution.id as institution_id,
               institution.code as institution_code,
               institution.name as institution_name,
               template.id as template_id,
@@ -72,7 +73,7 @@ jobs:
               version.quality_status,
               version.source_format,
               version.sha256 as source_sha256,
-              version.overlay_schema,
+              coalesce(version.overlay_schema, '[]'::jsonb) as overlay_schema,
               programme.id as programme_id,
               programme.code as programme_code,
               programme.name as programme_name,
@@ -81,7 +82,7 @@ jobs:
               examination.title as examination_title,
               public.certificate_designer_validate_overlay(
                 version.id,
-                version.overlay_schema
+                coalesce(version.overlay_schema, '[]'::jsonb)
               ) as overlay_report
             from public.agilecert_certificate_master_assignments assignment
             join public.agilecert_certificate_categories category
@@ -111,54 +112,42 @@ jobs:
                 select count(distinct asset.id)
                 from jsonb_array_elements(candidate.overlay_schema) element
                 join public.agilecert_certificate_assets asset
-                  on (element->>'assetId') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-                 and asset.id = (element->>'assetId')::uuid
-                 and asset.institution_id = candidate.institution_code::text::uuid
-                where false
-              ) as unused_ready_assets
-            from candidate_base candidate
-          ), final_assessment as (
-            select
-              assessed.*,
-              (
-                select count(distinct asset.id)
-                from jsonb_array_elements(assessed.overlay_schema) element
-                join public.agilecert_certificate_assets asset
-                  on (element->>'assetId') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-                 and asset.id = (element->>'assetId')::uuid
-                join public.agilecert_certificate_master_templates template_check
-                  on template_check.id = assessed.template_id
-                 and template_check.institution_id = asset.institution_id
+                  on asset.id = case
+                    when (element->>'assetId') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                    then (element->>'assetId')::uuid
+                    else null
+                  end
+                 and asset.institution_id = candidate.institution_id
                 where nullif(element->>'assetId', '') is not null
                   and asset.status = 'approved'
                   and asset.sha256 is not null
                   and asset.mime_type in ('image/png', 'image/jpeg')
               ) as ready_assets
-            from assessed
+            from candidate_base candidate
           ), ranked as (
             select
-              final_assessment.*,
+              assessed.*,
               (
-                final_assessment.is_active
-                and not final_assessment.renderer_enabled
-                and final_assessment.version_status = 'published'
-                and final_assessment.quality_status in ('passed', 'waived')
-                and final_assessment.source_format in ('pdf', 'png', 'jpeg')
-                and final_assessment.source_sha256 is not null
-                and final_assessment.overlay_valid
-                and final_assessment.referenced_assets = final_assessment.ready_assets
-                and final_assessment.effective_from <= now()
+                assessed.is_active
+                and not assessed.renderer_enabled
+                and assessed.version_status = 'published'
+                and assessed.quality_status in ('passed', 'waived')
+                and assessed.source_format in ('pdf', 'png', 'jpeg')
+                and assessed.source_sha256 is not null
+                and assessed.overlay_valid
+                and assessed.referenced_assets = assessed.ready_assets
+                and assessed.effective_from <= now()
                 and (
-                  final_assessment.effective_to is null
-                  or final_assessment.effective_to > now()
+                  assessed.effective_to is null
+                  or assessed.effective_to > now()
                 )
               ) as eligible,
-              case final_assessment.scope_type
+              case assessed.scope_type
                 when 'examination' then 1
                 when 'programme' then 2
                 else 9
               end as scope_rank
-            from final_assessment
+            from assessed
           )
           select jsonb_build_object(
             'migrationApplied', exists (
@@ -220,47 +209,50 @@ jobs:
               limit 1
             ),
             'candidates', coalesce((
-              select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
-                'assignmentId', assignment_id,
-                'scopeType', scope_type,
-                'institutionCode', institution_code,
-                'categoryCode', category_code,
-                'templateCode', template_code,
-                'versionNumber', version_number,
-                'programmeCode', programme_code,
-                'examinationCode', examination_code,
-                'examinationTitle', examination_title,
-                'versionStatus', version_status,
-                'qualityStatus', quality_status,
-                'sourceFormat', source_format,
-                'hasSourceDigest', source_sha256 is not null,
-                'overlayValid', overlay_valid,
-                'referencedAssets', referenced_assets,
-                'readyAssets', ready_assets,
-                'isActive', is_active,
-                'rendererEnabled', renderer_enabled,
-                'eligible', eligible
-              )) order by scope_rank, priority, effective_from desc, assignment_id)
+              select jsonb_agg(
+                jsonb_strip_nulls(jsonb_build_object(
+                  'assignmentId', assignment_id,
+                  'scopeType', scope_type,
+                  'institutionCode', institution_code,
+                  'categoryCode', category_code,
+                  'templateCode', template_code,
+                  'versionNumber', version_number,
+                  'programmeCode', programme_code,
+                  'examinationCode', examination_code,
+                  'examinationTitle', examination_title,
+                  'versionStatus', version_status,
+                  'qualityStatus', quality_status,
+                  'sourceFormat', source_format,
+                  'hasSourceDigest', source_sha256 is not null,
+                  'overlayValid', overlay_valid,
+                  'referencedAssets', referenced_assets,
+                  'readyAssets', ready_assets,
+                  'isActive', is_active,
+                  'rendererEnabled', renderer_enabled,
+                  'eligible', eligible
+                ))
+                order by scope_rank, priority, effective_from desc, assignment_id
+              )
               from ranked
             ), '[]'::jsonb)
           ) as readiness;
           """
-          # Replace a deliberately unreachable placeholder subquery fragment before execution.
-          query = query.replace(
-              "and asset.institution_id = candidate.institution_code::text::uuid\n                where false",
-              "where false",
-          )
           Path('/tmp/pilot-readiness-query.json').write_text(
               json.dumps({'query': query}), encoding='utf-8'
           )
           PY
 
-          curl --fail-with-body --silent --show-error \
+          http_status=$(curl --silent --show-error \
             -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
             -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
             -H 'Content-Type: application/json' \
             --data-binary @/tmp/pilot-readiness-query.json \
-            -o pilot-readiness-response.json
+            -o pilot-readiness-response.json \
+            -w '%{http_code}')
+          if [ "$http_status" != '200' ]; then
+            cat pilot-readiness-response.json
+            exit 1
+          fi
 
       - name: Validate and sanitize readiness evidence
         shell: bash
