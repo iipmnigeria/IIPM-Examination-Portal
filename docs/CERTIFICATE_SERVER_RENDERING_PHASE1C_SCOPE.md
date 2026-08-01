@@ -63,3 +63,5 @@ Phase 1C does not modify:
 ## Production boundary
 
 This pull request is development and validation only. It does not apply the production migration, deploy the `render-certificate-pdf` Edge Function, publish the frontend or enable any assignment. Those are separate controlled release and commissioning actions.
+
+The dedicated validation was restarted after the isolated PostgreSQL row-assignment correction and removal of all temporary patch controls.
