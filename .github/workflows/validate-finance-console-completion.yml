@@ -19,8 +19,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: finance-console-completion-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: finance-console-completion-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   frontend:
