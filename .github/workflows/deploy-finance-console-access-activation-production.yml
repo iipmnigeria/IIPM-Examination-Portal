@@ -1,0 +1,494 @@
+name: Deploy Finance Console Access Activation
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-finance-console-access-activation-production.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-finance-console-access-activation-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Deploy and verify Finance Console access activation
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPECTED_COMMIT: '3485b6dd122cb694e53b25e8e70f0d8ee03c41b9'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      PORTAL_URL: 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Check out exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact approved release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          test -s supabase/migrations/202608011320_finance_console_exam_admin_least_privilege.sql
+          grep -q "('exam_admin', 'finance.console.view', true" \
+            supabase/migrations/202608011320_finance_console_exam_admin_least_privilege.sql
+          grep -q "('exam_admin', 'finance.settings.manage', false" \
+            supabase/migrations/202608011320_finance_console_exam_admin_least_privilege.sql
+          grep -q "('exam_admin', 'finance.permissions.manage', false" \
+            supabase/migrations/202608011320_finance_console_exam_admin_least_privilege.sql
+          printf '%s\n' \
+            '202608011320_finance_console_exam_admin_least_privilege.sql' \
+            > expected-pending-migrations.txt
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Snapshot protected production state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with protected_functions as (
+            select p.oid::regprocedure::text identity,
+                   md5(pg_get_functiondef(p.oid)) definition_hash
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in (
+                'create_exam_order', 'fulfil_paid_exam_order',
+                'create_exam_bulk_order', 'fulfil_paid_exam_bulk_order',
+                'get_my_finance_console_access'
+              )
+          ), non_exam_admin_permissions as (
+            select role, permission_key, is_granted
+            from public.agilecert_finance_role_permissions
+            where role <> 'exam_admin'
+          )
+          select jsonb_build_object(
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(
+                identity || ':' || definition_hash,
+                '|' order by identity
+              ), '')) from protected_functions
+            ),
+            'nonExamAdminPermissionHash', (
+              select md5(coalesce(string_agg(
+                role || ':' || permission_key || ':' || is_granted::text,
+                '|' order by role, permission_key
+              ), '')) from non_exam_admin_permissions
+            ),
+            'permissionDefinitionHash', (
+              select md5(coalesce(string_agg(
+                permission_key || ':' || name || ':' || risk_level || ':' || is_active::text,
+                '|' order by permission_key
+              ), ''))
+              from public.agilecert_finance_permission_definitions
+            ),
+            'activeExamAdministrators', (
+              select count(*) from public.profiles
+              where role = 'exam_admin' and is_active = true
+            ),
+            'activeSuperAdministrators', (
+              select count(*) from public.profiles
+              where role = 'super_admin' and is_active = true
+            ),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'coupons', (select count(*) from public.coupons),
+            'couponRedemptions', (select count(*) from public.coupon_redemptions),
+            'examPrices', (select count(*) from public.exam_prices),
+            'financeSettingsHash', (
+              select md5(coalesce(string_agg(to_jsonb(s)::text, '|' order by s.id), ''))
+              from public.agilecert_finance_settings s
+            )
+          ) as state;
+          """
+          Path('/tmp/finance-access-pre-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/finance-access-pre-query.json \
+            -o finance-access-pre-response.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('finance-access-pre-response.json').read_text())
+          assert isinstance(data, list) and data, data
+          state = next(row['state'] for row in data if isinstance(row.get('state'), dict))
+          assert state['activeSuperAdministrators'] >= 1, state
+          assert state['activeExamAdministrators'] >= 1, (
+              'No active Examination Administrator exists; production activation stopped.', state
+          )
+          Path('finance-access-pre.json').write_text(
+              json.dumps(state, indent=2), encoding='utf-8'
+          )
+          print(json.dumps({
+              'activeExamAdministrators': state['activeExamAdministrators'],
+              'activeSuperAdministrators': state['activeSuperAdministrators'],
+              'productionStateCaptured': True,
+          }, indent=2))
+          PY
+
+      - name: Require exactly one approved pending migration
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 | tee finance-access-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' \
+            finance-access-dry-run.log \
+            | sort -u > actual-pending-migrations.txt || true
+          diff -u expected-pending-migrations.txt actual-pending-migrations.txt
+          test "$(wc -l < actual-pending-migrations.txt | tr -d ' ')" -eq 1
+
+      - name: Apply approved Finance Console access migration
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked 2>&1 | tee finance-access-deploy.log
+          grep -q 'Applying migration 202608011320_finance_console_exam_admin_least_privilege.sql' \
+            finance-access-deploy.log
+          grep -q 'Finished supabase db push' finance-access-deploy.log
+
+      - name: Verify live role authority and preserved production state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          begin;
+          do $verify$
+          declare
+            v_exam_admin uuid;
+            v_candidate uuid;
+            v_access jsonb;
+            v_enabled text[];
+            v_disabled text[];
+          begin
+            select array_agg(permission_key order by permission_key)
+            into v_enabled
+            from public.agilecert_finance_role_permissions
+            where role = 'exam_admin'
+              and is_granted
+              and permission_key in (
+                'finance.console.view',
+                'finance.dashboard.view',
+                'finance.receipts.manage',
+                'finance.exports.download',
+                'finance.exam_prices.manage',
+                'finance.certificate_prices.manage',
+                'finance.coupons.manage',
+                'finance.orders.manage',
+                'finance.settings.manage',
+                'finance.transactions.reconcile',
+                'finance.access.recover',
+                'finance.adjustments.approve',
+                'finance.permissions.manage'
+              );
+
+            if v_enabled is distinct from array[
+              'finance.console.view',
+              'finance.dashboard.view',
+              'finance.exports.download',
+              'finance.receipts.manage'
+            ]::text[] then
+              raise exception 'Unexpected enabled Examination Administrator permissions: %', v_enabled;
+            end if;
+
+            select array_agg(permission_key order by permission_key)
+            into v_disabled
+            from public.agilecert_finance_role_permissions
+            where role = 'exam_admin'
+              and not is_granted
+              and permission_key in (
+                'finance.exam_prices.manage',
+                'finance.certificate_prices.manage',
+                'finance.coupons.manage',
+                'finance.orders.manage',
+                'finance.settings.manage',
+                'finance.transactions.reconcile',
+                'finance.access.recover',
+                'finance.adjustments.approve',
+                'finance.permissions.manage'
+              );
+
+            if v_disabled is distinct from array[
+              'finance.access.recover',
+              'finance.adjustments.approve',
+              'finance.certificate_prices.manage',
+              'finance.coupons.manage',
+              'finance.exam_prices.manage',
+              'finance.orders.manage',
+              'finance.permissions.manage',
+              'finance.settings.manage',
+              'finance.transactions.reconcile'
+            ]::text[] then
+              raise exception 'Unexpected denied Examination Administrator permissions: %', v_disabled;
+            end if;
+
+            select id into v_exam_admin
+            from public.profiles
+            where role = 'exam_admin' and is_active = true
+            order by created_at
+            limit 1;
+
+            if v_exam_admin is null then
+              raise exception 'An active Examination Administrator is required.';
+            end if;
+
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+            perform set_config('request.jwt.claim.sub', v_exam_admin::text, true);
+            v_access := public.get_my_finance_console_access();
+
+            if not (v_access ->> 'canViewConsole')::boolean
+               or not (v_access ->> 'canViewDashboard')::boolean
+               or not (v_access ->> 'canManageReceipts')::boolean
+               or not (v_access ->> 'canExportTransactions')::boolean then
+              raise exception 'Approved live Finance Console access is incomplete: %', v_access;
+            end if;
+
+            if (v_access ->> 'canManageExamPrices')::boolean
+               or (v_access ->> 'canManageCertificatePrices')::boolean
+               or (v_access ->> 'canManageCoupons')::boolean
+               or (v_access ->> 'canManageOrders')::boolean
+               or (v_access ->> 'canManageSettings')::boolean
+               or (v_access ->> 'canReconcileTransactions')::boolean
+               or (v_access ->> 'canRecoverAccess')::boolean
+               or (v_access ->> 'canApproveAdjustments')::boolean
+               or (v_access ->> 'canManagePermissions')::boolean then
+              raise exception 'Restricted live finance authority leaked: %', v_access;
+            end if;
+
+            select id into v_candidate
+            from public.profiles
+            where role = 'candidate' and is_active = true
+            order by created_at
+            limit 1;
+
+            if v_candidate is null then
+              raise exception 'An active candidate is required for denial verification.';
+            end if;
+
+            perform set_config('request.jwt.claim.sub', v_candidate::text, true);
+            v_access := public.get_my_finance_console_access();
+            if (v_access ->> 'canViewConsole')::boolean then
+              raise exception 'Candidate Finance Console access must remain denied: %', v_access;
+            end if;
+          end;
+          $verify$;
+          rollback;
+
+          with protected_functions as (
+            select p.oid::regprocedure::text identity,
+                   md5(pg_get_functiondef(p.oid)) definition_hash
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in (
+                'create_exam_order', 'fulfil_paid_exam_order',
+                'create_exam_bulk_order', 'fulfil_paid_exam_bulk_order',
+                'get_my_finance_console_access'
+              )
+          ), non_exam_admin_permissions as (
+            select role, permission_key, is_granted
+            from public.agilecert_finance_role_permissions
+            where role <> 'exam_admin'
+          )
+          select jsonb_build_object(
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(
+                identity || ':' || definition_hash,
+                '|' order by identity
+              ), '')) from protected_functions
+            ),
+            'nonExamAdminPermissionHash', (
+              select md5(coalesce(string_agg(
+                role || ':' || permission_key || ':' || is_granted::text,
+                '|' order by role, permission_key
+              ), '')) from non_exam_admin_permissions
+            ),
+            'permissionDefinitionHash', (
+              select md5(coalesce(string_agg(
+                permission_key || ':' || name || ':' || risk_level || ':' || is_active::text,
+                '|' order by permission_key
+              ), ''))
+              from public.agilecert_finance_permission_definitions
+            ),
+            'activeExamAdministrators', (
+              select count(*) from public.profiles
+              where role = 'exam_admin' and is_active = true
+            ),
+            'activeSuperAdministrators', (
+              select count(*) from public.profiles
+              where role = 'super_admin' and is_active = true
+            ),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'coupons', (select count(*) from public.coupons),
+            'couponRedemptions', (select count(*) from public.coupon_redemptions),
+            'examPrices', (select count(*) from public.exam_prices),
+            'financeSettingsHash', (
+              select md5(coalesce(string_agg(to_jsonb(s)::text, '|' order by s.id), ''))
+              from public.agilecert_finance_settings s
+            ),
+            'financeConsoleActivated', true,
+            'approvedAccessPassed', true,
+            'restrictedAuthorityDenied', true,
+            'candidateDenied', true
+          ) as state;
+          """
+          Path('/tmp/finance-access-post-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/finance-access-post-query.json \
+            -o finance-access-post-response.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('finance-access-post-response.json').read_text())
+          assert isinstance(data, list) and data, data
+          post = next(row['state'] for row in data if isinstance(row.get('state'), dict))
+          pre = json.loads(Path('finance-access-pre.json').read_text())
+          preserved = (
+              'protectedFunctionHash', 'nonExamAdminPermissionHash',
+              'permissionDefinitionHash', 'activeExamAdministrators',
+              'activeSuperAdministrators', 'examOrders', 'examPayments',
+              'bulkOrders', 'bulkPayments', 'coupons', 'couponRedemptions',
+              'examPrices', 'financeSettingsHash',
+          )
+          for key in preserved:
+              assert pre[key] == post[key], (key, pre[key], post[key])
+          for key in (
+              'financeConsoleActivated', 'approvedAccessPassed',
+              'restrictedAuthorityDenied', 'candidateDenied',
+          ):
+              assert post[key] is True, (key, post)
+          Path('finance-access-post.json').write_text(
+              json.dumps(post, indent=2), encoding='utf-8'
+          )
+          Path('finance-access-verification.json').write_text(
+              json.dumps({
+                  'prePostProtectedStateMatched': True,
+                  'activeExamAdministrators': post['activeExamAdministrators'],
+                  'financeConsoleActivated': True,
+                  'approvedPermissions': [
+                      'finance.console.view',
+                      'finance.dashboard.view',
+                      'finance.receipts.manage',
+                      'finance.exports.download',
+                  ],
+                  'restrictedAuthorityDenied': True,
+                  'candidateDenied': True,
+              }, indent=2), encoding='utf-8'
+          )
+          print(json.dumps({
+              'activeExamAdministrators': post['activeExamAdministrators'],
+              'financeConsoleActivated': True,
+              'restrictedAuthorityDenied': True,
+              'candidateDenied': True,
+              'prePostProtectedStateMatched': True,
+          }, indent=2))
+          PY
+
+      - name: Verify live frontend already contains Finance Console launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -H 'Cache-Control: no-cache' \
+            "${PORTAL_URL}?finance-access-release=${GITHUB_RUN_ID}" \
+            -o live-index.html
+          python3 <<'PY'
+          import re
+          import urllib.parse
+          from pathlib import Path
+          html = Path('live-index.html').read_text(encoding='utf-8')
+          scripts = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html)
+          assert scripts, 'No application JavaScript asset found.'
+          base = 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+          Path('live-js-url.txt').write_text(
+              urllib.parse.urljoin(base, scripts[-1]), encoding='utf-8'
+          )
+          PY
+          curl --fail-with-body --silent --show-error \
+            -H 'Cache-Control: no-cache' \
+            "$(cat live-js-url.txt)?finance-access-release=${GITHUB_RUN_ID}" \
+            -o live-application.js
+          grep -q 'Open Finance Console' live-application.js
+          grep -q 'Finance Console' live-application.js
+          printf '{"liveFinanceLauncherPresent":true}\n' > finance-access-live-frontend.json
+
+      - name: Confirm no migration remains pending
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 | tee finance-access-post-dry-run.log
+          grep -q 'Remote database is up to date' finance-access-post-dry-run.log
+          ! grep -q '202608011320_finance_console_exam_admin_least_privilege.sql' \
+            finance-access-post-dry-run.log
+
+      - name: Upload production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-access-activation-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            expected-pending-migrations.txt
+            actual-pending-migrations.txt
+            finance-access-pre-response.json
+            finance-access-pre.json
+            finance-access-dry-run.log
+            finance-access-deploy.log
+            finance-access-post-response.json
+            finance-access-post.json
+            finance-access-verification.json
+            live-index.html
+            live-js-url.txt
+            live-application.js
+            finance-access-live-frontend.json
+            finance-access-post-dry-run.log
