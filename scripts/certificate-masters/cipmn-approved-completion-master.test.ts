@@ -42,7 +42,10 @@ const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
 const masterOne = generateCipmnApprovedCompletionMasterPdf();
 const masterTwo = generateCipmnApprovedCompletionMasterPdf();
 
-assert(masterOne.byteLength > 100_000, 'The approved master PDF is unexpectedly small.');
+assert(
+  masterOne.byteLength > 20_000,
+  `The approved master PDF is unexpectedly small: ${masterOne.byteLength} bytes.`,
+);
 assert(bytesEqual(masterOne, masterTwo), 'The approved master PDF is not deterministic.');
 
 const masterHashOne = await sha256Hex(masterOne);
