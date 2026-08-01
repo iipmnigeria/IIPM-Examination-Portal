@@ -82,6 +82,8 @@ create temporary table finance_governance_test_ids (
   id uuid not null
 );
 
+grant select, insert on finance_governance_test_ids to authenticated;
+
 create or replace function pg_temp.set_finance_governance_actor(p_actor uuid)
 returns void
 language plpgsql
