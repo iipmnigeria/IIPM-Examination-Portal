@@ -14,6 +14,7 @@ import AdminIdentityProctoringLauncher from './components/AdminIdentityProctorin
 import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
 import AdminPeopleMessagingLauncher from './components/AdminPeopleMessagingLauncher';
 import AdminPrimaryToolsMenu from './components/AdminPrimaryToolsMenu';
+import AdminVideoLearningAnalyticsLauncher from './components/AdminVideoLearningAnalyticsLauncher';
 import AgileCertPolicyExperience from './components/AgileCertPolicyExperience';
 import AiCertificationAdviser from './components/AiCertificationAdviser';
 import AiCvEnhancementLauncher from './components/AiCvEnhancementLauncher';
@@ -30,6 +31,7 @@ import CandidateIdentityProctoringWorkspace from './components/CandidateIdentity
 import CandidateOnboardingBoundary from './components/CandidateOnboardingBoundary';
 import CandidatePrimaryToolsMenu from './components/CandidatePrimaryToolsMenu';
 import CandidateSponsoredAccessWorkspace from './components/CandidateSponsoredAccessWorkspace';
+import CandidateVideoLearningProgressLauncher from './components/CandidateVideoLearningProgressLauncher';
 import CertificatePaymentReturnHandler from './components/CertificatePaymentReturnHandler';
 import LegacyCertificateSecurityGate from './components/LegacyCertificateSecurityGate';
 import PaymentReturnHandler from './components/PaymentReturnHandler';
@@ -190,6 +192,7 @@ createRoot(rootElement).render(
         <CandidateSponsoredAccessWorkspace />
         <CandidateCommunicationPreferences />
         <CandidateCipmnRemediationWorkspace />
+        <CandidateVideoLearningProgressLauncher />
         <CertificatePaymentReturnHandler />
         <AdminIdentityAssuranceLauncher />
         <AdminIdentityProctoringLauncher />
@@ -198,6 +201,7 @@ createRoot(rootElement).render(
         <AdminFinanceSponsorshipLauncher />
         <AdminCommunicationsLauncher />
         <AdminPeopleMessagingLauncher />
+        <AdminVideoLearningAnalyticsLauncher />
         <AiCvEnhancementLauncher />
         <AiCertificationAdviser />
       </CandidateOnboardingBoundary>
