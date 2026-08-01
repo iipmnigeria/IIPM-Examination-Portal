@@ -1,0 +1,218 @@
+name: Recover CIPMN High-Resolution Asset
+
+on:
+  push:
+    branches:
+      - fix/cipmn-certificate-print-quality
+    paths:
+      - '.github/workflows/recover-cipmn-high-resolution-asset.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/cipmn-certificate-print-quality
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Fetch complete branch history
+        run: |
+          git fetch --all --prune
+          git fetch origin supabase-integration
+
+      - name: Install image validator
+        run: python -m pip install --disable-pip-version-check pillow
+
+      - name: Recover the sharpest valid historical CIPMN payload
+        shell: python
+        run: |
+          import base64
+          import io
+          import itertools
+          import math
+          import re
+          import subprocess
+          from pathlib import Path
+
+          from PIL import Image, ImageFilter, ImageStat
+
+          TARGET = (1140, 306)
+          PATHS = [
+              Path(f'src/assets/cipmnCertificatePrint/cipmnV2_{index:02d}.ts')
+              for index in range(1, 11)
+          ]
+          CHUNK_PATTERN = re.compile(r"=\s*'([A-Za-z0-9+/=]+)';")
+
+          def extract_chunk(text):
+              match = CHUNK_PATTERN.search(text)
+              return match.group(1) if match else None
+
+          def decode_candidate(parts):
+              try:
+                  raw = base64.b64decode(''.join(parts), validate=True)
+                  if not raw.startswith(b'\x89PNG\r\n\x1a\n'):
+                      return None
+                  with Image.open(io.BytesIO(raw)) as image:
+                      image.load()
+                      if image.format != 'PNG' or image.size != TARGET:
+                          return None
+                      grey = image.convert('L')
+                      edges = grey.filter(ImageFilter.FIND_EDGES)
+                      edge_variance = ImageStat.Stat(edges).var[0]
+                      return raw, edge_variance
+              except Exception:
+                  return None
+
+          current_parts = []
+          variants = []
+          for path in PATHS:
+              current = extract_chunk(path.read_text(encoding='utf-8'))
+              if not current:
+                  raise ValueError(f'Malformed current chunk: {path}')
+              current_parts.append(current)
+
+              values = [current]
+              commits = subprocess.check_output(
+                  ['git', 'log', '--all', '--format=%H', '--', str(path)],
+                  text=True,
+              ).splitlines()
+              for commit in commits:
+                  try:
+                      historical = subprocess.check_output(
+                          ['git', 'show', f'{commit}:{path}'],
+                          text=True,
+                          stderr=subprocess.DEVNULL,
+                      )
+                  except subprocess.CalledProcessError:
+                      continue
+                  value = extract_chunk(historical)
+                  if value and value not in values:
+                      values.append(value)
+              variants.append(values)
+              print(f'{path.name}: {len(values)} historical variant(s)')
+
+          current_result = decode_candidate(current_parts)
+          if not current_result:
+              raise ValueError('Current repaired CIPMN payload is not valid')
+          current_raw, current_edge = current_result
+          print(
+              f'Current payload: {len(current_raw)} bytes; '
+              f'edge variance {current_edge:.4f}'
+          )
+
+          combination_count = math.prod(len(values) for values in variants)
+          if combination_count > 200000:
+              raise ValueError(
+                  f'Historical search space too large: {combination_count}'
+              )
+          print(f'Testing {combination_count} historical combinations')
+
+          candidates = {}
+          for parts in itertools.product(*variants):
+              result = decode_candidate(parts)
+              if not result:
+                  continue
+              raw, edge_variance = result
+              digest_key = hash(raw)
+              previous = candidates.get(digest_key)
+              if previous is None or edge_variance > previous[1]:
+                  candidates[digest_key] = (raw, edge_variance)
+
+          ranked = sorted(
+              candidates.values(),
+              key=lambda item: (item[1], len(item[0])),
+              reverse=True,
+          )
+          print(f'Found {len(ranked)} fully valid historical payload(s)')
+
+          improved = None
+          for raw, edge_variance in ranked:
+              if raw == current_raw:
+                  continue
+              if edge_variance >= current_edge * 1.12:
+                  improved = (raw, edge_variance)
+                  break
+
+          marker = Path('/tmp/cipmn-recovery-result.txt')
+          if improved is None:
+              marker.write_text('no-improvement', encoding='utf-8')
+              print('No historical payload exceeded the current detail threshold')
+          else:
+              raw, edge_variance = improved
+              encoded = base64.b64encode(raw).decode('ascii')
+              base_length, remainder = divmod(len(encoded), len(PATHS))
+              offset = 0
+              for zero_index, path in enumerate(PATHS):
+                  length = base_length + (1 if zero_index < remainder else 0)
+                  chunk = encoded[offset:offset + length]
+                  offset += length
+                  export_name = f'CIPMN_PRINT_PNG_V2_CHUNK_{zero_index + 1:02d}'
+                  path.write_text(
+                      f"export const {export_name} = '{chunk}';\n",
+                      encoding='utf-8',
+                  )
+              if offset != len(encoded):
+                  raise AssertionError('Incomplete recovered payload split')
+              verified = decode_candidate([
+                  extract_chunk(path.read_text(encoding='utf-8'))
+                  for path in PATHS
+              ])
+              if not verified:
+                  raise ValueError('Recovered payload failed final validation')
+              marker.write_text('improved', encoding='utf-8')
+              print(
+                  f'Recovered payload: {len(raw)} bytes; '
+                  f'edge variance {edge_variance:.4f}'
+              )
+
+      - name: Install project dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Type-check certificate implementation
+        run: >-
+          npx tsc --noEmit --skipLibCheck --target ES2022
+          --module ESNext --moduleResolution Bundler
+          --allowSyntheticDefaultImports --esModuleInterop
+          src/vite-env.d.ts
+          src/services/certificateCompletionService.ts
+          src/services/certificatePdfService.ts
+          src/services/cipmnCertificateRenderer.ts
+          src/assets/cipmnCertificateIipmLogo.ts
+          src/assets/cipmnCertificateCipmnLogo.ts
+          src/assets/cipmnCertificateBanitoSignature.ts
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Render certificate samples
+        run: |
+          npx esbuild scripts/render-cipmn-certificate-sample.ts \
+            --bundle --platform=node --format=cjs \
+            --outfile=/tmp/render-cipmn-certificate-sample.cjs
+          node /tmp/render-cipmn-certificate-sample.cjs
+          test -s cipmn-certificate-standard-sample.pdf
+          test -s cipmn-certificate-long-content-sample.pdf
+
+      - name: Commit result and remove one-time workflow
+        run: |
+          result="$(cat /tmp/cipmn-recovery-result.txt)"
+          rm .github/workflows/recover-cipmn-high-resolution-asset.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/assets/cipmnCertificatePrint .github/workflows/recover-cipmn-high-resolution-asset.yml
+          if [ "$result" = 'improved' ]; then
+            git commit -m 'Restore high-resolution CIPMN certificate asset'
+          else
+            git commit -m 'Complete historical CIPMN asset verification'
+          fi
+          git push origin HEAD:fix/cipmn-certificate-print-quality
