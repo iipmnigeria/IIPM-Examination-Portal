@@ -6,6 +6,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - '.github/workflows/bootstrap-finance-console-completion.yml'
+      - '.github/bootstrap-finance-console/**'
 
 permissions:
   contents: write
@@ -31,24 +32,41 @@ jobs:
         run: |
           set -euo pipefail
           cat > /tmp/expected-segments.sha256 <<'EOF'
-          628f02b90334f151d643ddf90a773473157dcac0db4921105107723f8d260c9c  .github/bootstrap-finance-console/part00
+          7275a59ecfd9455a2aa70d2224e50a31ca534467244e12a9a3a2ff8374b7ef1d  .github/bootstrap-finance-console/part00a
+          6d3822ff6c83f0d1a314b5f4e4cf1541ac134a39f0c9f52bc4267460400a5285  .github/bootstrap-finance-console/part00b
+          4863155b8a8da67dd712220e4134f61f70f5f598927919ea359931eca90f581b  .github/bootstrap-finance-console/part00c
           282e9078b92c616d6438b0bf0b24480c7b317986941ae2b567d669c48619d59d  .github/bootstrap-finance-console/part01
           971150a2273b6825f61752b0d72e8fa36bec5b520f370e72e5676e5fbae220d3  .github/bootstrap-finance-console/part02
           dcfa767487a7b0e0943d92799848e134f3088b6c741fd91a7a7f6ebee8ce262a  .github/bootstrap-finance-console/part03
           a9cebf7fa74a237ce07f5d8b61278a56b32a2b2da42f77b4080e81d372e86f5f  .github/bootstrap-finance-console/part04
-          d34806352c584319a72b8a821f5d5a3df34ac87885e12bc4818b17598982e3d2  .github/bootstrap-finance-console/part05
+          5b19644c7cc5fd4ff871c082d712c27634cc705b0c16fad23ff2eb97d4ab3fac  .github/bootstrap-finance-console/part05a
+          751e750b47fbe1278c0728c397662244c38bcff79aacf5c0e66791eb0a2545c5  .github/bootstrap-finance-console/part05b
+          a5af0229a9b849c02da99a624c1b8ea4fe0d29a878138862427e918ac429a452  .github/bootstrap-finance-console/part05c
           ddc0fa34d0ac5b092fd73975cd0e3d3cddbd0e09b5569f527536cd83590bdbf1  .github/bootstrap-finance-console/part06
           a976dae46e8b1eb6edc655c75db197632688584f87f58da82d2fb66f1a251d35  .github/bootstrap-finance-console/part07
           b67f3f3471d42d9402f90566f2dbd5eeef04ac4d58b30b80b93f76fb63a6045b  .github/bootstrap-finance-console/part08
           EOF
-          sha256sum .github/bootstrap-finance-console/part*
           sha256sum -c /tmp/expected-segments.sha256
 
       - name: Reconstruct and verify package
         shell: bash
         run: |
           set -euo pipefail
-          cat .github/bootstrap-finance-console/part* | base64 --decode > /tmp/finance-package.tgz
+          cat \
+            .github/bootstrap-finance-console/part00a \
+            .github/bootstrap-finance-console/part00b \
+            .github/bootstrap-finance-console/part00c \
+            .github/bootstrap-finance-console/part01 \
+            .github/bootstrap-finance-console/part02 \
+            .github/bootstrap-finance-console/part03 \
+            .github/bootstrap-finance-console/part04 \
+            .github/bootstrap-finance-console/part05a \
+            .github/bootstrap-finance-console/part05b \
+            .github/bootstrap-finance-console/part05c \
+            .github/bootstrap-finance-console/part06 \
+            .github/bootstrap-finance-console/part07 \
+            .github/bootstrap-finance-console/part08 \
+            | base64 --decode > /tmp/finance-package.tgz
           echo '041a7176243cac1d7f610775c8ce54963a91f8b5e28cec049519c411fb2b2629  /tmp/finance-package.tgz' | sha256sum -c -
           tar -xzf /tmp/finance-package.tgz -C .
           rm -rf .github/bootstrap-finance-console
