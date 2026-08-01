@@ -1,0 +1,220 @@
+name: Validate Finance Console Completion
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/components/AdminFinanceConsole.tsx'
+      - 'src/components/FinanceConsoleCompletionPanel.tsx'
+      - 'src/services/financeConsoleCompletionService.ts'
+      - 'supabase/migrations/202608010600_finance_console_completion.sql'
+      - 'supabase/functions/admin-verify-exam-payment/index.ts'
+      - 'supabase/functions/finance-gateway-status/index.ts'
+      - 'supabase/tests/finance_console_completion_smoke.sql'
+      - 'docs/FINANCE_CONSOLE_COMPLETION_SCOPE.md'
+      - '.github/workflows/validate-finance-console-completion.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-console-completion-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  frontend:
+    name: Validate completed Finance Console frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript and production build
+        run: |
+          npm run lint
+          npm run build
+      - name: Verify completion markers and browser safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'Advanced examination pricing' src/components/FinanceConsoleCompletionPanel.tsx
+          grep -q 'General finance settings' src/components/FinanceConsoleCompletionPanel.tsx
+          grep -q 'Revenue dashboard' src/components/FinanceConsoleCompletionPanel.tsx
+          grep -q 'admin-verify-exam-payment' src/services/financeConsoleCompletionService.ts
+          grep -q 'finance_upsert_coupon_advanced' src/services/financeConsoleCompletionService.ts
+          ! grep -R -E 'sk_(live|test)_[A-Za-z0-9]+' \
+            src/components/AdminFinanceConsole.tsx \
+            src/components/FinanceConsoleCompletionPanel.tsx \
+            src/services/financeConsoleCompletionService.ts
+
+  edge:
+    name: Validate administrator Paystack verifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Install shared function dependencies
+        run: npm install --no-audit --no-fund
+      - name: Type-check server-only finance functions
+        run: |
+          deno check supabase/functions/admin-verify-exam-payment/index.ts
+          deno check supabase/functions/finance-gateway-status/index.ts
+      - name: Confirm verification boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'finance.transactions.reconcile' supabase/functions/admin-verify-exam-payment/index.ts
+          grep -q 'verifyPaystackTransaction' supabase/functions/admin-verify-exam-payment/index.ts
+          grep -q 'fulfil_paid_exam_order' supabase/functions/admin-verify-exam-payment/index.ts
+          grep -q 'fulfil_paid_exam_bulk_order' supabase/functions/admin-verify-exam-payment/index.ts
+          grep -q 'transactionEmail !== candidateEmail' supabase/functions/admin-verify-exam-payment/index.ts
+          ! grep -E 'sk_(live|test)_[A-Za-z0-9]{20,}' supabase/functions/admin-verify-exam-payment/index.ts supabase/functions/finance-gateway-status/index.ts
+
+  database:
+    name: Reset schema and validate finance completion authority
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+      - name: Neutralise production-only bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: no production identity bootstrap.
+          commit;
+          SQL
+      - name: Start database-only Supabase services with diagnostics and retry
+        shell: bash
+        run: |
+          set +e
+          set -uo pipefail
+          : > finance-console-supabase-start.log
+          excluded_services='gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor'
+          for attempt in 1 2; do
+            attempt_log="finance-console-supabase-start-attempt-${attempt}.log"
+            echo "Database startup attempt ${attempt}/2" | tee -a finance-console-supabase-start.log
+            timeout --signal=TERM --kill-after=15s 120s \
+              supabase start -x "$excluded_services" --ignore-health-check --debug \
+              > "$attempt_log" 2>&1
+            start_exit=$?
+            cat "$attempt_log" | tee -a finance-console-supabase-start.log
+            if [ "$start_exit" -eq 0 ]; then
+              database_ready=false
+              for readiness_attempt in $(seq 1 30); do
+                if pg_isready -h 127.0.0.1 -p 54322 -U postgres; then
+                  database_ready=true
+                  break
+                fi
+                sleep 2
+              done
+              if [ "$database_ready" = true ]; then
+                supabase status > finance-console-supabase-status.log 2>&1 || true
+                cat finance-console-supabase-status.log
+                exit 0
+              fi
+              echo 'PostgreSQL did not become ready after Supabase startup.' | tee -a finance-console-supabase-start.log
+            fi
+            echo "Startup attempt ${attempt} failed with exit code ${start_exit}; collecting Docker diagnostics." | tee -a finance-console-supabase-start.log
+            docker ps -a 2>&1 | tee -a finance-console-docker-ps.log || true
+            docker system df 2>&1 | tee -a finance-console-docker-system-df.log || true
+            stop_log="finance-console-supabase-stop-attempt-${attempt}.log"
+            timeout --signal=TERM --kill-after=10s 45s supabase stop --no-backup > "$stop_log" 2>&1 || true
+            cat "$stop_log" | tee -a finance-console-supabase-stop.log
+            sleep $((attempt * 10))
+          done
+          docker images 2>&1 | tee finance-console-docker-images.log || true
+          exit 1
+      - name: Apply complete migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee finance-console-db-reset.log
+      - name: Run Finance Console completion smoke test
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_console_completion_smoke.sql \
+            2>&1 | tee finance-console-completion-smoke.log
+          grep -q 'completionAuthorityVerified' finance-console-completion-smoke.log
+      - name: Upload database evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-completion-database-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            finance-console-supabase-start.log
+            finance-console-supabase-start-attempt-*.log
+            finance-console-supabase-status.log
+            finance-console-supabase-stop.log
+            finance-console-supabase-stop-attempt-*.log
+            finance-console-docker-ps.log
+            finance-console-docker-system-df.log
+            finance-console-docker-images.log
+            finance-console-db-reset.log
+            finance-console-completion-smoke.log
+      - name: Stop isolated Supabase services
+        if: always()
+        run: timeout --signal=TERM --kill-after=10s 45s supabase stop --no-backup || true
+
+  boundaries:
+    name: Confirm protected-system boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restrict changed files to the completion package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only origin/supabase-integration...HEAD | sort > changed-files.txt
+          cat > allowed-files.txt <<'EOF'
+          .github/workflows/validate-finance-console-completion.yml
+          docs/FINANCE_CONSOLE_COMPLETION_SCOPE.md
+          src/components/AdminFinanceConsole.tsx
+          src/components/FinanceConsoleCompletionPanel.tsx
+          src/services/financeConsoleCompletionService.ts
+          supabase/functions/admin-verify-exam-payment/index.ts
+          supabase/functions/finance-gateway-status/index.ts
+          supabase/migrations/202608010600_finance_console_completion.sql
+          supabase/tests/finance_console_completion_smoke.sql
+          EOF
+          sort -o allowed-files.txt allowed-files.txt
+          diff -u allowed-files.txt changed-files.txt
+      - name: Confirm existing checkout and runtime files are untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --quiet origin/supabase-integration...HEAD -- \
+            supabase/functions/initialize-exam-payment/index.ts \
+            supabase/functions/verify-exam-payment/index.ts \
+            supabase/functions/initialize-exam-cart-payment/index.ts \
+            supabase/functions/verify-exam-cart-payment/index.ts \
+            supabase/functions/paystack-webhook/index.ts \
+            src/components/ExamScreen.tsx \
+            src/services/examService.ts
