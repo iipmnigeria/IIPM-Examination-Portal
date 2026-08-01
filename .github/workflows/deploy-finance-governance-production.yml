@@ -1,0 +1,511 @@
+name: Deploy Finance Governance Production
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-finance-governance-production.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-finance-governance-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Deploy and verify Finance Governance
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPECTED_COMMIT: 'f2fbdc44f0ba36ff0d0af7da72b89cb78c4ed3ad'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Check out exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact approved release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+
+          cat > finance-governance-expected-migrations.txt <<'EOF'
+          202608011500_finance_operations_governance.sql
+          EOF
+
+          test -s supabase/migrations/202608011500_finance_operations_governance.sql
+          test -s supabase/tests/finance_operations_governance_smoke.sql
+          test -s src/components/FinanceGovernancePanel.tsx
+          test -s src/services/financeGovernanceService.ts
+
+          grep -q 'Maker-checker finance operations cases' \
+            supabase/migrations/202608011500_finance_operations_governance.sql
+          grep -q 'finance_create_operation_case' src/services/financeGovernanceService.ts
+          grep -q 'Operations & Governance' src/components/AdminFinanceConsole.tsx
+          grep -q 'Maker–checker cases' src/components/FinanceGovernancePanel.tsx
+
+          git diff --quiet "${EXPECTED_COMMIT}^1" "$EXPECTED_COMMIT" -- \
+            src/components/FinanceConsoleCompletionPanel.tsx \
+            src/components/FinanceCertificationFeesPanel.tsx \
+            src/services/financeConsoleCompletionService.ts \
+            src/services/financeConsoleService.ts \
+            src/services/adminCommerceService.ts \
+            src/services/examService.ts \
+            supabase/functions/admin-verify-exam-payment/index.ts \
+            supabase/functions/finance-gateway-status/index.ts \
+            supabase/functions/initialize-exam-payment/index.ts \
+            supabase/functions/verify-exam-payment/index.ts \
+            supabase/functions/initialize-exam-cart-payment/index.ts \
+            supabase/functions/verify-exam-cart-payment/index.ts \
+            supabase/functions/paystack-webhook/index.ts
+
+          ! grep -R -E '(sk_(live|test)_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9]{20,})' \
+            supabase/migrations/202608011500_finance_operations_governance.sql \
+            src/components/FinanceGovernancePanel.tsx \
+            src/services/financeGovernanceService.ts
+
+      - name: Validate approved frontend source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum \
+            > finance-governance-approved-dist.sha256
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Snapshot protected production authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with protected_functions as (
+            select
+              p.oid::regprocedure::text as identity,
+              md5(pg_get_functiondef(p.oid)) as definition_hash
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in (
+                'create_exam_order',
+                'fulfil_paid_exam_order',
+                'create_exam_bulk_order',
+                'fulfil_paid_exam_bulk_order',
+                'get_finance_console_completion_snapshot',
+                'get_my_finance_console_access'
+              )
+          )
+          select jsonb_build_object(
+            'protectedFunctionCount', (select count(*) from protected_functions),
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(identity || ':' || definition_hash, '|' order by identity), ''))
+              from protected_functions
+            ),
+            'financeSettingsHash', (
+              select md5(coalesce(string_agg(to_jsonb(setting_row)::text, '|' order by to_jsonb(setting_row)::text), ''))
+              from public.agilecert_finance_settings setting_row
+            ),
+            'nonGovernancePermissionHash', (
+              select md5(coalesce(string_agg(
+                role || ':' || permission_key || ':' || is_granted::text,
+                '|' order by role, permission_key
+              ), ''))
+              from public.agilecert_finance_role_permissions
+              where permission_key not in (
+                'finance.governance.view', 'finance.cases.submit',
+                'finance.cases.review', 'finance.alerts.manage',
+                'finance.reports.schedule'
+              )
+            ),
+            'profileRoleHash', (
+              select md5(coalesce(string_agg(
+                id::text || ':' || role || ':' || is_active::text,
+                '|' order by id
+              ), ''))
+              from public.profiles
+            ),
+            'activeExamAdmins', (
+              select count(*) from public.profiles
+              where role = 'exam_admin' and is_active
+            ),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'coupons', (select count(*) from public.coupons),
+            'couponRedemptions', (select count(*) from public.coupon_redemptions),
+            'examPrices', (select count(*) from public.exam_prices),
+            'financeAuditEvents', (select count(*) from public.agilecert_finance_audit_events)
+          ) as verification;
+          """
+          Path('/tmp/finance-governance-pre-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/finance-governance-pre-query.json \
+            -o finance-governance-pre-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('finance-governance-pre-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('protectedFunctionCount', 0) >= 5, result
+          assert result.get('activeExamAdmins', 0) >= 1, result
+          Path('finance-governance-pre-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Require exactly one approved pending migration
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --include-all --dry-run 2>&1 \
+            | tee finance-governance-production-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' \
+            finance-governance-production-dry-run.log \
+            | sort -u > finance-governance-production-pending.txt || true
+          diff -u finance-governance-expected-migrations.txt \
+            finance-governance-production-pending.txt
+          test "$(wc -l < finance-governance-production-pending.txt | tr -d ' ')" -eq 1
+
+      - name: Apply approved Finance Governance migration
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked --include-all 2>&1 \
+            | tee finance-governance-production-deploy.log
+          grep -q 'Applying migration 202608011500_finance_operations_governance.sql' \
+            finance-governance-production-deploy.log
+          grep -q 'Finished supabase db push' finance-governance-production-deploy.log
+
+      - name: Verify live governance authority and preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with protected_functions as (
+            select
+              p.oid::regprocedure::text as identity,
+              md5(pg_get_functiondef(p.oid)) as definition_hash
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in (
+                'create_exam_order',
+                'fulfil_paid_exam_order',
+                'create_exam_bulk_order',
+                'fulfil_paid_exam_bulk_order',
+                'get_finance_console_completion_snapshot',
+                'get_my_finance_console_access'
+              )
+          ), required_tables(table_name) as (
+            values
+              ('agilecert_finance_operation_cases'),
+              ('agilecert_finance_operation_case_events'),
+              ('agilecert_finance_alert_rules'),
+              ('agilecert_finance_alerts'),
+              ('agilecert_finance_report_schedules'),
+              ('agilecert_finance_report_runs')
+          ), governance_functions(function_name) as (
+            values
+              ('finance_create_operation_case'),
+              ('finance_add_operation_case_note'),
+              ('finance_assign_operation_case'),
+              ('finance_decide_operation_case'),
+              ('finance_execute_operation_case'),
+              ('finance_cancel_operation_case'),
+              ('finance_update_alert_rule'),
+              ('finance_scan_governance_alerts'),
+              ('finance_update_alert_status'),
+              ('finance_upsert_report_schedule'),
+              ('finance_process_due_report_schedules'),
+              ('get_finance_governance_snapshot')
+          )
+          select jsonb_build_object(
+            'migrationApplied', exists (
+              select 1 from supabase_migrations.schema_migrations
+              where version = '202608011500'
+            ),
+            'permissionDefinitions', (
+              select count(*) from public.agilecert_finance_permission_definitions
+              where is_active and permission_key in (
+                'finance.governance.view', 'finance.cases.submit',
+                'finance.cases.review', 'finance.alerts.manage',
+                'finance.reports.schedule'
+              )
+            ),
+            'examAdminEnabled', (
+              select count(*) from public.agilecert_finance_role_permissions
+              where role = 'exam_admin' and is_granted
+                and permission_key in ('finance.governance.view', 'finance.cases.submit')
+            ),
+            'examAdminRestrictedDenied', (
+              select count(*) from public.agilecert_finance_role_permissions
+              where role = 'exam_admin' and not is_granted
+                and permission_key in (
+                  'finance.cases.review', 'finance.alerts.manage',
+                  'finance.reports.schedule'
+                )
+            ),
+            'requiredTables', (
+              select count(*) from required_tables required
+              where to_regclass('public.' || required.table_name) is not null
+            ),
+            'rlsTables', (
+              select count(*)
+              from required_tables required
+              join pg_class relation on relation.relname = required.table_name
+              join pg_namespace namespace on namespace.oid = relation.relnamespace
+              where namespace.nspname = 'public' and relation.relrowsecurity
+            ),
+            'directBrowserGrants', (
+              select count(*)
+              from information_schema.role_table_grants grant_row
+              join required_tables required on required.table_name = grant_row.table_name
+              where grant_row.table_schema = 'public'
+                and grant_row.grantee in ('authenticated', 'anon', 'PUBLIC')
+            ),
+            'immutableEventTrigger', exists (
+              select 1
+              from pg_trigger trigger_row
+              join pg_class relation on relation.oid = trigger_row.tgrelid
+              join pg_namespace namespace on namespace.oid = relation.relnamespace
+              where namespace.nspname = 'public'
+                and relation.relname = 'agilecert_finance_operation_case_events'
+                and trigger_row.tgname = 'agilecert_finance_case_events_immutable'
+                and trigger_row.tgenabled <> 'D'
+            ),
+            'securityDefinerFunctions', (
+              select count(distinct required.function_name)
+              from governance_functions required
+              join pg_proc function_row on function_row.proname = required.function_name
+              join pg_namespace namespace_row on namespace_row.oid = function_row.pronamespace
+              where namespace_row.nspname = 'public' and function_row.prosecdef
+            ),
+            'authenticatedFunctionAccess', (
+              select count(distinct required.function_name)
+              from governance_functions required
+              join pg_proc function_row on function_row.proname = required.function_name
+              join pg_namespace namespace_row on namespace_row.oid = function_row.pronamespace
+              where namespace_row.nspname = 'public'
+                and has_function_privilege('authenticated', function_row.oid, 'execute')
+            ),
+            'anonFunctionAccess', (
+              select count(distinct required.function_name)
+              from governance_functions required
+              join pg_proc function_row on function_row.proname = required.function_name
+              join pg_namespace namespace_row on namespace_row.oid = function_row.pronamespace
+              where namespace_row.nspname = 'public'
+                and has_function_privilege('anon', function_row.oid, 'execute')
+            ),
+            'internalHelperBrowserAccess', (
+              select
+                (case when has_function_privilege(
+                  'authenticated',
+                  'public.finance_next_report_run(text,integer,integer,time,text,timestamptz)',
+                  'execute'
+                ) then 1 else 0 end) +
+                (case when has_function_privilege(
+                  'anon',
+                  'public.finance_next_report_run(text,integer,integer,time,text,timestamptz)',
+                  'execute'
+                ) then 1 else 0 end)
+            ),
+            'alertRules', (select count(*) from public.agilecert_finance_alert_rules),
+            'operationCases', (select count(*) from public.agilecert_finance_operation_cases),
+            'caseEvents', (select count(*) from public.agilecert_finance_operation_case_events),
+            'alerts', (select count(*) from public.agilecert_finance_alerts),
+            'reportSchedules', (select count(*) from public.agilecert_finance_report_schedules),
+            'reportRuns', (select count(*) from public.agilecert_finance_report_runs),
+            'protectedFunctionCount', (select count(*) from protected_functions),
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(identity || ':' || definition_hash, '|' order by identity), ''))
+              from protected_functions
+            ),
+            'financeSettingsHash', (
+              select md5(coalesce(string_agg(to_jsonb(setting_row)::text, '|' order by to_jsonb(setting_row)::text), ''))
+              from public.agilecert_finance_settings setting_row
+            ),
+            'nonGovernancePermissionHash', (
+              select md5(coalesce(string_agg(
+                role || ':' || permission_key || ':' || is_granted::text,
+                '|' order by role, permission_key
+              ), ''))
+              from public.agilecert_finance_role_permissions
+              where permission_key not in (
+                'finance.governance.view', 'finance.cases.submit',
+                'finance.cases.review', 'finance.alerts.manage',
+                'finance.reports.schedule'
+              )
+            ),
+            'profileRoleHash', (
+              select md5(coalesce(string_agg(
+                id::text || ':' || role || ':' || is_active::text,
+                '|' order by id
+              ), ''))
+              from public.profiles
+            ),
+            'activeExamAdmins', (
+              select count(*) from public.profiles
+              where role = 'exam_admin' and is_active
+            ),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'coupons', (select count(*) from public.coupons),
+            'couponRedemptions', (select count(*) from public.coupon_redemptions),
+            'examPrices', (select count(*) from public.exam_prices),
+            'financeAuditEvents', (select count(*) from public.agilecert_finance_audit_events)
+          ) as verification;
+          """
+          Path('/tmp/finance-governance-post-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/finance-governance-post-query.json \
+            -o finance-governance-post-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          pre = json.loads(Path('finance-governance-pre-safe.json').read_text())
+          data = json.loads(Path('finance-governance-post-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          post = data[0].get('verification') or {}
+
+          assert post.get('migrationApplied') is True, post
+          assert post.get('permissionDefinitions') == 5, post
+          assert post.get('examAdminEnabled') == 2, post
+          assert post.get('examAdminRestrictedDenied') == 3, post
+          assert post.get('requiredTables') == 6, post
+          assert post.get('rlsTables') == 6, post
+          assert post.get('directBrowserGrants') == 0, post
+          assert post.get('immutableEventTrigger') is True, post
+          assert post.get('securityDefinerFunctions') == 12, post
+          assert post.get('authenticatedFunctionAccess') == 12, post
+          assert post.get('anonFunctionAccess') == 0, post
+          assert post.get('internalHelperBrowserAccess') == 0, post
+          assert post.get('alertRules') == 4, post
+          assert post.get('operationCases') == 0, post
+          assert post.get('caseEvents') == 0, post
+          assert post.get('alerts') == 0, post
+          assert post.get('reportSchedules') == 0, post
+          assert post.get('reportRuns') == 0, post
+
+          preserved = [
+            'protectedFunctionCount', 'protectedFunctionHash',
+            'financeSettingsHash', 'nonGovernancePermissionHash',
+            'profileRoleHash', 'activeExamAdmins', 'examOrders',
+            'examPayments', 'bulkOrders', 'bulkPayments', 'coupons',
+            'couponRedemptions', 'examPrices', 'financeAuditEvents'
+          ]
+          for key in preserved:
+            assert post.get(key) == pre.get(key), (key, pre.get(key), post.get(key))
+
+          Path('finance-governance-post-safe.json').write_text(
+              json.dumps(post, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(post, indent=2))
+          PY
+
+      - name: Confirm production migration ledger is current
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --include-all --dry-run 2>&1 \
+            | tee finance-governance-production-ledger.log
+          ! grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' \
+            finance-governance-production-ledger.log \
+            | grep -q .
+
+      - name: Write sanitized release manifest
+        if: always()
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = {
+            'sourceCommit': os.environ.get('EXPECTED_COMMIT'),
+            'migration': '202608011500_finance_operations_governance.sql',
+            'projectRef': os.environ.get('PROJECT_REF'),
+            'workflowRun': os.environ.get('GITHUB_RUN_ID'),
+            'repository': os.environ.get('GITHUB_REPOSITORY'),
+            'retentionDays': 30,
+          }
+          Path('finance-governance-release-manifest.json').write_text(
+              json.dumps(manifest, indent=2), encoding='utf-8'
+          )
+          PY
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-governance-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            finance-governance-expected-migrations.txt
+            finance-governance-approved-dist.sha256
+            finance-governance-pre-safe.json
+            finance-governance-production-dry-run.log
+            finance-governance-production-pending.txt
+            finance-governance-production-deploy.log
+            finance-governance-post-safe.json
+            finance-governance-production-ledger.log
+            finance-governance-release-manifest.json
