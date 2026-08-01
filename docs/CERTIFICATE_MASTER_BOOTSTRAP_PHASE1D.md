@@ -83,7 +83,7 @@ The dedicated test requires:
 - server-generated verification QR code;
 - one-page managed output with the original page dimensions preserved.
 
-Deno-specific document and assertion types are explicit so the generator and its quality tests are checked under the same strict runtime used by the production renderer.
+Deno-specific document and assertion types are explicit so the generator and its quality tests are checked under the same strict runtime used by the production renderer. Both script entrypoints explicitly declare the Deno namespace library used by file generation and test-artifact output.
 
 ## Controlled template contract authority
 
