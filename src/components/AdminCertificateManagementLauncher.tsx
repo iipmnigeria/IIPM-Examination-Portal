@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Award, FileCheck2, Paintbrush, ShieldCheck, X } from 'lucide-react';
+import {
+  Award,
+  FileCheck2,
+  Paintbrush,
+  ServerCog,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getCurrentPortalUser } from '../services/authService';
 import AdminCertificateDesigner from './AdminCertificateDesigner';
 import AdminCertificateManagementPanel from './AdminCertificateManagementPanel';
+import AdminCertificateRendererConsole from './AdminCertificateRendererConsole';
 import AdminCertificateTemplateConsole from './AdminCertificateTemplateConsole';
 
-type CertificateWorkspace = 'issuance' | 'templates' | 'designer';
+type CertificateWorkspace = 'issuance' | 'templates' | 'designer' | 'rendering';
 
 export default function AdminCertificateManagementLauncher() {
   const [isAuthorised, setIsAuthorised] = useState(false);
@@ -50,7 +58,7 @@ export default function AdminCertificateManagementLauncher() {
               </p>
               <h1 className="mt-1 text-lg font-black">Certificate Management Console</h1>
               <p className="mt-1 text-xs text-slate-400">
-                Issuance, lifecycle, master templates, visual design, assets and assignments
+                Issuance, lifecycle, master templates, visual design, assets, assignments and controlled PDF rendering
               </p>
             </div>
 
@@ -89,6 +97,17 @@ export default function AdminCertificateManagementLauncher() {
                 >
                   <Paintbrush className="h-4 w-4" /> Visual Designer
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveWorkspace('rendering')}
+                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-black transition ${
+                    activeWorkspace === 'rendering'
+                      ? 'bg-cyan-100 text-cyan-950'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                  }`}
+                >
+                  <ServerCog className="h-4 w-4" /> Server Rendering
+                </button>
               </nav>
 
               <button
@@ -107,8 +126,10 @@ export default function AdminCertificateManagementLauncher() {
           <AdminCertificateManagementPanel />
         ) : activeWorkspace === 'templates' ? (
           <AdminCertificateTemplateConsole />
-        ) : (
+        ) : activeWorkspace === 'designer' ? (
           <AdminCertificateDesigner />
+        ) : (
+          <AdminCertificateRendererConsole />
         )}
       </div>
     );

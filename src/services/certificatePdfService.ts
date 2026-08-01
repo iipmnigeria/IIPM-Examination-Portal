@@ -9,6 +9,7 @@ import {
   isCipmnCertificate,
   renderCipmnCompletionCertificate,
 } from './cipmnCertificateRenderer';
+import { tryDownloadManagedCertificatePdf } from './serverCertificatePdfService';
 
 const defaultTemplate: Omit<CertificateRenderTemplate, 'id' | 'programmeId'> = {
   productCode: 'achievement',
@@ -220,6 +221,9 @@ export async function renderCertificatePdf(payload: CertificateRenderPayload): P
 }
 
 export async function downloadCertificatePdf(certificateId: string): Promise<void> {
+  const managed = await tryDownloadManagedCertificatePdf(certificateId);
+  if (managed) return;
+
   const payload = await getCertificateRenderPayload(certificateId);
   await renderCertificatePdf(payload);
 }
