@@ -158,7 +158,7 @@ Deno.test('renders one-page print PDF with long dynamic content and QR', async (
   });
 
   assert(output.byteLength > masterBytes.byteLength, 'Rendered PDF should contain overlay data.');
-  const rendered = await PDFDocument.load(output);
+  const rendered = await PDFDocument.load(output, { updateMetadata: false });
   assert(rendered.getPageCount() === 1, 'Managed certificate must remain one page.');
   assert(
     rendered.getTitle()?.includes('AMINA CHUKWUMA'),
