@@ -1,0 +1,366 @@
+name: Deploy Certificate Master Bootstrap Phase 1D Migration
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-certificate-master-bootstrap-phase1d-migration.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-certificate-master-bootstrap-phase1d-migration
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Deploy and verify Phase 1D contract migration
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPECTED_COMMIT: '21d1c18403c28ba9313cc4969d954648c2f95454'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Check out exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact approved release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          test -s supabase/migrations/202608012400_certificate_template_contract_phase1d.sql
+          test -s scripts/certificate-masters/cipmn-approved-completion-master.ts
+          grep -q 'certificate_admin_set_template_contract' \
+            supabase/migrations/202608012400_certificate_template_contract_phase1d.sql
+          grep -q 'certificate.templates.manage' \
+            supabase/migrations/202608012400_certificate_template_contract_phase1d.sql
+          grep -q 'template.contract.updated' \
+            supabase/migrations/202608012400_certificate_template_contract_phase1d.sql
+          ! grep -R -E '(sk_(live|test)_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9]{20,})' \
+            supabase/migrations/202608012400_certificate_template_contract_phase1d.sql
+
+      - name: Rebuild approved application source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Snapshot protected production state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with protected_functions as (
+            select
+              function_row.oid::regprocedure::text as identity,
+              md5(pg_get_functiondef(function_row.oid)) as definition_hash
+            from pg_proc function_row
+            join pg_namespace namespace_row
+              on namespace_row.oid = function_row.pronamespace
+            where namespace_row.nspname = 'public'
+              and function_row.proname in (
+                'get_certificate_management_console_snapshot',
+                'certificate_designer_validate_overlay',
+                'certificate_admin_save_template_design',
+                'get_agilecert_certificate_server_render_context',
+                'complete_agilecert_certificate_server_render',
+                'evaluate_agilecert_certificate_eligibility',
+                'issue_agilecert_certificate',
+                'verify_agilecert_certificate',
+                'create_exam_order',
+                'fulfil_paid_exam_order',
+                'create_exam_bulk_order',
+                'fulfil_paid_exam_bulk_order'
+              )
+          )
+          select jsonb_build_object(
+            'profiles', (select count(*) from public.profiles),
+            'profileRoleHash', (
+              select md5(coalesce(string_agg(
+                profile.id::text || ':' || profile.role || ':' || profile.is_active::text,
+                '|' order by profile.id
+              ), '')) from public.profiles profile
+            ),
+            'examinations', (select count(*) from public.examinations),
+            'attempts', (select count(*) from public.attempts),
+            'issuedCertificates', (select count(*) from public.agilecert_issued_certificates),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'institutions', (select count(*) from public.agilecert_certificate_institutions),
+            'categories', (select count(*) from public.agilecert_certificate_categories),
+            'masterTemplates', (select count(*) from public.agilecert_certificate_master_templates),
+            'masterVersions', (select count(*) from public.agilecert_certificate_master_versions),
+            'masterAssignments', (select count(*) from public.agilecert_certificate_master_assignments),
+            'masterAuditEvents', (select count(*) from public.agilecert_certificate_master_audit),
+            'rendererEnabledAssignments', (
+              select count(*) from public.agilecert_certificate_master_assignments
+              where renderer_enabled
+            ),
+            'renderBindings', (select count(*) from public.agilecert_certificate_render_bindings),
+            'renderJobs', (select count(*) from public.agilecert_certificate_render_jobs),
+            'protectedFunctionCount', (select count(*) from protected_functions),
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(
+                identity || ':' || definition_hash,
+                '|' order by identity
+              ), '')) from protected_functions
+            )
+          ) as verification;
+          """
+          Path('/tmp/phase1d-migration-pre-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/phase1d-migration-pre-query.json \
+            -o phase1d-migration-pre-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('phase1d-migration-pre-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('masterTemplates') == 0, result
+          assert result.get('masterVersions') == 0, result
+          assert result.get('masterAssignments') == 0, result
+          assert result.get('rendererEnabledAssignments') == 0, result
+          assert result.get('renderBindings') == 0, result
+          assert result.get('renderJobs') == 0, result
+          assert result.get('protectedFunctionCount', 0) >= 8, result
+          Path('phase1d-migration-pre-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Require exactly one approved pending migration
+        shell: bash
+        run: |
+          set -o pipefail
+          printf '%s\n' '202608012400_certificate_template_contract_phase1d.sql' \
+            > phase1d-migration-expected.txt
+          supabase db push --linked --dry-run 2>&1 \
+            | tee phase1d-migration-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' \
+            phase1d-migration-dry-run.log \
+            | sort -u > phase1d-migration-pending.txt || true
+          diff -u phase1d-migration-expected.txt phase1d-migration-pending.txt
+          test "$(wc -l < phase1d-migration-pending.txt | tr -d ' ')" -eq 1
+
+      - name: Apply approved Phase 1D migration
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked 2>&1 \
+            | tee phase1d-migration-deploy.log
+          grep -q 'Applying migration 202608012400_certificate_template_contract_phase1d.sql' \
+            phase1d-migration-deploy.log
+          grep -q 'Finished supabase db push' phase1d-migration-deploy.log
+
+      - name: Verify live contract authority and preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with protected_functions as (
+            select
+              function_row.oid::regprocedure::text as identity,
+              md5(pg_get_functiondef(function_row.oid)) as definition_hash
+            from pg_proc function_row
+            join pg_namespace namespace_row
+              on namespace_row.oid = function_row.pronamespace
+            where namespace_row.nspname = 'public'
+              and function_row.proname in (
+                'get_certificate_management_console_snapshot',
+                'certificate_designer_validate_overlay',
+                'certificate_admin_save_template_design',
+                'get_agilecert_certificate_server_render_context',
+                'complete_agilecert_certificate_server_render',
+                'evaluate_agilecert_certificate_eligibility',
+                'issue_agilecert_certificate',
+                'verify_agilecert_certificate',
+                'create_exam_order',
+                'fulfil_paid_exam_order',
+                'create_exam_bulk_order',
+                'fulfil_paid_exam_bulk_order'
+              )
+          ), contract_function as (
+            select function_row.*
+            from pg_proc function_row
+            join pg_namespace namespace_row
+              on namespace_row.oid = function_row.pronamespace
+            where namespace_row.nspname = 'public'
+              and function_row.oid = to_regprocedure(
+                'public.certificate_admin_set_template_contract(uuid,jsonb,jsonb,text)'
+              )
+          )
+          select jsonb_build_object(
+            'migrationApplied', exists (
+              select 1 from supabase_migrations.schema_migrations
+              where version = '202608012400'
+            ),
+            'contractFunctionExists', exists (select 1 from contract_function),
+            'contractFunctionSecurityDefiner', coalesce((
+              select bool_and(prosecdef) from contract_function
+            ), false),
+            'authenticatedContractExecute', has_function_privilege(
+              'authenticated',
+              'public.certificate_admin_set_template_contract(uuid,jsonb,jsonb,text)',
+              'execute'
+            ),
+            'anonContractExecute', has_function_privilege(
+              'anon',
+              'public.certificate_admin_set_template_contract(uuid,jsonb,jsonb,text)',
+              'execute'
+            ),
+            'contractPermissionGuard', coalesce((
+              select position(
+                'certificate.templates.manage'
+                in pg_get_functiondef(oid)
+              ) > 0 from contract_function
+            ), false),
+            'profiles', (select count(*) from public.profiles),
+            'profileRoleHash', (
+              select md5(coalesce(string_agg(
+                profile.id::text || ':' || profile.role || ':' || profile.is_active::text,
+                '|' order by profile.id
+              ), '')) from public.profiles profile
+            ),
+            'examinations', (select count(*) from public.examinations),
+            'attempts', (select count(*) from public.attempts),
+            'issuedCertificates', (select count(*) from public.agilecert_issued_certificates),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'institutions', (select count(*) from public.agilecert_certificate_institutions),
+            'categories', (select count(*) from public.agilecert_certificate_categories),
+            'masterTemplates', (select count(*) from public.agilecert_certificate_master_templates),
+            'masterVersions', (select count(*) from public.agilecert_certificate_master_versions),
+            'masterAssignments', (select count(*) from public.agilecert_certificate_master_assignments),
+            'masterAuditEvents', (select count(*) from public.agilecert_certificate_master_audit),
+            'rendererEnabledAssignments', (
+              select count(*) from public.agilecert_certificate_master_assignments
+              where renderer_enabled
+            ),
+            'renderBindings', (select count(*) from public.agilecert_certificate_render_bindings),
+            'renderJobs', (select count(*) from public.agilecert_certificate_render_jobs),
+            'protectedFunctionCount', (select count(*) from protected_functions),
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(
+                identity || ':' || definition_hash,
+                '|' order by identity
+              ), '')) from protected_functions
+            )
+          ) as verification;
+          """
+          Path('/tmp/phase1d-migration-post-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/phase1d-migration-post-query.json \
+            -o phase1d-migration-post-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          pre = json.loads(Path('phase1d-migration-pre-safe.json').read_text())
+          data = json.loads(Path('phase1d-migration-post-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          post = data[0].get('verification') or {}
+          assert post.get('migrationApplied') is True, post
+          assert post.get('contractFunctionExists') is True, post
+          assert post.get('contractFunctionSecurityDefiner') is True, post
+          assert post.get('authenticatedContractExecute') is True, post
+          assert post.get('anonContractExecute') is False, post
+          assert post.get('contractPermissionGuard') is True, post
+          preserved = [
+            'profiles', 'profileRoleHash', 'examinations', 'attempts',
+            'issuedCertificates', 'examOrders', 'examPayments',
+            'bulkOrders', 'bulkPayments', 'institutions', 'categories',
+            'masterTemplates', 'masterVersions', 'masterAssignments',
+            'masterAuditEvents', 'rendererEnabledAssignments',
+            'renderBindings', 'renderJobs',
+            'protectedFunctionCount', 'protectedFunctionHash'
+          ]
+          for key in preserved:
+            assert post.get(key) == pre.get(key), (key, pre.get(key), post.get(key))
+          Path('phase1d-migration-post-safe.json').write_text(
+              json.dumps(post, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(post, indent=2))
+          PY
+
+      - name: Confirm production migration ledger is current
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee phase1d-migration-final-dry-run.log
+          grep -q 'Remote database is up to date' \
+            phase1d-migration-final-dry-run.log
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: certificate-master-bootstrap-phase1d-migration-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase1d-migration-expected.txt
+            phase1d-migration-pre-safe.json
+            phase1d-migration-post-safe.json
+            phase1d-migration-dry-run.log
+            phase1d-migration-pending.txt
+            phase1d-migration-deploy.log
+            phase1d-migration-final-dry-run.log
