@@ -9,6 +9,7 @@ import {
 type InitializeRequest = {
   currency?: string;
   couponCode?: string;
+  checkoutSource?: string;
 };
 
 type BulkOrder = {
@@ -36,12 +37,19 @@ Deno.serve(async (request: Request) => {
   try {
     const user = await requireAuthenticatedUser(request);
     const body = (await request.json().catch(() => ({}))) as InitializeRequest;
-    const currency = (body.currency || 'NGN').trim().toUpperCase();
+    const currency = body.currency?.trim().toUpperCase() || '';
     const couponCode = body.couponCode?.trim() || null;
+    const checkoutSource = body.checkoutSource === 'agilecert_mobile'
+      ? 'agilecert_mobile'
+      : 'agilecert_portal';
+
+    if (!/^[A-Z]{3}$/.test(currency)) {
+      throw new Error('A valid location-routed payment currency is required before checkout.');
+    }
 
     const candidateClient = userClient(request);
     const { data: orderResult, error: orderError } = await candidateClient.rpc(
-      'create_my_exam_bulk_order',
+      'create_my_programme_exam_bulk_order',
       {
         p_currency: currency,
         p_coupon_code: couponCode,
@@ -83,7 +91,11 @@ Deno.serve(async (request: Request) => {
     const order = orderData as BulkOrder;
 
     if (order.candidate_id !== user.id) {
-      return jsonResponse(request, { error: 'This cart order does not belong to the signed-in candidate.' }, 403);
+      return jsonResponse(
+        request,
+        { error: 'This cart order does not belong to the signed-in candidate.' },
+        403,
+      );
     }
     if (order.status !== 'pending') {
       throw new Error(`This consolidated order cannot be paid from status ${order.status}.`);
@@ -93,6 +105,10 @@ Deno.serve(async (request: Request) => {
     }
     if (!Number.isSafeInteger(Number(order.payable_amount_minor)) || order.payable_amount_minor <= 0) {
       throw new Error('The consolidated payable amount is invalid.');
+    }
+
+    if (order.currency.toUpperCase() !== currency) {
+      throw new Error('The server-routed order currency changed. Refresh the cart before paying.');
     }
 
     if (order.gateway_authorization_url && order.gateway_access_code) {
@@ -116,6 +132,7 @@ Deno.serve(async (request: Request) => {
       Deno.env.get('IIPM_PORTAL_URL') ||
       'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
     ).trim();
+    const callbackBase = portalUrl.replace(/\/$/, '');
 
     const paystackPayload = await paystackRequest('/transaction/initialize', {
       method: 'POST',
@@ -124,13 +141,15 @@ Deno.serve(async (request: Request) => {
         amount: String(order.payable_amount_minor),
         currency: order.currency,
         reference: order.reference,
-        callback_url: `${portalUrl.replace(/\/$/, '')}/?payment=callback`,
+        callback_url: `${callbackBase}/?payment=callback&view=exams`,
         metadata: JSON.stringify({
           bulkOrderId: order.id,
           candidateId: order.candidate_id,
           itemCount: order.item_count,
-          checkoutType: 'cipmn_multi_module_cart',
-          portal: 'IIPM Examination Portal',
+          checkoutType: 'agilecert_exam_cart',
+          checkoutSource,
+          pricingRoute: 'location_routed',
+          portal: 'AgileCert Global',
         }),
       }),
     });
@@ -166,7 +185,9 @@ Deno.serve(async (request: Request) => {
           provider_payload: {
             access_code: accessCode,
             initialized_at: new Date().toISOString(),
-            checkout_type: 'cipmn_multi_module_cart',
+            checkout_type: 'agilecert_exam_cart',
+            checkout_source: checkoutSource,
+            pricing_route: 'location_routed',
           },
         },
         { onConflict: 'provider,reference' },
@@ -187,10 +208,13 @@ Deno.serve(async (request: Request) => {
       accessCode,
       paymentRequired: true,
       expiresAt: order.expires_at,
+      pricingRoute: 'location_routed',
     });
   } catch (error) {
     console.error('initialize-exam-cart-payment failed:', error);
-    const message = error instanceof Error ? error.message : 'Consolidated payment initialization failed.';
+    const message = error instanceof Error
+      ? error.message
+      : 'Consolidated payment initialization failed.';
     return jsonResponse(request, { error: message }, 400);
   }
 });
