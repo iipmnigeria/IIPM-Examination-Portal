@@ -1,0 +1,88 @@
+name: Commission Finance Console Completion Production v5
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/commission-finance-console-completion-production-v5.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: commission-finance-console-completion-production-v5
+  cancel-in-progress: false
+
+jobs:
+  commission:
+    name: Run final authorised rolled-back production commissioning
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EXPECTED_SOURCE_COMMIT: '39255e9ea56178ef2b362a089bd0788846dcbbd7'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      LIVE_BASE_URL: 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      APP_DIR: ${{ github.workspace }}/app
+
+    steps:
+      - name: Check out exact commissioned application source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_SOURCE_COMMIT }}
+          fetch-depth: 0
+          path: app
+
+      - name: Check out temporary commissioning controls
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          path: control
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate exact source and production build
+        shell: bash
+        working-directory: app
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'Advanced examination pricing saved and audited' dist/assets
+          grep -R -q 'finance-gateway-status' dist/assets
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > ../commissioned-dist.sha256
+
+      - name: Run live commissioning harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/.github/commissioning/finance_console_completion_v5.py
+
+      - name: Upload commissioning evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-completion-production-commissioning-v5
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            commissioned-dist.sha256
+            commissioning-pre.json
+            commissioning-signatures.json
+            production-commissioning.json
+            commissioning-post.json
+            live-frontend-commissioning.json
+            admin-verify-exam-payment-denial.json
+            finance-gateway-status-denial.json
+            commissioning-*-http-error.json
+            commissioning-*-unexpected.json
