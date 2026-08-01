@@ -1,0 +1,1 @@
+Deploy exact approved migration 202608012300 and verify examination identities, certificate records, commerce records and renderer state remain preserved.
