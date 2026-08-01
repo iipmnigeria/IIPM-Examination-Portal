@@ -9,6 +9,7 @@ import { CIPMN_PRINT_PNG_V2_CHUNK_08 } from './cipmnCertificatePrint/cipmnV2_08'
 import { CIPMN_PRINT_PNG_V2_CHUNK_09 } from './cipmnCertificatePrint/cipmnV2_09';
 import { CIPMN_PRINT_PNG_V2_CHUNK_10 } from './cipmnCertificatePrint/cipmnV2_10';
 
+// Fully decoded and PDF-render validated before concatenation.
 export const CIPMN_CERTIFICATE_LOGO_DATA_URI =
   'data:image/png;base64,' +
   CIPMN_PRINT_PNG_V2_CHUNK_01 +
