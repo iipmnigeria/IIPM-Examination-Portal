@@ -1,0 +1,165 @@
+name: Validate Finance Console Access Activation
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/202608011320_finance_console_exam_admin_least_privilege.sql'
+      - 'supabase/tests/finance_console_exam_admin_least_privilege_smoke.sql'
+      - 'docs/FINANCE_CONSOLE_EXAM_ADMIN_ACTIVATION.md'
+      - '.github/workflows/validate-finance-console-access-activation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-console-access-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  frontend:
+    name: Verify launcher integration and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript and production build
+        run: |
+          npm run lint
+          npm run build
+      - name: Verify existing Finance Console launcher path
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "export { default } from './AdminFinanceConsole';" src/components/AdminCommerceConsole.tsx
+          grep -q '<AdminCommerceConsole />' src/main.tsx
+          grep -q 'aria-label="Open Finance Console"' src/components/AdminFinanceConsole.tsx
+          grep -q "document.querySelectorAll<HTMLButtonElement>('button.fixed')" src/components/AdminPrimaryToolsMenu.tsx
+          grep -q 'MutationObserver(refresh)' src/components/AdminPrimaryToolsMenu.tsx
+          test -s dist/index.html
+
+  database:
+    name: Reset schema and verify least-privilege access
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+      - name: Neutralise production-only identity bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: no production identity bootstrap.
+          commit;
+          SQL
+      - name: Start isolated database services
+        shell: bash
+        run: |
+          set +e
+          set -uo pipefail
+          : > finance-access-supabase-start.log
+          excluded_services='gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor'
+          for attempt in 1 2; do
+            attempt_log="finance-access-start-attempt-${attempt}.log"
+            timeout --signal=TERM --kill-after=15s 120s \
+              supabase start -x "$excluded_services" --ignore-health-check --debug \
+              > "$attempt_log" 2>&1
+            start_exit=$?
+            cat "$attempt_log" | tee -a finance-access-supabase-start.log
+            if [ "$start_exit" -eq 0 ]; then
+              for readiness_attempt in $(seq 1 30); do
+                if pg_isready -h 127.0.0.1 -p 54322 -U postgres; then
+                  exit 0
+                fi
+                sleep 2
+              done
+            fi
+            timeout --signal=TERM --kill-after=10s 45s supabase stop --no-backup || true
+            sleep $((attempt * 10))
+          done
+          docker ps -a 2>&1 | tee finance-access-docker-ps.log || true
+          exit 1
+      - name: Apply complete migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee finance-access-db-reset.log
+      - name: Run access activation smoke test
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_console_exam_admin_least_privilege_smoke.sql \
+            2>&1 | tee finance-access-smoke.log
+          grep -q 'financeConsoleActivated' finance-access-smoke.log
+          grep -q 'restrictedPermissionsDenied' finance-access-smoke.log
+          grep -q 'candidateDenied' finance-access-smoke.log
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-access-activation-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            finance-access-supabase-start.log
+            finance-access-start-attempt-*.log
+            finance-access-docker-ps.log
+            finance-access-db-reset.log
+            finance-access-smoke.log
+      - name: Stop isolated services
+        if: always()
+        run: timeout --signal=TERM --kill-after=10s 45s supabase stop --no-backup || true
+
+  boundaries:
+    name: Confirm exact access-only scope
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restrict changed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only origin/supabase-integration...HEAD | sort > changed-files.txt
+          cat > allowed-files.txt <<'EOF'
+          .github/workflows/validate-finance-console-access-activation.yml
+          docs/FINANCE_CONSOLE_EXAM_ADMIN_ACTIVATION.md
+          supabase/migrations/202608011320_finance_console_exam_admin_least_privilege.sql
+          supabase/tests/finance_console_exam_admin_least_privilege_smoke.sql
+          EOF
+          sort -o allowed-files.txt allowed-files.txt
+          diff -u allowed-files.txt changed-files.txt
+      - name: Confirm protected finance and commerce systems are untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --quiet origin/supabase-integration...HEAD -- \
+            src/components/AdminFinanceConsole.tsx \
+            src/components/FinanceConsoleCompletionPanel.tsx \
+            src/services/financeConsoleService.ts \
+            src/services/financeConsoleCompletionService.ts \
+            supabase/functions/admin-verify-exam-payment/index.ts \
+            supabase/functions/finance-gateway-status/index.ts \
+            supabase/functions/initialize-exam-payment/index.ts \
+            supabase/functions/verify-exam-payment/index.ts \
+            supabase/functions/initialize-exam-cart-payment/index.ts \
+            supabase/functions/verify-exam-cart-payment/index.ts \
+            supabase/functions/paystack-webhook/index.ts \
+            src/services/examService.ts
