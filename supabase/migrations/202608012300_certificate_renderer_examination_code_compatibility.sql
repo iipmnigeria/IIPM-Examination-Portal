@@ -20,7 +20,7 @@ create or replace function public.agilecert_derive_examination_code(
 )
 returns text
 language plpgsql
-stable
+volatile
 security definer
 set search_path = public
 as $$
@@ -104,6 +104,7 @@ set code = public.agilecert_derive_examination_code(
 )
 where examination.code is null
    or length(trim(examination.code)) < 2
+   or examination.code <> upper(examination.code)
    or examination.code !~ '^[A-Za-z0-9][A-Za-z0-9._-]{1,79}$';
 
 drop trigger if exists agilecert_examinations_derive_code
