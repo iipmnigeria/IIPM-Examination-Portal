@@ -15,6 +15,7 @@
 # Certificate Management Console Phase 1A frontend release: 2026-08-01
 # Certificate Visual Designer Phase 1B frontend release: 2026-08-01
 # Finance Operations and Governance frontend release: 2026-08-01
+# Certificate Server Rendering Phase 1C frontend release: 2026-08-01
 name: Deploy to GitHub Pages
 
 on:
