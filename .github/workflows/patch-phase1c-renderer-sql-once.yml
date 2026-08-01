@@ -1,4 +1,4 @@
-name: Patch Phase 1C Renderer SQL Once
+name: Complete Phase 1C Branch Cleanup Once
 
 on:
   push:
@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  patch:
+  cleanup:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,42 +22,42 @@ jobs:
           ref: feature/certificate-server-rendering-phase1c
           fetch-depth: 0
 
-      - name: Patch invalid composite assignment
+      - name: Preserve SQL correction and remove temporary controls
         shell: bash
         run: |
           set -euo pipefail
-          python3 <<'PY'
-          from pathlib import Path
-
-          path = Path('supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql')
-          content = path.read_text(encoding='utf-8')
-          old = """  select to_jsonb(assignment), assignment
-            into v_before, v_assignment
-            from public.agilecert_certificate_master_assignments assignment
-            where assignment.id = p_assignment_id
-            for update;
-          """
-          new = """  select *
-            into v_assignment
-            from public.agilecert_certificate_master_assignments assignment
-            where assignment.id = p_assignment_id
-            for update;
-
-            v_before := to_jsonb(v_assignment);
-          """
-          if content.count(old) != 1:
-              raise SystemExit('Expected exactly one invalid composite assignment block.')
-          path.write_text(content.replace(old, new), encoding='utf-8')
-          PY
-
           grep -q 'v_before := to_jsonb(v_assignment);' \
             supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql
           ! grep -q 'select to_jsonb(assignment), assignment' \
             supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql
 
+          rm -f \
+            .github/workflows/materialize-certificate-server-rendering-phase1c.yml \
+            .github/workflows/patch-certificate-server-rendering-phase1c-sql.yml \
+            deployment-triggers/materialize-certificate-server-rendering-phase1c.txt \
+            deployment-triggers/patch-certificate-server-rendering-phase1c-sql.txt
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql
+          git add -A -- \
+            .github/workflows/materialize-certificate-server-rendering-phase1c.yml \
+            .github/workflows/patch-certificate-server-rendering-phase1c-sql.yml \
+            deployment-triggers/materialize-certificate-server-rendering-phase1c.txt \
+            deployment-triggers/patch-certificate-server-rendering-phase1c-sql.txt
           git diff --cached --check
-          git commit -m 'Fix Phase 1C renderer activation migration syntax'
-          git push origin HEAD:feature/certificate-server-rendering-phase1c
+          if ! git diff --cached --quiet; then
+            git commit -m 'Remove temporary Phase 1C patch controls'
+            git push origin HEAD:feature/certificate-server-rendering-phase1c
+          fi
+
+      - name: Remove this one-use workflow from source branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin supabase-integration
+          git checkout -B supabase-integration origin/supabase-integration
+          rm -f .github/workflows/patch-phase1c-renderer-sql-once.yml
+          git add .github/workflows/patch-phase1c-renderer-sql-once.yml
+          git diff --cached --check
+          git commit -m 'Remove one-use Phase 1C SQL patch control'
+          git push origin HEAD:supabase-integration
