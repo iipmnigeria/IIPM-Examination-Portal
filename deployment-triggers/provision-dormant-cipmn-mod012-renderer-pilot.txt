@@ -1,0 +1,1 @@
+Provision the approved CIPMN completion master and one examination-specific CIPMN-MOD-012 assignment while leaving renderer activation disabled.
