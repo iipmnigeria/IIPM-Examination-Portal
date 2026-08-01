@@ -1,0 +1,97 @@
+name: Cleanup Orphaned CIPMN Master Upload
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths: ['deployment-triggers/cleanup-orphaned-cipmn-master-upload.txt']
+permissions:
+  contents: read
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      MASTER_URI: 'ss:///certificate-masters/managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: '21d1c18403c28ba9313cc4969d954648c2f95454'
+      - uses: supabase/setup-cli@v1
+        with: { version: 2.101.0 }
+      - name: Link project
+        run: supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+      - name: Verify rollback state before cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          q="""select jsonb_build_object(
+            'templates',(select count(*) from public.agilecert_certificate_master_templates),
+            'versions',(select count(*) from public.agilecert_certificate_master_versions),
+            'assignments',(select count(*) from public.agilecert_certificate_master_assignments),
+            'bindings',(select count(*) from public.agilecert_certificate_render_bindings),
+            'jobs',(select count(*) from public.agilecert_certificate_render_jobs),
+            'targetObjects',(select count(*) from storage.objects where bucket_id='certificate-masters' and name='managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf')
+          ) as state;"""
+          Path('/tmp/q.json').write_text(json.dumps({'query':q}))
+          PY
+          curl --fail-with-body --silent --show-error -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" -H 'Content-Type: application/json' --data-binary @/tmp/q.json -o cleanup-before.json
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          s=json.loads(Path('cleanup-before.json').read_text())[0]['state']
+          for k in ('templates','versions','assignments','bindings','jobs'): assert s[k]==0,(k,s)
+          assert s['targetObjects'] in (0,1),s
+          Path('cleanup-before-safe.json').write_text(json.dumps(s,indent=2))
+          print(json.dumps(s,indent=2))
+          PY
+      - name: Remove exact orphaned object when present
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=$(python3 -c "import json; print(json.load(open('cleanup-before-safe.json'))['targetObjects'])")
+          if [ "$count" = '1' ]; then
+            printf 'y\n' | supabase storage rm "$MASTER_URI" --experimental --linked 2>&1 | tee cleanup-remove.log
+          else
+            echo 'No orphaned object present.' | tee cleanup-remove.log
+          fi
+      - name: Verify clean state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          q="""select jsonb_build_object(
+            'templates',(select count(*) from public.agilecert_certificate_master_templates),
+            'versions',(select count(*) from public.agilecert_certificate_master_versions),
+            'assignments',(select count(*) from public.agilecert_certificate_master_assignments),
+            'bindings',(select count(*) from public.agilecert_certificate_render_bindings),
+            'jobs',(select count(*) from public.agilecert_certificate_render_jobs),
+            'targetObjects',(select count(*) from storage.objects where bucket_id='certificate-masters' and name='managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf')
+          ) as state;"""
+          Path('/tmp/q2.json').write_text(json.dumps({'query':q}))
+          PY
+          curl --fail-with-body --silent --show-error -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" -H 'Content-Type: application/json' --data-binary @/tmp/q2.json -o cleanup-after.json
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          s=json.loads(Path('cleanup-after.json').read_text())[0]['state']
+          assert all(s[k]==0 for k in s),s
+          Path('cleanup-after-safe.json').write_text(json.dumps(s,indent=2))
+          print(json.dumps(s,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: orphaned-cipmn-master-cleanup-evidence
+          retention-days: 30
+          path: |
+            cleanup-before-safe.json
+            cleanup-remove.log
+            cleanup-after-safe.json
