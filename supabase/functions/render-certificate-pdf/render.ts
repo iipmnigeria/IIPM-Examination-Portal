@@ -405,6 +405,12 @@ const dataUrlBytes = (dataUrl: string): Uint8Array => {
   return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
 };
 
+const toExactArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+};
+
 const pageSizeForImageMaster = (
   context: ManagedCertificateRenderContext,
 ): [number, number] => {
@@ -430,8 +436,8 @@ const embedRasterImage = async (
   mimeType: string,
   bytes: Uint8Array,
 ): Promise<PDFImage> => {
-  if (mimeType === 'image/png') return await document.embedPng(bytes);
-  if (mimeType === 'image/jpeg') return await document.embedJpg(bytes);
+  if (mimeType === 'image/png') return await document.embedPng(toExactArrayBuffer(bytes));
+  if (mimeType === 'image/jpeg') return await document.embedJpg(toExactArrayBuffer(bytes));
   throw new Error(`Unsupported raster image type: ${mimeType}`);
 };
 
@@ -440,7 +446,7 @@ const createDocumentFromMaster = async (
   masterBytes: Uint8Array,
 ): Promise<{ document: PDFDocument; page: PDFPage }> => {
   if (context.master.sourceFormat === 'pdf') {
-    const document = await PDFDocument.load(masterBytes, {
+    const document = await PDFDocument.load(toExactArrayBuffer(masterBytes), {
       ignoreEncryption: false,
       updateMetadata: false,
     });
@@ -545,7 +551,7 @@ const drawQrElement = async (
       light: '#ffffff',
     },
   });
-  const qrImage = await document.embedPng(dataUrlBytes(qrDataUrl));
+  const qrImage = await document.embedPng(toExactArrayBuffer(dataUrlBytes(qrDataUrl)));
   page.drawImage(qrImage, {
     x: x + (boxWidth - size) / 2,
     y: bottom + (boxHeight - size) / 2,
