@@ -5,6 +5,7 @@ import {
   Banknote,
   BarChart3,
   CircleDollarSign,
+  ClipboardCheck,
   KeyRound,
   Loader2,
   RefreshCw,
@@ -19,6 +20,7 @@ import FinanceCertificationFeesPanel from './FinanceCertificationFeesPanel';
 import FinanceConsoleCompletionPanel, {
   type FinanceCompletionView,
 } from './FinanceConsoleCompletionPanel';
+import FinanceGovernancePanel from './FinanceGovernancePanel';
 import {
   getFinanceConsoleSnapshot,
   getMyFinanceConsoleAccess,
@@ -39,6 +41,7 @@ type ConsoleTab =
   | 'settings'
   | 'transactions'
   | 'dashboard'
+  | 'governance'
   | 'permissions';
 
 type TabDefinition = {
@@ -110,6 +113,7 @@ export default function AdminFinanceConsole() {
   const tabs = useMemo<TabDefinition[]>(() => {
     if (!access) return [];
     const completionAccess = completion?.access;
+    const permissions = access.permissions as string[];
     const available: TabDefinition[] = [
       { id: 'overview', label: 'Overview', icon: BarChart3 },
       { id: 'pricing', label: 'Examination Fees', icon: CircleDollarSign },
@@ -126,6 +130,9 @@ export default function AdminFinanceConsole() {
     available.push({ id: 'transactions', label: 'Transactions', icon: WalletCards });
     if (completionAccess?.canViewDashboard || completionAccess?.role === 'super_admin') {
       available.push({ id: 'dashboard', label: 'Revenue Dashboard', icon: BarChart3 });
+    }
+    if (access.role === 'super_admin' || permissions.includes('finance.governance.view')) {
+      available.push({ id: 'governance', label: 'Operations & Governance', icon: ClipboardCheck });
     }
     if (access.canManagePermissions) {
       available.push({ id: 'permissions', label: 'Permissions', icon: KeyRound });
@@ -199,7 +206,7 @@ export default function AdminFinanceConsole() {
                 </p>
                 <h1 className="text-xl font-extrabold">Finance Console</h1>
                 <p className="mt-1 text-xs text-slate-400">
-                  Pricing, certification, coupons, settings, transactions, reconciliation and reporting
+                  Pricing, transactions, reconciliation, reporting, operations and governance
                 </p>
               </div>
               <div className="flex gap-2">
@@ -275,6 +282,10 @@ export default function AdminFinanceConsole() {
                 />
               )}
 
+              {activeTab === 'governance' && (
+                <FinanceGovernancePanel onMessage={setMessage} onError={setError} />
+              )}
+
               {core && activeTab === 'permissions' && access.canManagePermissions && (
                 <section className="space-y-5">
                   <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -283,7 +294,7 @@ export default function AdminFinanceConsole() {
                       <h2 className="font-black text-slate-950">Examination Administrator finance permissions</h2>
                     </div>
                     <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-500">
-                      Super Administrators retain all authority. High-impact settings, verification, recovery and adjustment permissions are ungranted by default and require an audited reason.
+                      Super Administrators retain all authority. High-impact settings, verification, recovery, adjustment, governance review, alert and reporting permissions are ungranted by default and require an audited reason.
                     </p>
                     <label className="mt-4 block text-xs font-bold text-slate-600">
                       Reason for permission changes

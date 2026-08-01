@@ -1,0 +1,188 @@
+name: Validate Finance Operations Governance
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/components/AdminFinanceConsole.tsx'
+      - 'src/components/FinanceGovernancePanel.tsx'
+      - 'src/services/financeGovernanceService.ts'
+      - 'supabase/migrations/202608011500_finance_operations_governance.sql'
+      - 'supabase/tests/finance_operations_governance_smoke.sql'
+      - 'docs/FINANCE_OPERATIONS_GOVERNANCE.md'
+      - '.github/workflows/validate-finance-operations-governance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-governance-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  frontend:
+    name: Validate Finance Governance frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript and production build
+        run: |
+          npm run lint
+          npm run build
+      - name: Verify governance workspace integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "FinanceGovernancePanel" src/components/AdminFinanceConsole.tsx
+          grep -q "Operations & Governance" src/components/AdminFinanceConsole.tsx
+          grep -q "Maker–checker cases" src/components/FinanceGovernancePanel.tsx
+          grep -q "finance_create_operation_case" src/services/financeGovernanceService.ts
+          grep -q "finance_process_due_report_schedules" src/services/financeGovernanceService.ts
+          test -s dist/index.html
+
+  database:
+    name: Reset schema and verify governance lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+      - name: Neutralise production-only identity bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: no production identity bootstrap.
+          commit;
+          SQL
+      - name: Start isolated database services
+        shell: bash
+        run: |
+          set +e
+          set -uo pipefail
+          : > finance-governance-supabase-start.log
+          excluded_services='gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor'
+          for attempt in 1 2; do
+            attempt_log="finance-governance-start-attempt-${attempt}.log"
+            timeout --signal=TERM --kill-after=15s 120s \
+              supabase start -x "$excluded_services" --ignore-health-check --debug \
+              > "$attempt_log" 2>&1
+            start_exit=$?
+            cat "$attempt_log" | tee -a finance-governance-supabase-start.log
+            if [ "$start_exit" -eq 0 ]; then
+              for readiness_attempt in $(seq 1 30); do
+                if pg_isready -h 127.0.0.1 -p 54322 -U postgres; then
+                  exit 0
+                fi
+                sleep 2
+              done
+            fi
+            timeout --signal=TERM --kill-after=10s 45s supabase stop --no-backup || true
+            sleep $((attempt * 10))
+          done
+          docker ps -a 2>&1 | tee finance-governance-docker-ps.log || true
+          exit 1
+      - name: Apply complete migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee finance-governance-db-reset.log
+      - name: Run Finance Governance smoke test
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_operations_governance_smoke.sql \
+            2>&1 | tee finance-governance-smoke.log
+          grep -q 'financeGovernanceReady' finance-governance-smoke.log
+          grep -q 'dualApprovalPassed' finance-governance-smoke.log
+          grep -q 'operationalAlertPassed' finance-governance-smoke.log
+          grep -q 'scheduledReportQueued' finance-governance-smoke.log
+          grep -q 'protectedFinanceRecordsPreserved' finance-governance-smoke.log
+      - name: Upload database validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-operations-governance-database-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            finance-governance-supabase-start.log
+            finance-governance-start-attempt-*.log
+            finance-governance-docker-ps.log
+            finance-governance-db-reset.log
+            finance-governance-smoke.log
+      - name: Stop isolated services
+        if: always()
+        run: timeout --signal=TERM --kill-after=10s 45s supabase stop --no-backup || true
+
+  boundaries:
+    name: Confirm exact governance-only scope
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restrict changed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only origin/supabase-integration...HEAD | sort > changed-files.txt
+          cat > allowed-files.txt <<'EOF'
+          .github/workflows/validate-finance-operations-governance.yml
+          docs/FINANCE_OPERATIONS_GOVERNANCE.md
+          src/components/AdminFinanceConsole.tsx
+          src/components/FinanceGovernancePanel.tsx
+          src/services/financeGovernanceService.ts
+          supabase/migrations/202608011500_finance_operations_governance.sql
+          supabase/tests/finance_operations_governance_smoke.sql
+          EOF
+          sort -o allowed-files.txt allowed-files.txt
+          diff -u allowed-files.txt changed-files.txt
+      - name: Confirm protected authorities are untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --quiet origin/supabase-integration...HEAD -- \
+            src/components/FinanceConsoleCompletionPanel.tsx \
+            src/components/FinanceCertificationFeesPanel.tsx \
+            src/services/financeConsoleCompletionService.ts \
+            src/services/financeConsoleService.ts \
+            src/services/adminCommerceService.ts \
+            src/services/examService.ts \
+            supabase/migrations/202607310700_finance_console_pricing_permissions.sql \
+            supabase/migrations/202607311100_finance_console_certification_products.sql \
+            supabase/migrations/202608010600_finance_console_completion.sql \
+            supabase/migrations/202608011130_finance_console_snapshot_coupon_aggregate_fix.sql \
+            supabase/migrations/202608011320_finance_console_exam_admin_least_privilege.sql \
+            supabase/functions/admin-verify-exam-payment/index.ts \
+            supabase/functions/finance-gateway-status/index.ts \
+            supabase/functions/initialize-exam-payment/index.ts \
+            supabase/functions/verify-exam-payment/index.ts \
+            supabase/functions/initialize-exam-cart-payment/index.ts \
+            supabase/functions/verify-exam-cart-payment/index.ts \
+            supabase/functions/paystack-webhook/index.ts \
+            supabase/functions/agilecert-communications/index.ts
+      - name: Upload scope evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-operations-governance-scope-evidence
+          retention-days: 14
+          path: |
+            allowed-files.txt
+            changed-files.txt
