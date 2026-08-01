@@ -1,0 +1,6 @@
+Controlled production activation for Finance Operations and Governance Enhancement.
+
+Approved source commit: f2fbdc44f0ba36ff0d0af7da72b89cb78c4ed3ad
+Approved migration: 202608011500_finance_operations_governance.sql
+
+This disposable trigger invokes the fail-closed production workflow. It is not intended to be merged into supabase-integration.
