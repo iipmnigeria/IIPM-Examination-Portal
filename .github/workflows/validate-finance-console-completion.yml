@@ -102,14 +102,15 @@ jobs:
           -- CI-only: no production identity bootstrap.
           commit;
           SQL
-      - name: Start isolated Supabase services with diagnostics and retry
+      - name: Start database-only Supabase services with diagnostics and retry
         shell: bash
         run: |
           set -uo pipefail
           : > finance-console-supabase-start.log
+          excluded_services='gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor'
           for attempt in 1 2 3; do
-            echo "Supabase startup attempt ${attempt}/3" | tee -a finance-console-supabase-start.log
-            if timeout 240s supabase start --debug 2>&1 | tee -a finance-console-supabase-start.log; then
+            echo "Database startup attempt ${attempt}/3" | tee -a finance-console-supabase-start.log
+            if timeout 180s supabase start -x "$excluded_services" --debug 2>&1 | tee -a finance-console-supabase-start.log; then
               supabase status 2>&1 | tee finance-console-supabase-status.log
               exit 0
             fi
