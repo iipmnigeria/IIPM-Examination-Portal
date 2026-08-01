@@ -1,8 +1,9 @@
 name: Bootstrap Finance Console Completion
 
 on:
-  push:
-    branches: [agent/complete-finance-console]
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
     paths:
       - '.github/workflows/bootstrap-finance-console-completion.yml'
 
@@ -16,6 +17,7 @@ concurrency:
 jobs:
   apply:
     name: Reconstruct reviewed Finance Console package
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
