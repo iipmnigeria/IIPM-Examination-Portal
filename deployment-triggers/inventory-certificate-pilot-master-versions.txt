@@ -1,0 +1,1 @@
+Inventory published certificate master versions and match one render-ready version to the examination with the smallest matching active-certificate population. Read-only.
