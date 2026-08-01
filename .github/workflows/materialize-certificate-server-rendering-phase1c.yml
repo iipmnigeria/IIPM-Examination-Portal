@@ -29,12 +29,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat deployment-triggers/phase1c-payload/part-* \
-            | base64 --decode > /tmp/certificate-server-rendering-phase1c.tar.gz
+          cat deployment-triggers/phase1c-hex-payload/part-* > /tmp/certificate-server-rendering-phase1c.hex
+          python3 <<'PY'
+          from pathlib import Path
+          encoded = Path('/tmp/certificate-server-rendering-phase1c.hex').read_text().strip()
+          Path('/tmp/certificate-server-rendering-phase1c.tar.gz').write_bytes(bytes.fromhex(encoded))
+          PY
           echo '7203bcce893de25f4ab2374caca8645888b8dee64360d8b4571812b69ff650d5  /tmp/certificate-server-rendering-phase1c.tar.gz' \
             | sha256sum --check
           tar --extract --gzip --file /tmp/certificate-server-rendering-phase1c.tar.gz
-          rm -rf deployment-triggers/phase1c-payload
+          rm -rf deployment-triggers/phase1c-payload deployment-triggers/phase1c-hex-payload
           rm -f deployment-triggers/materialize-certificate-server-rendering-phase1c.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
