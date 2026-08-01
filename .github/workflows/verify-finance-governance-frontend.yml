@@ -1,0 +1,154 @@
+name: Verify Finance Governance Frontend
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/verify-finance-governance-frontend.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-finance-governance-frontend
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify live Finance Governance GitHub Pages bundle
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPECTED_COMMIT: 'f2fbdc44f0ba36ff0d0af7da72b89cb78c4ed3ad'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build exact expected production bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          npm install --no-audit --no-fund
+          npm run lint
+          npx vite build
+          test -s dist/index.html
+
+          python3 <<'PY'
+          import re
+          from pathlib import Path
+
+          html = Path('dist/index.html').read_text(encoding='utf-8')
+          matches = re.findall(r'<script[^>]+src="([^"]+\.js)"', html)
+          assert matches, html
+          main = next((item for item in matches if '/assets/index-' in item), matches[0])
+          Path('expected-main-asset.txt').write_text(main + '\n', encoding='utf-8')
+          local_path = Path('dist') / main.lstrip('/').replace('IIPM-Examination-Portal/', '', 1)
+          assert local_path.is_file(), (main, local_path)
+          content = local_path.read_text(encoding='utf-8', errors='ignore')
+          for marker in (
+              'get_finance_governance_snapshot',
+              'finance_create_operation_case',
+              'finance_decide_operation_case',
+              'finance_process_due_report_schedules',
+              'Operations & Governance',
+          ):
+              assert marker in content, marker
+          Path('expected-main-file.txt').write_text(str(local_path) + '\n', encoding='utf-8')
+          PY
+
+          expected_file=$(cat expected-main-file.txt)
+          sha256sum "$expected_file" | awk '{print $1}' > expected-main.sha256
+          cat expected-main-asset.txt
+          cat expected-main.sha256
+
+      - name: Wait for and verify live Finance Governance bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_asset=$(cat expected-main-asset.txt)
+          expected_file=$(cat expected-main-file.txt)
+          base_url='https://iipmnigeria.github.io/IIPM-Examination-Portal'
+          matched='false'
+
+          for attempt in $(seq 1 42); do
+            cache_bust="$(date +%s)-${attempt}"
+            curl --fail-with-body --silent --show-error \
+              -H 'Cache-Control: no-cache' \
+              "${base_url}/?finance-governance=${cache_bust}" \
+              -o live-index.html
+
+            live_asset=$(python3 <<'PY'
+          import re
+          from pathlib import Path
+          html = Path('live-index.html').read_text(encoding='utf-8')
+          matches = re.findall(r'<script[^>]+src="([^"]+\.js)"', html)
+          print(next((item for item in matches if '/assets/index-' in item), matches[0] if matches else ''))
+          PY
+            )
+
+            printf 'attempt=%s expected=%s live=%s\n' "$attempt" "$expected_asset" "$live_asset" \
+              | tee -a frontend-verification-attempts.log
+
+            if [ "$live_asset" = "$expected_asset" ]; then
+              live_path="${live_asset#./}"
+              curl --fail-with-body --silent --show-error \
+                -H 'Cache-Control: no-cache' \
+                "${base_url}/${live_path}?finance-governance=${cache_bust}" \
+                -o live-main.js
+              cmp "$expected_file" live-main.js
+              sha256sum live-main.js | awk '{print $1}' > live-main.sha256
+              matched='true'
+              break
+            fi
+            sleep 10
+          done
+
+          test "$matched" = 'true'
+          diff -u expected-main.sha256 live-main.sha256
+          grep -q 'get_finance_governance_snapshot' live-main.js
+          grep -q 'finance_create_operation_case' live-main.js
+          grep -q 'finance_decide_operation_case' live-main.js
+          grep -q 'finance_process_due_report_schedules' live-main.js
+          grep -q 'Operations & Governance' live-main.js
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          evidence = {
+              'pagesUrl': 'https://iipmnigeria.github.io/IIPM-Examination-Portal/',
+              'approvedSourceCommit': 'f2fbdc44f0ba36ff0d0af7da72b89cb78c4ed3ad',
+              'expectedAsset': Path('expected-main-asset.txt').read_text().strip(),
+              'expectedHash': Path('expected-main.sha256').read_text().strip(),
+              'liveHash': Path('live-main.sha256').read_text().strip(),
+              'financeGovernanceMarkersVerified': True,
+              'byteForByteMatch': True,
+          }
+          Path('finance-governance-frontend-evidence.json').write_text(
+              json.dumps(evidence, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload sanitized frontend evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-governance-frontend-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            expected-main-asset.txt
+            expected-main.sha256
+            live-main.sha256
+            frontend-verification-attempts.log
+            finance-governance-frontend-evidence.json
