@@ -1,3 +1,0 @@
-Final Finance Console completion production commissioning trigger.
-
-The harness selects an existing examination through its active authoritative exam price rather than assuming a frontend publication column. All role and finance tests remain transaction-scoped and rolled back.
