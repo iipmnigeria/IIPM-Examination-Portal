@@ -1,1 +1,1 @@
-Build exact approved source commit 0e42b3ea39835f897e04c13aece5ec08c3d7c56d and verify the live GitHub Pages bundle byte-for-byte.
+Build exact approved source commit 0e42b3ea39835f897e04c13aece5ec08c3d7c56d and verify the live GitHub Pages bundle byte-for-byte using stable runtime markers.
