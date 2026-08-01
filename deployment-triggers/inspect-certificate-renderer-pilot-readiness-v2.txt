@@ -1,0 +1,1 @@
+Run the corrected read-only production readiness scan for one non-global certificate renderer pilot assignment.
