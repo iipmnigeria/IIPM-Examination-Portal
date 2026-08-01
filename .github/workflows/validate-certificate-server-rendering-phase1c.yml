@@ -125,14 +125,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          deno check supabase/functions/render-certificate-pdf/index.ts
-          deno check supabase/functions/render-certificate-pdf/render.ts
+          deno check --node-modules-dir=auto supabase/functions/render-certificate-pdf/index.ts
+          deno check --node-modules-dir=auto supabase/functions/render-certificate-pdf/render.ts
 
       - name: Run deterministic PDF rendering tests
         shell: bash
         run: |
           set -o pipefail
-          deno test --allow-env supabase/functions/render-certificate-pdf/render.test.ts \
+          deno test --node-modules-dir=auto --allow-env supabase/functions/render-certificate-pdf/render.test.ts \
             2>&1 | tee certificate-renderer-deno-tests.log
           grep -q '2 passed' certificate-renderer-deno-tests.log
 
