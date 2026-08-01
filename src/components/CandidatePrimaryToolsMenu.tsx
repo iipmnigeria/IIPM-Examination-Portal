@@ -5,6 +5,7 @@ import {
   BookOpenCheck,
   ChevronDown,
   Gift,
+  History,
   ShoppingBag,
   Sparkles,
   UserCheck,
@@ -20,6 +21,7 @@ const launcherSelectors = {
   credentialStore: 'button[aria-label="Open certificate payment and credentials"]',
   credentialWallet: 'button[aria-label="Open professional credential wallet"]',
   identityAssurance: 'button[aria-label="Open identity assurance"]',
+  learningProgress: 'button[aria-label="Open video learning progress"]',
   sponsoredAccess: 'button[aria-label="Open sponsored access and refunds workspace"]',
 } as const;
 
@@ -236,6 +238,23 @@ export default function CandidatePrimaryToolsMenu() {
               <span className="block text-xs font-black">Identity Assurance</span>
               <span className="mt-1 block text-[11px] leading-5 text-slate-400">
                 Submit approved professional evidence for confidential review
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => openTool(launcherSelectors.learningProgress)}
+            className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"
+          >
+            <span className="rounded-lg bg-teal-400/10 p-2 text-teal-300">
+              <History className="h-4 w-4" />
+            </span>
+            <span>
+              <span className="block text-xs font-black">Video Learning Progress</span>
+              <span className="mt-1 block text-[11px] leading-5 text-slate-400">
+                Continue lessons, review viewing history and record completion
               </span>
             </span>
           </button>
