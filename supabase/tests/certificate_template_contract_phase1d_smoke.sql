@@ -106,7 +106,7 @@ begin
     raise exception 'Phase 1A institution/category seeds are missing.';
   end if;
 
-  set local session_replication_role = replica;
+  perform set_config('session_replication_role', 'replica', true);
   insert into public.agilecert_certificate_master_templates (
     id,
     institution_id,
@@ -134,7 +134,7 @@ begin
     '{"minimumPrintDpi":300,"masterFormats":["pdf"],"singlePageRequired":true,"longNameTestRequired":true,"qrScanTestRequired":true}'::jsonb,
     gen_random_uuid()
   );
-  set local session_replication_role = origin;
+  perform set_config('session_replication_role', 'origin', true);
 
   insert into phase1d_contract_fixture(template_id) values (v_template_id);
 end;
