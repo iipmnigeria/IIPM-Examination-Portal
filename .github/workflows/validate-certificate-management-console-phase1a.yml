@@ -1,0 +1,177 @@
+name: Validate Certificate Management Console Phase 1A
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/components/AdminCertificateManagementLauncher.tsx'
+      - 'src/components/AdminCertificateTemplateConsole.tsx'
+      - 'src/services/certificateTemplateAdminService.ts'
+      - 'supabase/migrations/202608011300_certificate_management_console_phase1a.sql'
+      - 'supabase/tests/certificate_management_console_phase1a_smoke.sql'
+      - 'docs/CERTIFICATE_MANAGEMENT_CONSOLE_PHASE1A_SCOPE.md'
+      - '.github/workflows/validate-certificate-management-console-phase1a.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: certificate-management-console-phase1a-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restrict change scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only origin/supabase-integration...HEAD | sort > changed-files.txt
+          cat > allowed-files.txt <<'EOF'
+          .github/workflows/validate-certificate-management-console-phase1a.yml
+          docs/CERTIFICATE_MANAGEMENT_CONSOLE_PHASE1A_SCOPE.md
+          src/components/AdminCertificateManagementLauncher.tsx
+          src/components/AdminCertificateTemplateConsole.tsx
+          src/services/certificateTemplateAdminService.ts
+          supabase/migrations/202608011300_certificate_management_console_phase1a.sql
+          supabase/tests/certificate_management_console_phase1a_smoke.sql
+          EOF
+          sort -o allowed-files.txt allowed-files.txt
+          diff -u allowed-files.txt changed-files.txt
+
+      - name: Confirm protected authorities are untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --quiet origin/supabase-integration...HEAD -- \
+            src/services/certificateService.ts \
+            src/services/certificatePdfService.ts \
+            src/services/cipmnCertificateRenderer.ts \
+            src/services/examService.ts \
+            src/services/financeConsoleService.ts \
+            src/services/financeConsoleCompletionService.ts \
+            supabase/functions/initialize-exam-payment/index.ts \
+            supabase/functions/verify-exam-payment/index.ts \
+            supabase/functions/initialize-exam-cart-payment/index.ts \
+            supabase/functions/verify-exam-cart-payment/index.ts \
+            supabase/functions/paystack-webhook/index.ts
+          ! grep -R "data:image/.*base64" \
+            src/components/AdminCertificateTemplateConsole.tsx \
+            src/services/certificateTemplateAdminService.ts
+          ! grep -Ei "update[[:space:]]+(public\.)?(issued_certificates|agilecert_certificates|certificate_orders|exam_orders|attempts)" \
+            supabase/migrations/202608011300_certificate_management_console_phase1a.sql
+          grep -q "resolve_agilecert_certificate_master" \
+            supabase/migrations/202608011300_certificate_management_console_phase1a.sql
+          grep -q "revoke all on function public.resolve_agilecert_certificate_master" \
+            supabase/migrations/202608011300_certificate_management_console_phase1a.sql
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Type-check Phase 1A implementation
+        run: >-
+          npx tsc --noEmit --skipLibCheck --target ES2022
+          --module ESNext --moduleResolution Bundler
+          --jsx react-jsx --allowSyntheticDefaultImports --esModuleInterop
+          src/vite-env.d.ts
+          src/components/AdminCertificateManagementLauncher.tsx
+          src/components/AdminCertificateTemplateConsole.tsx
+          src/services/certificateTemplateAdminService.ts
+
+      - name: Build production application
+        run: npm run build
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Neutralise production-only identity bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: production identity bootstrap is intentionally disabled.
+          commit;
+          SQL
+
+      - name: Start database-only Supabase services
+        shell: bash
+        run: |
+          set -euo pipefail
+          excluded='gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor'
+          timeout --signal=TERM --kill-after=15s 150s \
+            supabase start -x "$excluded" --ignore-health-check --debug \
+            > certificate-console-supabase-start.log 2>&1
+          for attempt in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 54322 -U postgres; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat certificate-console-supabase-start.log
+          exit 1
+
+      - name: Apply complete migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee certificate-console-db-reset.log
+          grep -q 'Applying migration 202608011300_certificate_management_console_phase1a.sql' \
+            certificate-console-db-reset.log
+
+      - name: Run Phase 1A authority smoke test
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/certificate_management_console_phase1a_smoke.sql \
+            2>&1 | tee certificate-console-smoke.log
+          grep -q 'certificateManagementConsolePhase1AVerified' certificate-console-smoke.log
+
+      - name: Verify multi-institution and category architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "'IIPM'" supabase/migrations/202608011300_certificate_management_console_phase1a.sql
+          grep -q "'CIPMN'" supabase/migrations/202608011300_certificate_management_console_phase1a.sql
+          grep -q "'completion'" supabase/migrations/202608011300_certificate_management_console_phase1a.sql
+          grep -q "'achievement'" supabase/migrations/202608011300_certificate_management_console_phase1a.sql
+          grep -q "'professional'" supabase/migrations/202608011300_certificate_management_console_phase1a.sql
+          grep -q "scope_type in ('global', 'programme', 'examination')" \
+            supabase/migrations/202608011300_certificate_management_console_phase1a.sql
+          grep -q 'Issuance & Lifecycle' src/components/AdminCertificateManagementLauncher.tsx
+          grep -q 'Master Templates' src/components/AdminCertificateManagementLauncher.tsx
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: certificate-management-console-phase1a-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            changed-files.txt
+            allowed-files.txt
+            certificate-console-supabase-start.log
+            certificate-console-db-reset.log
+            certificate-console-smoke.log
+
+      - name: Stop isolated Supabase services
+        if: always()
+        run: timeout --signal=TERM --kill-after=10s 45s supabase stop --no-backup || true
