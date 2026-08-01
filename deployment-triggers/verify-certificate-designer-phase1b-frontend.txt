@@ -1,0 +1,1 @@
+Verify the live GitHub Pages bundle against approved Phase 1B source commit c6c52277c5ff29a9e7680444d2967fb30f993811.
