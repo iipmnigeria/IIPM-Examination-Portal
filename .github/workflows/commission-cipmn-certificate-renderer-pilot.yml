@@ -1,0 +1,1029 @@
+name: Commission CIPMN Certificate Renderer Pilot
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/commission-cipmn-certificate-renderer-pilot.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commission-cipmn-certificate-renderer-pilot
+  cancel-in-progress: false
+
+jobs:
+  commission:
+    name: Commission one examination-specific CIPMN renderer pilot
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPECTED_COMMIT: '21d1c18403c28ba9313cc4969d954648c2f95454'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      MASTER_SHA256: 'fb1efa5fc41546d49ae319dd9bcb511e5728986a5ff9d23796b96fc20147ec8d'
+      MASTER_STORAGE_URI: 'ss:///certificate-masters/managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf'
+      MASTER_STORAGE_PATH: 'managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf'
+
+    steps:
+      - name: Check out exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.5.6
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact approved commissioning source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          test -s scripts/certificate-masters/cipmn-approved-completion-master.ts
+          test -s scripts/certificate-masters/cipmn-approved-completion-master.test.ts
+          test -s supabase/migrations/202608012400_certificate_template_contract_phase1d.sql
+          grep -q 'CIPMN_COMPLETION_APPROVED' \
+            scripts/certificate-masters/cipmn-approved-completion-master.ts
+          grep -q 'A global assignment is prohibited' \
+            docs/CERTIFICATE_MASTER_BOOTSTRAP_PHASE1D.md
+          grep -q 'certificate_admin_set_template_contract' \
+            supabase/migrations/202608012400_certificate_template_contract_phase1d.sql
+          ! grep -R -E '(sk_(live|test)_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9]{20,})' \
+            scripts/certificate-masters \
+            supabase/migrations/202608012400_certificate_template_contract_phase1d.sql
+
+      - name: Rebuild source and generate exact approved master
+        shell: bash
+        env:
+          PHASE1D_ARTIFACT_DIR: phase1d-pilot-artifacts
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          rm -rf phase1d-pilot-artifacts
+          deno test --node-modules-dir=auto \
+            --allow-env --allow-read --allow-write \
+            scripts/certificate-masters/cipmn-approved-completion-master.test.ts \
+            2>&1 | tee phase1d-pilot-master-tests.log
+          grep -q 'certificateMasterBootstrapPhase1DVerified' \
+            phase1d-pilot-master-tests.log
+          test -s phase1d-pilot-artifacts/cipmn-approved-completion-master-v1.pdf
+          test -s phase1d-pilot-artifacts/cipmn-approved-completion-overlay-v1.json
+          test -s phase1d-pilot-artifacts/cipmn-approved-completion-manifest-v1.json
+          test -s phase1d-pilot-artifacts/cipmn-approved-completion-test-report-v1.json
+          echo "$MASTER_SHA256  phase1d-pilot-artifacts/cipmn-approved-completion-master-v1.pdf" \
+            | sha256sum -c -
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('phase1d-pilot-artifacts')
+          manifest = json.loads((root / 'cipmn-approved-completion-manifest-v1.json').read_text())
+          report = json.loads((root / 'cipmn-approved-completion-test-report-v1.json').read_text())
+          assert manifest['master']['sha256'] == 'fb1efa5fc41546d49ae319dd9bcb511e5728986a5ff9d23796b96fc20147ec8d', manifest
+          assert manifest['master']['storagePath'] == 'managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf', manifest
+          assert manifest['master']['storageBucket'] == 'certificate-masters', manifest
+          assert manifest['master']['fileSizeBytes'] == 18369, manifest
+          assert manifest['overlay']['elementCount'] == 8, manifest
+          assert report['deterministic'] is True, report
+          assert report['pageCount'] == 1, report
+          assert report['externalAssets'] == 0, report
+          assert report['longNameTest'] is True, report
+          assert report['longExaminationTitleTest'] is True, report
+          assert report['qrGenerationTest'] is True, report
+          PY
+
+      - name: Link controlled Supabase project and require current ledger
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+          supabase db push --linked --dry-run 2>&1 \
+            | tee phase1d-pilot-ledger-before.log
+          grep -q 'Remote database is up to date' phase1d-pilot-ledger-before.log
+
+      - name: Snapshot production and select smallest CIPMN pilot population
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with protected_functions as (
+            select
+              function_row.oid::regprocedure::text as identity,
+              md5(pg_get_functiondef(function_row.oid)) as definition_hash
+            from pg_proc function_row
+            join pg_namespace namespace_row
+              on namespace_row.oid = function_row.pronamespace
+            where namespace_row.nspname = 'public'
+              and function_row.proname in (
+                'get_certificate_management_console_snapshot',
+                'certificate_admin_set_template_contract',
+                'certificate_admin_save_template_design',
+                'certificate_admin_transition_template_version',
+                'certificate_admin_record_quality_review',
+                'certificate_admin_assign_template',
+                'certificate_admin_set_assignment_renderer_enabled',
+                'resolve_agilecert_certificate_render_master',
+                'get_agilecert_certificate_server_render_context',
+                'complete_agilecert_certificate_server_render',
+                'evaluate_agilecert_certificate_eligibility',
+                'issue_agilecert_certificate',
+                'verify_agilecert_certificate',
+                'create_exam_order',
+                'fulfil_paid_exam_order',
+                'create_exam_bulk_order',
+                'fulfil_paid_exam_bulk_order'
+              )
+          ), certificate_population as (
+            select
+              certificate.examination_id,
+              examination.code as examination_code,
+              examination.title as examination_title,
+              examination.programme_id,
+              programme.code as programme_code,
+              programme.name as programme_name,
+              count(*) as total_certificates,
+              count(*) filter (where certificate.status = 'active') as active_certificates
+            from public.agilecert_issued_certificates certificate
+            join public.examinations examination
+              on examination.id = certificate.examination_id
+            left join public.programmes programme
+              on programme.id = examination.programme_id
+            where lower(coalesce(
+              nullif(certificate.metadata->>'certificateCategoryCode', ''),
+              case
+                when lower(certificate.certificate_title) like '%completion%'
+                  then 'completion'
+                when lower(coalesce(certificate.metadata->>'productCode', '')) = 'professional'
+                  then 'professional'
+                else 'achievement'
+              end
+            )) = 'completion'
+              and (
+                upper(examination.code) like 'CIPMN-%'
+                or upper(examination.title) like '%CIPMN%'
+                or upper(coalesce(programme.code, '')) like 'CIPMN%'
+              )
+            group by
+              certificate.examination_id,
+              examination.code,
+              examination.title,
+              examination.programme_id,
+              programme.code,
+              programme.name
+          ), recommended as (
+            select *
+            from certificate_population
+            where active_certificates > 0
+            order by active_certificates, total_certificates, examination_title, examination_id
+            limit 1
+          ), active_super_admin as (
+            select profile.id
+            from public.profiles profile
+            where profile.role = 'super_admin'
+              and profile.is_active
+            order by profile.created_at, profile.id
+            limit 1
+          )
+          select jsonb_build_object(
+            'migrationApplied', exists (
+              select 1 from supabase_migrations.schema_migrations
+              where version = '202608012400'
+            ),
+            'actorId', (select id from active_super_admin),
+            'activeSuperAdministrators', (
+              select count(*) from public.profiles
+              where role = 'super_admin' and is_active
+            ),
+            'candidate', (
+              select jsonb_build_object(
+                'examinationId', examination_id,
+                'examinationCode', examination_code,
+                'examinationTitle', examination_title,
+                'programmeId', programme_id,
+                'programmeCode', programme_code,
+                'programmeName', programme_name,
+                'activeCertificates', active_certificates,
+                'totalCertificates', total_certificates
+              ) from recommended
+            ),
+            'candidateCount', (select count(*) from certificate_population where active_certificates > 0),
+            'profiles', (select count(*) from public.profiles),
+            'profileRoleHash', (
+              select md5(coalesce(string_agg(
+                profile.id::text || ':' || profile.role || ':' || profile.is_active::text,
+                '|' order by profile.id
+              ), '')) from public.profiles profile
+            ),
+            'examinations', (select count(*) from public.examinations),
+            'examinationIdentityHash', (
+              select md5(coalesce(string_agg(
+                examination.id::text || ':' || examination.code || ':' ||
+                examination.programme_id::text || ':' || examination.title,
+                '|' order by examination.id
+              ), '')) from public.examinations examination
+            ),
+            'attempts', (select count(*) from public.attempts),
+            'issuedCertificates', (select count(*) from public.agilecert_issued_certificates),
+            'certificateIdentityHash', (
+              select md5(coalesce(string_agg(
+                certificate.id::text || ':' || certificate.candidate_id::text || ':' ||
+                certificate.examination_id::text || ':' || certificate.certificate_number || ':' ||
+                certificate.verification_code || ':' || certificate.status,
+                '|' order by certificate.id
+              ), '')) from public.agilecert_issued_certificates certificate
+            ),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'institutions', (select count(*) from public.agilecert_certificate_institutions),
+            'categories', (select count(*) from public.agilecert_certificate_categories),
+            'masterTemplates', (select count(*) from public.agilecert_certificate_master_templates),
+            'masterVersions', (select count(*) from public.agilecert_certificate_master_versions),
+            'masterAssignments', (select count(*) from public.agilecert_certificate_master_assignments),
+            'previewProfiles', (select count(*) from public.agilecert_certificate_template_preview_profiles),
+            'masterAuditEvents', (select count(*) from public.agilecert_certificate_master_audit),
+            'rendererEnabledAssignments', (
+              select count(*) from public.agilecert_certificate_master_assignments
+              where renderer_enabled
+            ),
+            'globalAssignments', (
+              select count(*) from public.agilecert_certificate_master_assignments
+              where scope_type = 'global'
+            ),
+            'renderBindings', (select count(*) from public.agilecert_certificate_render_bindings),
+            'renderJobs', (select count(*) from public.agilecert_certificate_render_jobs),
+            'targetStorageObjects', (
+              select count(*) from storage.objects
+              where bucket_id = 'certificate-masters'
+                and name = 'managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf'
+            ),
+            'privateMasterBucketReady', exists (
+              select 1 from storage.buckets
+              where id = 'certificate-masters' and public = false
+            ),
+            'combinedInstitutionExists', exists (
+              select 1 from public.agilecert_certificate_institutions
+              where code = 'IIPM-CIPMN'
+            ),
+            'pilotTemplateExists', exists (
+              select 1 from public.agilecert_certificate_master_templates
+              where code = 'CIPMN_COMPLETION_APPROVED'
+            ),
+            'protectedFunctionCount', (select count(*) from protected_functions),
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(
+                identity || ':' || definition_hash,
+                '|' order by identity
+              ), '')) from protected_functions
+            )
+          ) as readiness;
+          """
+          Path('/tmp/phase1d-pilot-readiness-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/phase1d-pilot-readiness-query.json \
+            -o phase1d-pilot-readiness-response.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          raw = json.loads(Path('phase1d-pilot-readiness-response.json').read_text())
+          assert isinstance(raw, list) and len(raw) == 1, raw
+          readiness = raw[0].get('readiness') or {}
+          assert readiness.get('migrationApplied') is True, readiness
+          assert readiness.get('actorId'), readiness
+          assert readiness.get('activeSuperAdministrators', 0) >= 1, readiness
+          assert readiness.get('candidate'), readiness
+          assert readiness.get('candidateCount', 0) >= 1, readiness
+          assert readiness.get('privateMasterBucketReady') is True, readiness
+          assert readiness.get('masterTemplates') == 0, readiness
+          assert readiness.get('masterVersions') == 0, readiness
+          assert readiness.get('masterAssignments') == 0, readiness
+          assert readiness.get('rendererEnabledAssignments') == 0, readiness
+          assert readiness.get('globalAssignments') == 0, readiness
+          assert readiness.get('renderBindings') == 0, readiness
+          assert readiness.get('renderJobs') == 0, readiness
+          assert readiness.get('targetStorageObjects') == 0, readiness
+          assert readiness.get('combinedInstitutionExists') is False, readiness
+          assert readiness.get('pilotTemplateExists') is False, readiness
+          assert readiness.get('protectedFunctionCount', 0) >= 12, readiness
+
+          Path('phase1d-pilot-private.json').write_text(
+              json.dumps(readiness, indent=2), encoding='utf-8'
+          )
+          safe = {key: value for key, value in readiness.items() if key != 'actorId'}
+          Path('phase1d-pilot-pre-safe.json').write_text(
+              json.dumps(safe, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(safe, indent=2))
+          PY
+
+      - name: Upload and verify exact private master object
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase storage cp \
+            phase1d-pilot-artifacts/cipmn-approved-completion-master-v1.pdf \
+            "$MASTER_STORAGE_URI" \
+            --experimental --linked \
+            --content-type application/pdf \
+            --cache-control 'private, no-store' \
+            2>&1 | tee phase1d-pilot-storage-upload.log
+
+          rm -f /tmp/cipmn-approved-completion-master-v1.pdf
+          supabase storage cp \
+            "$MASTER_STORAGE_URI" \
+            /tmp/cipmn-approved-completion-master-v1.pdf \
+            --experimental --linked \
+            2>&1 | tee phase1d-pilot-storage-download.log
+          echo "$MASTER_SHA256  /tmp/cipmn-approved-completion-master-v1.pdf" \
+            | sha256sum -c -
+          cmp \
+            phase1d-pilot-artifacts/cipmn-approved-completion-master-v1.pdf \
+            /tmp/cipmn-approved-completion-master-v1.pdf
+          touch phase1d-pilot-storage-uploaded.flag
+
+      - name: Register, approve, assign and enable isolated pilot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          readiness = json.loads(Path('phase1d-pilot-private.json').read_text())
+          manifest = json.loads(Path('phase1d-pilot-artifacts/cipmn-approved-completion-manifest-v1.json').read_text())
+          overlay = json.loads(Path('phase1d-pilot-artifacts/cipmn-approved-completion-overlay-v1.json').read_text())
+          report = json.loads(Path('phase1d-pilot-artifacts/cipmn-approved-completion-test-report-v1.json').read_text())
+
+          actor = readiness['actorId']
+          candidate = readiness['candidate']
+          examination_id = candidate['examinationId']
+
+          required_fields = manifest['requiredFields']
+          quality_standard = manifest['contract']['template']['qualityStandard']
+          sample_payload = manifest['previewSample']
+          preview_options = {
+              'showSafeArea': True,
+              'showGrid': False,
+              'zoom': 1,
+              'backgroundMode': 'master',
+          }
+          quality_report = {
+              'pilotScope': 'single_examination',
+              'physicalPrintReview': 'formally_waived_for_limited_pilot',
+              'waiverReason': 'Deterministic one-page PDF, immutable digest, long-name, QR and Phase 1C managed-render tests passed. Physical print review remains required before any broader rollout.',
+              'sourceValidationRun': 30722002471,
+              'masterSha256': manifest['master']['sha256'],
+              'overlaySha256': manifest['overlay']['sha256'],
+              'testReport': report,
+          }
+
+          def j(value):
+              return json.dumps(value, separators=(',', ':'), ensure_ascii=False)
+
+          query = f"""
+          begin;
+          create temp table phase1d_pilot_result (
+            actor_id uuid not null,
+            examination_id uuid not null,
+            institution_id uuid not null,
+            category_id uuid not null,
+            template_id uuid not null,
+            version_id uuid not null,
+            assignment_id uuid not null
+          ) on commit preserve rows;
+
+          select set_config('request.jwt.claim.sub', '{actor}', true);
+          select set_config('request.jwt.claim.role', 'authenticated', true);
+
+          do $commission$
+          declare
+            v_actor uuid := '{actor}'::uuid;
+            v_examination_id uuid := '{examination_id}'::uuid;
+            v_institution_id uuid;
+            v_category_id uuid;
+            v_template_id uuid;
+            v_version_id uuid;
+            v_assignment_id uuid;
+            v_resolved jsonb;
+          begin
+            if auth.uid() is distinct from v_actor then
+              raise exception 'The approved commissioning actor was not established.';
+            end if;
+            if not public.agilecert_certificate_has_permission('certificate.templates.manage')
+              or not public.agilecert_certificate_has_permission('certificate.templates.publish')
+              or not public.agilecert_certificate_has_permission('certificate.templates.approve')
+              or not public.agilecert_certificate_has_permission('certificate.assignments.manage')
+              or not public.agilecert_certificate_has_permission('certificate.render.manage') then
+              raise exception 'The approved commissioning actor lacks required certificate authority.';
+            end if;
+            if not exists (
+              select 1 from public.profiles
+              where id = v_actor and role = 'super_admin' and is_active
+            ) then
+              raise exception 'The approved commissioning actor is not an active Super Administrator.';
+            end if;
+            if not exists (
+              select 1 from public.examinations examination
+              where examination.id = v_examination_id
+                and (
+                  upper(examination.code) like 'CIPMN-%'
+                  or upper(examination.title) like '%CIPMN%'
+                )
+            ) then
+              raise exception 'The selected pilot examination is not an approved CIPMN examination.';
+            end if;
+            if (select count(*) from public.agilecert_certificate_master_templates) <> 0
+              or (select count(*) from public.agilecert_certificate_master_versions) <> 0
+              or (select count(*) from public.agilecert_certificate_master_assignments) <> 0
+              or exists (select 1 from public.agilecert_certificate_render_bindings)
+              or exists (select 1 from public.agilecert_certificate_render_jobs) then
+              raise exception 'Certificate master or renderer state changed after readiness approval.';
+            end if;
+            if not exists (
+              select 1 from storage.objects
+              where bucket_id = 'certificate-masters'
+                and name = 'managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf'
+            ) then
+              raise exception 'The approved private master object is not available.';
+            end if;
+
+            v_institution_id := (
+              public.certificate_admin_upsert_institution(
+                null,
+                'IIPM-CIPMN',
+                'Integrated Institute of Professional Management in Collaboration with CIPMN',
+                'IIPM / CIPMN',
+                'Integrated Institute of Professional Management',
+                'IIPM RC1257013; CIPMN approved training collaboration',
+                'NG',
+                'https://iipmi.org',
+                null,
+                true
+              )->>'id'
+            )::uuid;
+
+            select category.id
+            into v_category_id
+            from public.agilecert_certificate_categories category
+            where category.code = 'completion' and category.is_active;
+            if v_category_id is null then
+              raise exception 'The active completion certificate category is unavailable.';
+            end if;
+
+            v_template_id := (
+              public.certificate_admin_create_template(
+                v_institution_id,
+                v_category_id,
+                'CIPMN_COMPLETION_APPROVED',
+                'Approved CIPMN Licensing Module Completion Certificate',
+                'Managed A4 landscape master reproducing the approved CIPMN completion certificate composition.',
+                'landscape',
+                'A4',
+                'Controlled Phase 1D single-examination pilot only.'
+              )->>'id'
+            )::uuid;
+
+            perform public.certificate_admin_set_template_contract(
+              v_template_id,
+              $required${j(required_fields)}$required$::jsonb,
+              $quality${j(quality_standard)}$quality$::jsonb,
+              'Approved CIPMN fixed-artwork master with eight controlled dynamic fields.'
+            );
+
+            v_version_id := (
+              public.certificate_admin_register_template_version(
+                v_template_id,
+                'pdf',
+                'certificate-masters',
+                'managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf',
+                'cipmn-approved-completion-master-v1.pdf',
+                'application/pdf',
+                18369,
+                'fb1efa5fc41546d49ae319dd9bcb511e5728986a5ff9d23796b96fc20147ec8d',
+                'Approved deterministic Phase 1D master; source validation run 30722002471.'
+              )->>'id'
+            )::uuid;
+
+            perform public.certificate_admin_save_template_design(
+              v_version_id,
+              $overlay${j(overlay)}$overlay$::jsonb,
+              $sample${j(sample_payload)}$sample$::jsonb,
+              $preview${j(preview_options)}$preview$::jsonb,
+              841.89,
+              595.28,
+              'Eight-field overlay verified against the immutable approved master.'
+            );
+
+            perform public.certificate_admin_transition_template_version(
+              v_version_id,
+              'submit_review',
+              'Submit the approved CIPMN deterministic master for controlled pilot review.'
+            );
+
+            perform public.certificate_admin_record_quality_review(
+              v_version_id,
+              'waived',
+              $report${j(quality_report)}$report$::jsonb,
+              'Physical print review formally waived only for this single-examination pilot. Broader rollout remains prohibited until physical print approval.'
+            );
+
+            perform public.certificate_admin_transition_template_version(
+              v_version_id,
+              'approve',
+              'Approve the digest-verified Phase 1D master for one isolated examination pilot.'
+            );
+
+            perform public.certificate_admin_transition_template_version(
+              v_version_id,
+              'publish',
+              'Publish only for controlled examination-specific assignment.'
+            );
+
+            v_assignment_id := (
+              public.certificate_admin_assign_template(
+                v_template_id,
+                v_version_id,
+                'examination',
+                null,
+                v_examination_id,
+                10,
+                now(),
+                null
+              )->>'id'
+            )::uuid;
+
+            perform public.certificate_admin_set_assignment_renderer_enabled(
+              v_assignment_id,
+              true,
+              'Controlled Phase 1D single-examination pilot; global assignment prohibited.'
+            );
+
+            if not exists (
+              select 1
+              from public.agilecert_certificate_master_assignments assignment
+              join public.agilecert_certificate_master_versions version
+                on version.id = assignment.template_version_id
+              where assignment.id = v_assignment_id
+                and assignment.scope_type = 'examination'
+                and assignment.examination_id = v_examination_id
+                and assignment.is_active
+                and assignment.renderer_enabled
+                and assignment.renderer_source_sha256 = 'fb1efa5fc41546d49ae319dd9bcb511e5728986a5ff9d23796b96fc20147ec8d'
+                and assignment.renderer_overlay_sha256 = public.agilecert_certificate_overlay_sha256(version.overlay_schema)
+                and version.status = 'published'
+                and version.quality_status = 'waived'
+            ) then
+              raise exception 'The isolated renderer assignment failed its in-transaction verification.';
+            end if;
+            if exists (
+              select 1 from public.agilecert_certificate_master_assignments
+              where scope_type in ('global', 'programme')
+            ) then
+              raise exception 'A prohibited broad certificate assignment was created.';
+            end if;
+            if exists (select 1 from public.agilecert_certificate_render_bindings)
+              or exists (select 1 from public.agilecert_certificate_render_jobs) then
+              raise exception 'Commissioning unexpectedly created render bindings or jobs.';
+            end if;
+
+            v_resolved := public.resolve_agilecert_certificate_render_master(
+              v_examination_id,
+              'completion',
+              now()
+            );
+            if (v_resolved->>'assignmentId')::uuid is distinct from v_assignment_id
+              or (v_resolved->>'versionId')::uuid is distinct from v_version_id then
+              raise exception 'The Phase 1C resolver did not select the isolated pilot assignment.';
+            end if;
+
+            insert into phase1d_pilot_result (
+              actor_id, examination_id, institution_id, category_id,
+              template_id, version_id, assignment_id
+            ) values (
+              v_actor, v_examination_id, v_institution_id, v_category_id,
+              v_template_id, v_version_id, v_assignment_id
+            );
+          end;
+          $commission$;
+          commit;
+
+          select jsonb_build_object(
+            'actorId', actor_id,
+            'examinationId', examination_id,
+            'institutionId', institution_id,
+            'categoryId', category_id,
+            'templateId', template_id,
+            'versionId', version_id,
+            'assignmentId', assignment_id
+          ) as commissioning
+          from phase1d_pilot_result;
+          """
+
+          Path('/tmp/phase1d-pilot-commission-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          status=$(curl --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/phase1d-pilot-commission-query.json \
+            -o phase1d-pilot-commission-response.json \
+            -w '%{http_code}')
+          case "$status" in
+            2??) touch phase1d-pilot-commissioning-committed.flag ;;
+            *) cat phase1d-pilot-commission-response.json; exit 1 ;;
+          esac
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          raw = json.loads(Path('phase1d-pilot-commission-response.json').read_text())
+          rows = raw if isinstance(raw, list) else []
+          result = next(
+              (row.get('commissioning') for row in rows if isinstance(row, dict) and row.get('commissioning')),
+              None,
+          )
+          assert result, raw
+          private = json.loads(Path('phase1d-pilot-private.json').read_text())
+          result['candidate'] = private['candidate']
+          Path('phase1d-pilot-commissioning-safe.json').write_text(
+              json.dumps({key: value for key, value in result.items() if key != 'actorId'}, indent=2),
+              encoding='utf-8'
+          )
+          Path('phase1d-pilot-commissioning-private.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps({key: value for key, value in result.items() if key != 'actorId'}, indent=2))
+          PY
+
+      - name: Verify live isolated pilot and protected preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          commissioned = json.loads(Path('phase1d-pilot-commissioning-private.json').read_text())
+          candidate = commissioned['candidate']
+          query = f"""
+          with protected_functions as (
+            select
+              function_row.oid::regprocedure::text as identity,
+              md5(pg_get_functiondef(function_row.oid)) as definition_hash
+            from pg_proc function_row
+            join pg_namespace namespace_row
+              on namespace_row.oid = function_row.pronamespace
+            where namespace_row.nspname = 'public'
+              and function_row.proname in (
+                'get_certificate_management_console_snapshot',
+                'certificate_admin_set_template_contract',
+                'certificate_admin_save_template_design',
+                'certificate_admin_transition_template_version',
+                'certificate_admin_record_quality_review',
+                'certificate_admin_assign_template',
+                'certificate_admin_set_assignment_renderer_enabled',
+                'resolve_agilecert_certificate_render_master',
+                'get_agilecert_certificate_server_render_context',
+                'complete_agilecert_certificate_server_render',
+                'evaluate_agilecert_certificate_eligibility',
+                'issue_agilecert_certificate',
+                'verify_agilecert_certificate',
+                'create_exam_order',
+                'fulfil_paid_exam_order',
+                'create_exam_bulk_order',
+                'fulfil_paid_exam_bulk_order'
+              )
+          ), resolved as (
+            select public.resolve_agilecert_certificate_render_master(
+              '{commissioned['examinationId']}'::uuid,
+              'completion',
+              now()
+            ) as result
+          )
+          select jsonb_build_object(
+            'profiles', (select count(*) from public.profiles),
+            'profileRoleHash', (
+              select md5(coalesce(string_agg(
+                profile.id::text || ':' || profile.role || ':' || profile.is_active::text,
+                '|' order by profile.id
+              ), '')) from public.profiles profile
+            ),
+            'examinations', (select count(*) from public.examinations),
+            'examinationIdentityHash', (
+              select md5(coalesce(string_agg(
+                examination.id::text || ':' || examination.code || ':' ||
+                examination.programme_id::text || ':' || examination.title,
+                '|' order by examination.id
+              ), '')) from public.examinations examination
+            ),
+            'attempts', (select count(*) from public.attempts),
+            'issuedCertificates', (select count(*) from public.agilecert_issued_certificates),
+            'certificateIdentityHash', (
+              select md5(coalesce(string_agg(
+                certificate.id::text || ':' || certificate.candidate_id::text || ':' ||
+                certificate.examination_id::text || ':' || certificate.certificate_number || ':' ||
+                certificate.verification_code || ':' || certificate.status,
+                '|' order by certificate.id
+              ), '')) from public.agilecert_issued_certificates certificate
+            ),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'institutions', (select count(*) from public.agilecert_certificate_institutions),
+            'categories', (select count(*) from public.agilecert_certificate_categories),
+            'masterTemplates', (select count(*) from public.agilecert_certificate_master_templates),
+            'masterVersions', (select count(*) from public.agilecert_certificate_master_versions),
+            'masterAssignments', (select count(*) from public.agilecert_certificate_master_assignments),
+            'previewProfiles', (select count(*) from public.agilecert_certificate_template_preview_profiles),
+            'masterAuditEvents', (select count(*) from public.agilecert_certificate_master_audit),
+            'rendererEnabledAssignments', (
+              select count(*) from public.agilecert_certificate_master_assignments
+              where renderer_enabled
+            ),
+            'examinationPilotAssignments', (
+              select count(*) from public.agilecert_certificate_master_assignments
+              where scope_type = 'examination'
+                and examination_id = '{commissioned['examinationId']}'::uuid
+                and is_active and renderer_enabled
+            ),
+            'globalAssignments', (
+              select count(*) from public.agilecert_certificate_master_assignments
+              where scope_type = 'global'
+            ),
+            'programmeAssignments', (
+              select count(*) from public.agilecert_certificate_master_assignments
+              where scope_type = 'programme'
+            ),
+            'renderBindings', (select count(*) from public.agilecert_certificate_render_bindings),
+            'renderJobs', (select count(*) from public.agilecert_certificate_render_jobs),
+            'targetStorageObjects', (
+              select count(*) from storage.objects
+              where bucket_id = 'certificate-masters'
+                and name = 'managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf'
+            ),
+            'institution', (
+              select jsonb_build_object(
+                'id', id, 'code', code, 'name', name, 'isActive', is_active
+              ) from public.agilecert_certificate_institutions
+              where id = '{commissioned['institutionId']}'::uuid
+            ),
+            'template', (
+              select jsonb_build_object(
+                'id', template.id,
+                'code', template.code,
+                'status', template.status,
+                'currentVersionId', template.current_version_id,
+                'requiredFields', template.required_fields,
+                'qualityStandard', template.quality_standard
+              ) from public.agilecert_certificate_master_templates template
+              where template.id = '{commissioned['templateId']}'::uuid
+            ),
+            'version', (
+              select jsonb_build_object(
+                'id', version.id,
+                'status', version.status,
+                'qualityStatus', version.quality_status,
+                'sourceFormat', version.source_format,
+                'storageBucket', version.storage_bucket,
+                'storagePath', version.storage_path,
+                'fileSizeBytes', version.file_size_bytes,
+                'sha256', version.sha256,
+                'pageWidthPoints', version.page_width_points,
+                'pageHeightPoints', version.page_height_points,
+                'overlayElements', jsonb_array_length(version.overlay_schema),
+                'overlayValid', (public.certificate_designer_validate_overlay(
+                  version.id, version.overlay_schema
+                )->>'valid')::boolean
+              ) from public.agilecert_certificate_master_versions version
+              where version.id = '{commissioned['versionId']}'::uuid
+            ),
+            'assignment', (
+              select jsonb_build_object(
+                'id', assignment.id,
+                'scopeType', assignment.scope_type,
+                'examinationId', assignment.examination_id,
+                'isActive', assignment.is_active,
+                'rendererEnabled', assignment.renderer_enabled,
+                'sourceSha256', assignment.renderer_source_sha256,
+                'overlaySha256', assignment.renderer_overlay_sha256,
+                'overlayHashMatches', assignment.renderer_overlay_sha256 =
+                  public.agilecert_certificate_overlay_sha256(version.overlay_schema)
+              )
+              from public.agilecert_certificate_master_assignments assignment
+              join public.agilecert_certificate_master_versions version
+                on version.id = assignment.template_version_id
+              where assignment.id = '{commissioned['assignmentId']}'::uuid
+            ),
+            'resolver', (select result from resolved),
+            'candidateActiveCertificates', (
+              select count(*)
+              from public.agilecert_issued_certificates certificate
+              where certificate.examination_id = '{commissioned['examinationId']}'::uuid
+                and certificate.status = 'active'
+                and lower(coalesce(
+                  nullif(certificate.metadata->>'certificateCategoryCode', ''),
+                  case
+                    when lower(certificate.certificate_title) like '%completion%'
+                      then 'completion'
+                    when lower(coalesce(certificate.metadata->>'productCode', '')) = 'professional'
+                      then 'professional'
+                    else 'achievement'
+                  end
+                )) = 'completion'
+            ),
+            'protectedFunctionCount', (select count(*) from protected_functions),
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(
+                identity || ':' || definition_hash,
+                '|' order by identity
+              ), '')) from protected_functions
+            )
+          ) as verification;
+          """
+          Path('/tmp/phase1d-pilot-post-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/phase1d-pilot-post-query.json \
+            -o phase1d-pilot-post-response.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          pre = json.loads(Path('phase1d-pilot-pre-safe.json').read_text())
+          commissioned = json.loads(Path('phase1d-pilot-commissioning-private.json').read_text())
+          raw = json.loads(Path('phase1d-pilot-post-response.json').read_text())
+          assert isinstance(raw, list) and len(raw) == 1, raw
+          post = raw[0].get('verification') or {}
+
+          preserved = [
+              'profiles', 'profileRoleHash', 'examinations', 'examinationIdentityHash',
+              'attempts', 'issuedCertificates', 'certificateIdentityHash',
+              'examOrders', 'examPayments', 'bulkOrders', 'bulkPayments',
+              'categories', 'renderBindings', 'renderJobs',
+              'protectedFunctionCount', 'protectedFunctionHash'
+          ]
+          for key in preserved:
+              assert post.get(key) == pre.get(key), (key, pre.get(key), post.get(key))
+
+          assert post.get('institutions') == pre.get('institutions') + 1, post
+          assert post.get('masterTemplates') == 1, post
+          assert post.get('masterVersions') == 1, post
+          assert post.get('masterAssignments') == 1, post
+          assert post.get('previewProfiles') == 1, post
+          assert post.get('masterAuditEvents') == pre.get('masterAuditEvents') + 11, (pre, post)
+          assert post.get('rendererEnabledAssignments') == 1, post
+          assert post.get('examinationPilotAssignments') == 1, post
+          assert post.get('globalAssignments') == 0, post
+          assert post.get('programmeAssignments') == 0, post
+          assert post.get('renderBindings') == 0, post
+          assert post.get('renderJobs') == 0, post
+          assert post.get('targetStorageObjects') == 1, post
+          assert post.get('candidateActiveCertificates') == commissioned['candidate']['activeCertificates'], post
+
+          institution = post.get('institution') or {}
+          assert institution.get('code') == 'IIPM-CIPMN', institution
+          assert institution.get('isActive') is True, institution
+
+          template = post.get('template') or {}
+          assert template.get('code') == 'CIPMN_COMPLETION_APPROVED', template
+          assert template.get('status') == 'published', template
+          assert template.get('currentVersionId') == commissioned['versionId'], template
+          assert len(template.get('requiredFields') or []) == 8, template
+
+          version = post.get('version') or {}
+          assert version.get('status') == 'published', version
+          assert version.get('qualityStatus') == 'waived', version
+          assert version.get('sourceFormat') == 'pdf', version
+          assert version.get('storageBucket') == 'certificate-masters', version
+          assert version.get('storagePath') == 'managed/cipmn/completion/v1/cipmn-approved-completion-master-v1.pdf', version
+          assert version.get('fileSizeBytes') == 18369, version
+          assert version.get('sha256') == 'fb1efa5fc41546d49ae319dd9bcb511e5728986a5ff9d23796b96fc20147ec8d', version
+          assert float(version.get('pageWidthPoints')) == 841.89, version
+          assert float(version.get('pageHeightPoints')) == 595.28, version
+          assert version.get('overlayElements') == 8, version
+          assert version.get('overlayValid') is True, version
+
+          assignment = post.get('assignment') or {}
+          assert assignment.get('scopeType') == 'examination', assignment
+          assert assignment.get('examinationId') == commissioned['examinationId'], assignment
+          assert assignment.get('isActive') is True, assignment
+          assert assignment.get('rendererEnabled') is True, assignment
+          assert assignment.get('sourceSha256') == 'fb1efa5fc41546d49ae319dd9bcb511e5728986a5ff9d23796b96fc20147ec8d', assignment
+          assert assignment.get('overlayHashMatches') is True, assignment
+
+          resolver = post.get('resolver') or {}
+          assert resolver.get('assignmentId') == commissioned['assignmentId'], resolver
+          assert resolver.get('versionId') == commissioned['versionId'], resolver
+
+          post['pilot'] = commissioned['candidate']
+          Path('phase1d-pilot-post-safe.json').write_text(
+              json.dumps(post, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(post, indent=2))
+          PY
+
+      - name: Verify deployed renderer and storage object remain available
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions list --project-ref "$PROJECT_REF" -o json \
+            > phase1d-pilot-functions.json
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('phase1d-pilot-functions.json').read_text())
+          names = {item.get('name') for item in data if isinstance(item, dict)}
+          assert 'render-certificate-pdf' in names, names
+          Path('phase1d-pilot-functions-safe.json').write_text(
+              json.dumps({'deployedFunctions': ['render-certificate-pdf']}, indent=2),
+              encoding='utf-8'
+          )
+          PY
+
+          rm -f /tmp/cipmn-approved-completion-master-final.pdf
+          supabase storage cp \
+            "$MASTER_STORAGE_URI" \
+            /tmp/cipmn-approved-completion-master-final.pdf \
+            --experimental --linked \
+            2>&1 | tee phase1d-pilot-storage-final-download.log
+          echo "$MASTER_SHA256  /tmp/cipmn-approved-completion-master-final.pdf" \
+            | sha256sum -c -
+
+          supabase db push --linked --dry-run 2>&1 \
+            | tee phase1d-pilot-ledger-final.log
+          grep -q 'Remote database is up to date' phase1d-pilot-ledger-final.log
+
+      - name: Remove uploaded master after pre-commit failure
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          if [ -f phase1d-pilot-storage-uploaded.flag ] \
+            && [ ! -f phase1d-pilot-commissioning-committed.flag ]; then
+            supabase storage rm "$MASTER_STORAGE_URI" \
+              --experimental --linked 2>&1 \
+              | tee phase1d-pilot-storage-cleanup.log
+          fi
+
+      - name: Upload sanitized commissioning evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipmn-certificate-renderer-pilot-commissioning-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            phase1d-pilot-master-tests.log
+            phase1d-pilot-ledger-before.log
+            phase1d-pilot-pre-safe.json
+            phase1d-pilot-storage-upload.log
+            phase1d-pilot-storage-download.log
+            phase1d-pilot-commissioning-safe.json
+            phase1d-pilot-post-safe.json
+            phase1d-pilot-functions-safe.json
+            phase1d-pilot-storage-final-download.log
+            phase1d-pilot-ledger-final.log
+            phase1d-pilot-storage-cleanup.log
+            phase1d-pilot-artifacts/
