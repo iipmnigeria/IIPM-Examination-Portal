@@ -1,0 +1,52 @@
+name: Patch Dormant Pilot Diagnostics Once
+on:
+  push:
+    branches: [supabase-integration]
+    paths: ['.github/workflows/patch-dormant-pilot-diagnostics-once.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: supabase-integration, fetch-depth: 0 }
+      - name: Patch disposable pilot workflow and self-clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git worktree add /tmp/dormant origin/release/provision-dormant-cipmn-mod012-renderer-pilot
+          cd /tmp/dormant
+          git switch -c dormant-diagnostics-fix
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/provision-dormant-cipmn-mod012-renderer-pilot.yml')
+          s=p.read_text()
+          old='''            supabase storage rm "$MASTER_URI" --experimental --linked 2>&1 | tee dormant-storage-cleanup.log
+'''
+          new='''            printf 'y\\n' | supabase storage rm "$MASTER_URI" --experimental --linked 2>&1 | tee dormant-storage-cleanup.log
+'''
+          if s.count(old)!=1: raise SystemExit('cleanup command not found exactly once')
+          s=s.replace(old,new)
+          marker='''            dormant-storage-cleanup.log
+            phase1d-dormant-artifacts/
+'''
+          replacement='''            dormant-storage-cleanup.log
+            dormant-provision-response.json
+            phase1d-dormant-artifacts/
+'''
+          if s.count(marker)!=1: raise SystemExit('artifact marker not found exactly once')
+          p.write_text(s.replace(marker,replacement))
+          PY
+          grep -q "printf 'y\\\\n' | supabase storage rm" .github/workflows/provision-dormant-cipmn-mod012-renderer-pilot.yml
+          grep -q 'dormant-provision-response.json' .github/workflows/provision-dormant-cipmn-mod012-renderer-pilot.yml
+          git add .github/workflows/provision-dormant-cipmn-mod012-renderer-pilot.yml
+          git diff --cached --check
+          git commit -m 'Capture dormant pilot failure response and enforce cleanup'
+          git push origin HEAD:release/provision-dormant-cipmn-mod012-renderer-pilot
+          cd "$GITHUB_WORKSPACE"
+          git rm .github/workflows/patch-dormant-pilot-diagnostics-once.yml
+          git commit -m 'Remove one-use dormant pilot diagnostic patch'
+          git push origin HEAD:supabase-integration
