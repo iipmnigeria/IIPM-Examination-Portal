@@ -80,15 +80,20 @@ jobs:
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Type-check Phase 1A implementation
+      - name: Type-check new Certificate Console modules
         run: >-
           npx tsc --noEmit --skipLibCheck --target ES2022
           --module ESNext --moduleResolution Bundler
           --jsx react-jsx --allowSyntheticDefaultImports --esModuleInterop
           src/vite-env.d.ts
-          src/components/AdminCertificateManagementLauncher.tsx
           src/components/AdminCertificateTemplateConsole.tsx
           src/services/certificateTemplateAdminService.ts
+
+      - name: Compile unified launcher integration
+        run: >-
+          npx esbuild src/components/AdminCertificateManagementLauncher.tsx
+          --bundle --platform=browser --format=esm
+          --outfile=/tmp/admin-certificate-management-launcher.js
 
       - name: Build production application
         run: npm run build
