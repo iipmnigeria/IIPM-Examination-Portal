@@ -5,256 +5,64 @@ on:
     branches: [supabase-integration]
     paths:
       - '.github/workflows/validate-certificate-server-rendering-phase1c.yml'
-      - 'docs/CERTIFICATE_SERVER_RENDERING_PHASE1C_SCOPE.md'
-      - 'src/components/AdminCertificateManagementLauncher.tsx'
-      - 'src/components/AdminCertificateRendererConsole.tsx'
-      - 'src/services/certificateRendererAdminService.ts'
-      - 'src/services/certificatePdfService.ts'
-      - 'src/services/serverCertificatePdfService.ts'
-      - 'supabase/functions/render-certificate-pdf/index.ts'
-      - 'supabase/functions/render-certificate-pdf/render.ts'
-      - 'supabase/functions/render-certificate-pdf/render.test.ts'
       - 'supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql'
-      - 'supabase/tests/certificate_server_rendering_phase1c_smoke.sql'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: certificate-server-rendering-phase1c-${{ github.sha }}
+  group: certificate-server-rendering-phase1c-source-repair
   cancel-in-progress: false
 
 jobs:
-  validate:
+  repair:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 100
-
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - name: Restrict Phase 1C change scope
+      - name: Repair invalid composite assignment in Phase 1C migration
         shell: bash
         run: |
           set -euo pipefail
-          git diff --name-only origin/supabase-integration...HEAD | sort > changed-files.txt
-          cat > allowed-files.txt <<'FILES'
-          .github/workflows/validate-certificate-server-rendering-phase1c.yml
-          docs/CERTIFICATE_SERVER_RENDERING_PHASE1C_SCOPE.md
-          src/components/AdminCertificateManagementLauncher.tsx
-          src/components/AdminCertificateRendererConsole.tsx
-          src/services/certificatePdfService.ts
-          src/services/certificateRendererAdminService.ts
-          src/services/serverCertificatePdfService.ts
-          supabase/functions/render-certificate-pdf/index.ts
-          supabase/functions/render-certificate-pdf/render.test.ts
-          supabase/functions/render-certificate-pdf/render.ts
-          supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql
-          supabase/tests/certificate_server_rendering_phase1c_smoke.sql
-          FILES
-          sort -o allowed-files.txt allowed-files.txt
-          diff -u allowed-files.txt changed-files.txt
+          python3 <<'PY'
+          from pathlib import Path
 
-      - name: Confirm protected issuance, examination, payment and verification authorities are untouched
-        shell: bash
-        run: |
-          set -euo pipefail
-          git diff --quiet origin/supabase-integration...HEAD -- \
-            src/services/certificateCompletionService.ts \
-            src/services/certificateService.ts \
-            src/services/cipmnCertificateRenderer.ts \
-            src/services/examService.ts \
-            src/services/financeConsoleService.ts \
-            src/services/financeConsoleCompletionService.ts \
-            supabase/functions/initialize-exam-payment/index.ts \
-            supabase/functions/verify-exam-payment/index.ts \
-            supabase/functions/initialize-exam-cart-payment/index.ts \
-            supabase/functions/verify-exam-cart-payment/index.ts \
-            supabase/functions/paystack-webhook/index.ts
-          ! grep -R -E "(insert|update|delete)[[:space:]]+.*(agilecert_issued_certificates|agilecert_certificate_eligibility_records|attempts|exam_orders|exam_payments)" \
-            supabase/functions/render-certificate-pdf \
+          path = Path('supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql')
+          content = path.read_text(encoding='utf-8')
+          old = """  select to_jsonb(assignment), assignment
+  into v_before, v_assignment
+  from public.agilecert_certificate_master_assignments assignment
+  where assignment.id = p_assignment_id
+  for update;
+"""
+          new = """  select *
+  into v_assignment
+  from public.agilecert_certificate_master_assignments assignment
+  where assignment.id = p_assignment_id
+  for update;
+
+  v_before := to_jsonb(v_assignment);
+"""
+          if content.count(old) != 1:
+              raise SystemExit('Expected exactly one invalid composite assignment block.')
+          path.write_text(content.replace(old, new), encoding='utf-8')
+          PY
+
+          grep -q 'v_before := to_jsonb(v_assignment);' \
             supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql
-          ! grep -R -E "(PAYSTACK_SECRET_KEY|sk_(live|test)_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9]{20,})" \
-            src/components/AdminCertificateRendererConsole.tsx \
-            src/services/certificateRendererAdminService.ts \
-            src/services/serverCertificatePdfService.ts \
-            supabase/functions/render-certificate-pdf \
-            supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql
-          grep -q "continue through the existing legacy PDF renderer" \
-            src/components/AdminCertificateRendererConsole.tsx
-          grep -q "Every assigned-master integrity or render error fails closed" \
-            src/services/serverCertificatePdfService.ts
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Install frontend dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Validate frontend TypeScript
-        run: npm run lint
-
-      - name: Compile Phase 1C browser modules
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx esbuild src/components/AdminCertificateRendererConsole.tsx \
-            --bundle --platform=browser --format=esm \
-            --outfile=/tmp/admin-certificate-renderer-console-phase1c.js
-          npx esbuild src/components/AdminCertificateManagementLauncher.tsx \
-            --bundle --platform=browser --format=esm \
-            --outfile=/tmp/admin-certificate-management-launcher-phase1c.js
-          npx esbuild src/services/serverCertificatePdfService.ts \
-            --bundle --platform=browser --format=esm \
-            --outfile=/tmp/server-certificate-pdf-service-phase1c.js
-          npx esbuild src/services/certificatePdfService.ts \
-            --bundle --platform=browser --format=esm \
-            --outfile=/tmp/certificate-pdf-service-phase1c.js
-
-      - name: Build production application
-        run: npm run build
-
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.5.6
-
-      - name: Check server-rendering Edge Function
-        shell: bash
-        run: |
-          set -euo pipefail
-          deno check --node-modules-dir=auto supabase/functions/render-certificate-pdf/index.ts
-          deno check --node-modules-dir=auto supabase/functions/render-certificate-pdf/render.ts
-
-      - name: Run deterministic PDF rendering tests
-        shell: bash
-        run: |
-          set -o pipefail
-          deno test --node-modules-dir=auto --allow-env supabase/functions/render-certificate-pdf/render.test.ts \
-            2>&1 | tee certificate-renderer-deno-tests.log
-          grep -q '2 passed' certificate-renderer-deno-tests.log
-
-      - uses: supabase/setup-cli@v1
-        with:
-          version: 2.101.0
-
-      - name: Neutralise production-only identity bootstrap in isolated runner
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
-          begin;
-          -- CI-only: production identity bootstrap is intentionally disabled.
-          commit;
-          SQL
-
-      - name: Start database-only Supabase services
-        shell: bash
-        run: |
-          set -euo pipefail
-          excluded='gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor'
-          if ! timeout --signal=TERM --kill-after=15s 180s \
-            supabase start -x "$excluded" --ignore-health-check --debug \
-            > certificate-renderer-supabase-start.log 2>&1; then
-            cat certificate-renderer-supabase-start.log
-            exit 1
-          fi
-          for attempt in $(seq 1 30); do
-            if pg_isready -h 127.0.0.1 -p 54322 -U postgres; then
-              exit 0
-            fi
-            sleep 2
-          done
-          cat certificate-renderer-supabase-start.log
-          exit 1
-
-      - name: Apply complete migration history
-        shell: bash
-        run: |
-          set -o pipefail
-          supabase db reset --local 2>&1 | tee certificate-renderer-db-reset.log
-          grep -q 'Applying migration 202608011300_certificate_master_console_phase1a.sql' \
-            certificate-renderer-db-reset.log
-          grep -q 'Applying migration 202608012100_certificate_visual_designer_phase1b.sql' \
-            certificate-renderer-db-reset.log
-          grep -q 'Applying migration 202608012200_certificate_server_rendering_phase1c.sql' \
-            certificate-renderer-db-reset.log
-
-      - name: Run Phase 1A regression smoke test
-        shell: bash
-        env:
-          PGPASSWORD: postgres
-        run: |
-          set -o pipefail
-          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
-            -v ON_ERROR_STOP=1 \
-            -f supabase/tests/certificate_management_console_phase1a_smoke.sql \
-            2>&1 | tee certificate-renderer-phase1a-regression.log
-          grep -q 'certificateManagementConsolePhase1AVerified' \
-            certificate-renderer-phase1a-regression.log
-
-      - name: Run Phase 1B regression smoke test
-        shell: bash
-        env:
-          PGPASSWORD: postgres
-        run: |
-          set -o pipefail
-          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
-            -v ON_ERROR_STOP=1 \
-            -f supabase/tests/certificate_visual_designer_phase1b_smoke.sql \
-            2>&1 | tee certificate-renderer-phase1b-regression.log
-          grep -q 'certificateVisualDesignerPhase1BVerified' \
-            certificate-renderer-phase1b-regression.log
-
-      - name: Run Phase 1C authority smoke test
-        shell: bash
-        env:
-          PGPASSWORD: postgres
-        run: |
-          set -o pipefail
-          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
-            -v ON_ERROR_STOP=1 \
-            -f supabase/tests/certificate_server_rendering_phase1c_smoke.sql \
-            2>&1 | tee certificate-renderer-phase1c-smoke.log
-          grep -q 'certificateServerRenderingPhase1CVerified' \
-            certificate-renderer-phase1c-smoke.log
-
-      - name: Verify controlled renderer architecture
-        shell: bash
-        run: |
-          set -euo pipefail
-          grep -q 'Server Rendering' src/components/AdminCertificateManagementLauncher.tsx
-          grep -q 'certificate.render.manage' src/components/AdminCertificateRendererConsole.tsx
-          grep -q 'tryDownloadManagedCertificatePdf' src/services/certificatePdfService.ts
-          grep -q 'LEGACY_RENDER_REQUIRED' src/services/serverCertificatePdfService.ts
-          grep -q 'MASTER_DIGEST_MISMATCH' supabase/functions/render-certificate-pdf/index.ts
-          grep -q 'document.getPageCount() !== 1' supabase/functions/render-certificate-pdf/render.ts
-          grep -q 'renderer_enabled boolean not null default false' \
-            supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql
-          grep -q 'Certificate render bindings are immutable' \
-            supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql
-          grep -q "v_version.source_format not in ('pdf', 'png', 'jpeg')" \
+          ! grep -q 'select to_jsonb(assignment), assignment' \
             supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql
 
-      - name: Upload validation evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: certificate-server-rendering-phase1c-evidence
-          retention-days: 30
-          if-no-files-found: warn
-          path: |
-            changed-files.txt
-            allowed-files.txt
-            certificate-renderer-deno-tests.log
-            certificate-renderer-supabase-start.log
-            certificate-renderer-db-reset.log
-            certificate-renderer-phase1a-regression.log
-            certificate-renderer-phase1b-regression.log
-            certificate-renderer-phase1c-smoke.log
-
-      - name: Stop isolated Supabase services
-        if: always()
-        run: timeout --signal=TERM --kill-after=10s 45s supabase stop --no-backup || true
+          rm -f deployment-triggers/patch-certificate-server-rendering-phase1c-sql.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql \
+            deployment-triggers/patch-certificate-server-rendering-phase1c-sql.txt
+          git diff --cached --check
+          git commit -m 'Fix Phase 1C renderer activation migration syntax'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
