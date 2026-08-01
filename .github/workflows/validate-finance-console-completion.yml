@@ -108,17 +108,28 @@ jobs:
           set -uo pipefail
           : > finance-console-supabase-start.log
           excluded_services='gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor'
-          for attempt in 1 2 3; do
-            echo "Database startup attempt ${attempt}/3" | tee -a finance-console-supabase-start.log
-            if timeout 180s supabase start -x "$excluded_services" --debug 2>&1 | tee -a finance-console-supabase-start.log; then
-              supabase status 2>&1 | tee finance-console-supabase-status.log
-              exit 0
+          for attempt in 1 2; do
+            echo "Database startup attempt ${attempt}/2" | tee -a finance-console-supabase-start.log
+            if timeout 120s supabase start -x "$excluded_services" --ignore-health-check --debug 2>&1 | tee -a finance-console-supabase-start.log; then
+              database_ready=false
+              for readiness_attempt in $(seq 1 30); do
+                if pg_isready -h 127.0.0.1 -p 54322 -U postgres; then
+                  database_ready=true
+                  break
+                fi
+                sleep 2
+              done
+              if [ "$database_ready" = true ]; then
+                supabase status 2>&1 | tee finance-console-supabase-status.log || true
+                exit 0
+              fi
+              echo 'PostgreSQL did not become ready after Supabase startup.' | tee -a finance-console-supabase-start.log
             fi
             exit_code=${PIPESTATUS[0]}
             echo "Startup attempt ${attempt} failed with exit code ${exit_code}; collecting Docker diagnostics." | tee -a finance-console-supabase-start.log
             docker ps -a 2>&1 | tee -a finance-console-docker-ps.log || true
             docker system df 2>&1 | tee -a finance-console-docker-system-df.log || true
-            timeout 60s supabase stop --no-backup 2>&1 | tee -a finance-console-supabase-stop.log || true
+            timeout 45s supabase stop --no-backup 2>&1 | tee -a finance-console-supabase-stop.log || true
             sleep $((attempt * 10))
           done
           docker images 2>&1 | tee finance-console-docker-images.log || true
@@ -157,7 +168,7 @@ jobs:
             finance-console-completion-smoke.log
       - name: Stop isolated Supabase services
         if: always()
-        run: timeout 60s supabase stop --no-backup || true
+        run: timeout 45s supabase stop --no-backup || true
 
   boundaries:
     name: Confirm protected-system boundaries
