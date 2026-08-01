@@ -1,0 +1,445 @@
+name: Deploy Finance Console Completion
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-finance-console-completion-production.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-finance-console-completion-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Deploy and verify Finance Console completion
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPECTED_COMMIT: '39255e9ea56178ef2b362a089bd0788846dcbbd7'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Check out exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact approved release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+
+          cat > finance-console-expected-migrations.txt <<'EOF'
+          202608010600_finance_console_completion.sql
+          EOF
+
+          test -s supabase/migrations/202608010600_finance_console_completion.sql
+          test -s supabase/functions/admin-verify-exam-payment/index.ts
+          test -s supabase/functions/finance-gateway-status/index.ts
+          test -s src/components/FinanceConsoleCompletionPanel.tsx
+          test -s src/services/financeConsoleCompletionService.ts
+
+          grep -q "finance.transactions.reconcile" supabase/migrations/202608010600_finance_console_completion.sql
+          grep -q "finance_upsert_coupon_advanced" supabase/migrations/202608010600_finance_console_completion.sql
+          grep -q "get_finance_console_completion_snapshot" supabase/migrations/202608010600_finance_console_completion.sql
+          grep -q "fulfil_paid_exam_order" supabase/functions/admin-verify-exam-payment/index.ts
+          grep -q "fulfil_paid_exam_bulk_order" supabase/functions/admin-verify-exam-payment/index.ts
+          grep -q "transactionEmail !== candidateEmail" supabase/functions/admin-verify-exam-payment/index.ts
+          grep -q "PAYSTACK_SECRET_KEY" supabase/functions/finance-gateway-status/index.ts
+          grep -q "admin-verify-exam-payment" src/services/financeConsoleCompletionService.ts
+          grep -q "finance-gateway-status" src/services/financeConsoleCompletionService.ts
+
+          ! grep -R -E '(sk_(live|test)_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9]{20,})' \
+            supabase/functions/admin-verify-exam-payment \
+            supabase/functions/finance-gateway-status \
+            src/services/financeConsoleCompletionService.ts \
+            supabase/migrations/202608010600_finance_console_completion.sql
+
+      - name: Validate application and Edge Functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          deno check supabase/functions/admin-verify-exam-payment/index.ts
+          deno check supabase/functions/finance-gateway-status/index.ts
+          test -s dist/index.html
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum \
+            > finance-console-approved-dist.sha256
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Require production gateway readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase secrets list --project-ref "$PROJECT_REF" -o json \
+            > finance-console-secrets.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          raw = json.loads(Path('finance-console-secrets.json').read_text())
+          names = {
+              item.get('name')
+              for item in raw
+              if isinstance(item, dict) and isinstance(item.get('name'), str)
+          }
+          assert 'PAYSTACK_SECRET_KEY' in names, 'PAYSTACK_SECRET_KEY is not configured.'
+          Path('finance-console-secrets-safe.json').write_text(
+              json.dumps({'requiredSecretNamesPresent': ['PAYSTACK_SECRET_KEY']}, indent=2),
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Snapshot protected production authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with protected_functions as (
+            select
+              p.oid::regprocedure::text as identity,
+              md5(pg_get_functiondef(p.oid)) as definition_hash
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in (
+                'create_exam_order',
+                'fulfil_paid_exam_order',
+                'create_exam_bulk_order',
+                'fulfil_paid_exam_bulk_order'
+              )
+          )
+          select jsonb_build_object(
+            'protectedFunctionCount', (select count(*) from protected_functions),
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(identity || ':' || definition_hash, '|' order by identity), ''))
+              from protected_functions
+            ),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'coupons', (select count(*) from public.coupons)
+          ) as verification;
+          """
+          Path('/tmp/finance-console-pre-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/finance-console-pre-query.json \
+            -o finance-console-pre-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('finance-console-pre-verification.json').read_text())
+          assert isinstance(data, list) and len(data) == 1, data
+          result = data[0].get('verification') or {}
+          assert result.get('protectedFunctionCount', 0) >= 2, result
+          Path('finance-console-pre-safe.json').write_text(
+              json.dumps(result, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Require exactly one approved pending migration
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee finance-console-production-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' \
+            finance-console-production-dry-run.log \
+            | sort -u > finance-console-production-pending.txt || true
+          diff -u finance-console-expected-migrations.txt \
+            finance-console-production-pending.txt
+          test "$(wc -l < finance-console-production-pending.txt | tr -d ' ')" -eq 1
+
+      - name: Apply approved Finance Console migration
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked 2>&1 \
+            | tee finance-console-production-deploy.log
+          grep -q 'Applying migration 202608010600_finance_console_completion.sql' \
+            finance-console-production-deploy.log
+          grep -q 'Finished supabase db push' finance-console-production-deploy.log
+
+      - name: Deploy approved Finance Console Edge Functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions deploy admin-verify-exam-payment \
+            --project-ref "$PROJECT_REF" --no-verify-jwt 2>&1 \
+            | tee finance-console-admin-verifier-deploy.log
+          supabase functions deploy finance-gateway-status \
+            --project-ref "$PROJECT_REF" --no-verify-jwt 2>&1 \
+            | tee finance-console-gateway-status-deploy.log
+          supabase functions list --project-ref "$PROJECT_REF" -o json \
+            > finance-console-functions.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('finance-console-functions.json').read_text())
+          names = {item.get('name') for item in data if isinstance(item, dict)}
+          required = {'admin-verify-exam-payment', 'finance-gateway-status'}
+          missing = sorted(required - names)
+          assert not missing, f'Missing deployed functions: {missing}'
+          Path('finance-console-functions-safe.json').write_text(
+              json.dumps({'deployedFunctions': sorted(required)}, indent=2),
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Verify live Finance Console authority and preserved records
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with protected_functions as (
+            select
+              p.oid::regprocedure::text as identity,
+              md5(pg_get_functiondef(p.oid)) as definition_hash
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in (
+                'create_exam_order',
+                'fulfil_paid_exam_order',
+                'create_exam_bulk_order',
+                'fulfil_paid_exam_bulk_order'
+              )
+          ),
+          required_permissions(permission_key) as (
+            values
+              ('finance.settings.manage'),
+              ('finance.transactions.reconcile'),
+              ('finance.access.recover'),
+              ('finance.adjustments.approve'),
+              ('finance.receipts.manage'),
+              ('finance.exports.download'),
+              ('finance.dashboard.view')
+          ),
+          required_functions(function_name) as (
+            values
+              ('get_my_finance_console_access'),
+              ('finance_upsert_exam_pricing_policy'),
+              ('finance_upsert_exam_access_grant'),
+              ('finance_upsert_coupon_advanced'),
+              ('finance_upsert_general_settings'),
+              ('finance_queue_recovery_action'),
+              ('finance_recover_paid_exam_order'),
+              ('finance_recover_paid_bulk_order'),
+              ('finance_get_receipt_payload'),
+              ('finance_record_export'),
+              ('get_finance_console_completion_snapshot')
+          )
+          select jsonb_build_object(
+            'migrationApplied', exists (
+              select 1 from supabase_migrations.schema_migrations
+              where version = '202608010600'
+            ),
+            'permissionDefinitions', (
+              select count(*)
+              from required_permissions required
+              join public.agilecert_finance_permission_definitions definition
+                on definition.permission_key = required.permission_key
+              where definition.is_active = true
+            ),
+            'highImpactExamAdminGrants', (
+              select count(*)
+              from public.agilecert_finance_role_permissions
+              where role = 'exam_admin'
+                and permission_key in (
+                  'finance.settings.manage',
+                  'finance.transactions.reconcile',
+                  'finance.access.recover',
+                  'finance.adjustments.approve'
+                )
+                and is_granted = true
+            ),
+            'pricingTablePresent', to_regclass('public.agilecert_exam_pricing_policies') is not null,
+            'accessGrantTablePresent', to_regclass('public.agilecert_exam_access_grants') is not null,
+            'couponTargetTablePresent', to_regclass('public.agilecert_coupon_targets') is not null,
+            'recoveryTablePresent', to_regclass('public.agilecert_finance_recovery_actions') is not null,
+            'missingPricingPolicies', (
+              select count(*)
+              from public.exam_prices price
+              left join public.agilecert_exam_pricing_policies policy
+                on policy.examination_id = price.examination_id
+               and policy.currency = price.currency
+              where policy.id is null
+            ),
+            'securityDefinerFunctions', (
+              select count(distinct required.function_name)
+              from required_functions required
+              join pg_proc function_row on function_row.proname = required.function_name
+              join pg_namespace namespace_row on namespace_row.oid = function_row.pronamespace
+              where namespace_row.nspname = 'public'
+                and function_row.prosecdef = true
+            ),
+            'authenticatedPricingTableDenied', not has_table_privilege(
+              'authenticated', 'public.agilecert_exam_pricing_policies', 'SELECT,INSERT,UPDATE,DELETE'
+            ),
+            'authenticatedGrantTableDenied', not has_table_privilege(
+              'authenticated', 'public.agilecert_exam_access_grants', 'SELECT,INSERT,UPDATE,DELETE'
+            ),
+            'authenticatedCouponTargetTableDenied', not has_table_privilege(
+              'authenticated', 'public.agilecert_coupon_targets', 'SELECT,INSERT,UPDATE,DELETE'
+            ),
+            'authenticatedRecoveryTableDenied', not has_table_privilege(
+              'authenticated', 'public.agilecert_finance_recovery_actions', 'SELECT,INSERT,UPDATE,DELETE'
+            ),
+            'protectedFunctionCount', (select count(*) from protected_functions),
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(identity || ':' || definition_hash, '|' order by identity), ''))
+              from protected_functions
+            ),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'coupons', (select count(*) from public.coupons)
+          ) as verification;
+          """
+          Path('/tmp/finance-console-post-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/finance-console-post-query.json \
+            -o finance-console-post-verification.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          pre = json.loads(Path('finance-console-pre-verification.json').read_text())[0]['verification']
+          post = json.loads(Path('finance-console-post-verification.json').read_text())[0]['verification']
+          assert post.get('migrationApplied') is True, post
+          assert post.get('permissionDefinitions') == 7, post
+          assert post.get('highImpactExamAdminGrants') == 0, post
+          assert post.get('pricingTablePresent') is True, post
+          assert post.get('accessGrantTablePresent') is True, post
+          assert post.get('couponTargetTablePresent') is True, post
+          assert post.get('recoveryTablePresent') is True, post
+          assert post.get('missingPricingPolicies') == 0, post
+          assert post.get('securityDefinerFunctions') == 11, post
+          assert post.get('authenticatedPricingTableDenied') is True, post
+          assert post.get('authenticatedGrantTableDenied') is True, post
+          assert post.get('authenticatedCouponTargetTableDenied') is True, post
+          assert post.get('authenticatedRecoveryTableDenied') is True, post
+          assert post.get('protectedFunctionCount') == pre.get('protectedFunctionCount'), (pre, post)
+          assert post.get('protectedFunctionHash') == pre.get('protectedFunctionHash'), (pre, post)
+          for key in ('examOrders', 'examPayments', 'bulkOrders', 'bulkPayments', 'coupons'):
+              assert post.get(key, 0) >= pre.get(key, 0), (key, pre, post)
+          Path('finance-console-post-safe.json').write_text(
+              json.dumps(post, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(post, indent=2))
+          PY
+
+      - name: Verify both functions fail closed without authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          for function_name in admin-verify-exam-payment finance-gateway-status; do
+            status=$(curl --silent --show-error \
+              -o "finance-console-${function_name}-unauthorized.json" \
+              -w '%{http_code}' \
+              -X POST "https://${PROJECT_REF}.supabase.co/functions/v1/${function_name}" \
+              -H 'Content-Type: application/json' \
+              --data '{}')
+            test "$status" != '200'
+            ! grep -Eqi '(sk_(live|test)_[A-Za-z0-9]+|service_role|SUPABASE_SERVICE_ROLE_KEY)' \
+              "finance-console-${function_name}-unauthorized.json"
+          done
+
+      - name: Confirm no migration remains pending
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee finance-console-post-deploy-dry-run.log
+          grep -Eo '202608010600_[A-Za-z0-9._-]+\.sql' \
+            finance-console-post-deploy-dry-run.log \
+            | sort -u > finance-console-post-deploy-pending.txt || true
+          test ! -s finance-console-post-deploy-pending.txt
+          grep -q 'Remote database is up to date' finance-console-post-deploy-dry-run.log
+
+      - name: Upload sanitized production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-completion-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            finance-console-expected-migrations.txt
+            finance-console-approved-dist.sha256
+            finance-console-secrets-safe.json
+            finance-console-pre-safe.json
+            finance-console-production-dry-run.log
+            finance-console-production-pending.txt
+            finance-console-production-deploy.log
+            finance-console-admin-verifier-deploy.log
+            finance-console-gateway-status-deploy.log
+            finance-console-functions-safe.json
+            finance-console-post-safe.json
+            finance-console-admin-verify-exam-payment-unauthorized.json
+            finance-console-finance-gateway-status-unauthorized.json
+            finance-console-post-deploy-dry-run.log
+            finance-console-post-deploy-pending.txt
