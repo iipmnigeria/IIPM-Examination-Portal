@@ -61,35 +61,83 @@ begin
 end;
 $test$;
 
--- CI-only lifecycle fixture. Permission enforcement was already tested above;
--- this temporary no-op lets the contract validation itself be exercised. The
--- complete transaction is rolled back.
-create or replace function public.agilecert_certificate_require_permission(
-  p_permission_key text
-)
-returns void
-language plpgsql
-stable
-security definer
-set search_path = public
-as $$
-begin
-  if nullif(trim(coalesce(p_permission_key, '')), '') is null then
-    raise exception 'Permission key is required.';
-  end if;
-end;
-$$;
-
 create temp table phase1d_contract_fixture (
-  template_id uuid primary key
+  template_id uuid primary key,
+  actor_id uuid not null
 ) on commit drop;
 
+-- Create a normal transactional Supabase auth user. The existing auth trigger
+-- creates the matching profile, which is then elevated to Super Administrator
+-- so the real certificate.templates.manage permission path is exercised.
 do $test$
 declare
+  v_actor uuid := '91d10000-0000-4000-8000-000000000001'::uuid;
   v_template_id uuid := gen_random_uuid();
   v_institution_id uuid;
   v_category_id uuid;
 begin
+  insert into auth.users (
+    instance_id,
+    id,
+    aud,
+    role,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    raw_app_meta_data,
+    raw_user_meta_data,
+    created_at,
+    updated_at,
+    confirmation_token,
+    recovery_token,
+    email_change_token_new,
+    email_change
+  ) values (
+    '00000000-0000-0000-0000-000000000000'::uuid,
+    v_actor,
+    'authenticated',
+    'authenticated',
+    'phase1d-contract-test@example.invalid',
+    '',
+    now(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    '{"full_name":"Phase 1D Contract Test Administrator"}'::jsonb,
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    ''
+  );
+
+  update public.profiles
+  set role = 'super_admin',
+      is_active = true
+  where id = v_actor;
+
+  if not exists (
+    select 1
+    from public.profiles profile
+    where profile.id = v_actor
+      and profile.role = 'super_admin'
+      and profile.is_active
+  ) then
+    raise exception 'The transactional Super Administrator profile was not created.';
+  end if;
+
+  perform set_config('request.jwt.claim.sub', v_actor::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+  if auth.uid() is distinct from v_actor then
+    raise exception 'The transactional JWT actor was not established.';
+  end if;
+
+  if not public.agilecert_certificate_has_permission(
+    'certificate.templates.manage'
+  ) then
+    raise exception 'The transactional Super Administrator lacks template management authority.';
+  end if;
+
   select institution.id
   into v_institution_id
   from public.agilecert_certificate_institutions institution
@@ -106,7 +154,6 @@ begin
     raise exception 'Phase 1A institution/category seeds are missing.';
   end if;
 
-  perform set_config('session_replication_role', 'replica', true);
   insert into public.agilecert_certificate_master_templates (
     id,
     institution_id,
@@ -132,11 +179,11 @@ begin
     'draft',
     '["holderName"]'::jsonb,
     '{"minimumPrintDpi":300,"masterFormats":["pdf"],"singlePageRequired":true,"longNameTestRequired":true,"qrScanTestRequired":true}'::jsonb,
-    gen_random_uuid()
+    v_actor
   );
-  perform set_config('session_replication_role', 'origin', true);
 
-  insert into phase1d_contract_fixture(template_id) values (v_template_id);
+  insert into phase1d_contract_fixture(template_id, actor_id)
+  values (v_template_id, v_actor);
 end;
 $test$;
 
@@ -144,6 +191,7 @@ $test$;
 do $test$
 declare
   v_template_id uuid;
+  v_actor uuid;
   v_result jsonb;
   v_required jsonb := '[
     "holderName",
@@ -166,7 +214,9 @@ declare
     "referencedAssetsRequired":false
   }'::jsonb;
 begin
-  select template_id into v_template_id from phase1d_contract_fixture;
+  select template_id, actor_id
+  into v_template_id, v_actor
+  from phase1d_contract_fixture;
 
   v_result := public.certificate_admin_set_template_contract(
     v_template_id,
@@ -195,8 +245,9 @@ begin
     where audit.entity_type = 'template'
       and audit.entity_id = v_template_id::text
       and audit.action = 'template.contract.updated'
+      and audit.actor_id = v_actor
   ) then
-    raise exception 'Template contract update was not audited.';
+    raise exception 'Template contract update was not audited against the authenticated actor.';
   end if;
 end;
 $test$;
@@ -298,7 +349,10 @@ select jsonb_build_object(
   'rpcSecurityDefiner', true,
   'authenticatedPermissionFiltered', true,
   'anonymousDenied', true,
+  'realAuthFixture', true,
+  'realSuperAdministratorPermissionPath', true,
   'validContractPersisted', true,
+  'auditActorVerified', true,
   'duplicateFieldsDenied', true,
   'unknownFieldsDenied', true,
   'weakQualityDenied', true,
