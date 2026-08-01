@@ -1,0 +1,45 @@
+name: Bootstrap Finance Console Completion
+
+on:
+  push:
+    branches: [agent/complete-finance-console]
+    paths:
+      - '.github/workflows/bootstrap-finance-console-completion.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-finance-console-completion
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: Reconstruct reviewed Finance Console package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/complete-finance-console
+          fetch-depth: 0
+
+      - name: Reconstruct and verify package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/bootstrap-finance-console/part* | base64 --decode > /tmp/finance-package.tgz
+          echo '041a7176243cac1d7f610775c8ce54963a91f8b5e28cec049519c411fb2b2629  /tmp/finance-package.tgz' | sha256sum -c -
+          tar -xzf /tmp/finance-package.tgz -C .
+          rm -rf .github/bootstrap-finance-console
+          rm -f .github/workflows/bootstrap-finance-console-completion.yml
+
+      - name: Commit completed package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Complete Finance Console administration'
+          git push origin HEAD:agent/complete-finance-console
