@@ -1,0 +1,4 @@
+Final Finance Console completion production commissioning trigger.
+
+Approved corrected source: 4175b8f6cda2e3f1bc34ade449d43490ef12e21b
+All role, permission, settings, pricing, coupon, export, receipt and recovery tests execute inside an explicit database transaction followed by ROLLBACK. Pre/post production state hashes must match exactly.
