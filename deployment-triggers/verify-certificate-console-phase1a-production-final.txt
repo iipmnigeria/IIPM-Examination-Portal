@@ -1,0 +1,5 @@
+Final read-only production verification for Certificate Management Console Phase 1A.
+
+Expected approved source: f37851d8ade02956d8ac55739884806abff2c7a0
+Expected applied migration: 202608011300_certificate_master_console_phase1a.sql
+This operation may query and build only. It must not apply migrations, modify production records, deploy functions or publish the frontend.
