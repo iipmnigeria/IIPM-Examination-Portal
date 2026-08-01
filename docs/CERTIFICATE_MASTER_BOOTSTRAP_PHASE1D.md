@@ -83,6 +83,8 @@ The dedicated test requires:
 - server-generated verification QR code;
 - one-page managed output with the original page dimensions preserved.
 
+Deno-specific document and assertion types are explicit so the generator and its quality tests are checked under the same strict runtime used by the production renderer.
+
 ## Controlled template contract authority
 
 Phase 1D adds `certificate_admin_set_template_contract(...)` so authorised template managers can define the exact required dynamic fields and print-quality rules before design review.
