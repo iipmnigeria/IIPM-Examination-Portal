@@ -210,11 +210,13 @@ begin
     raise exception 'Enter a renderer activation or suspension reason of at least 8 characters.';
   end if;
 
-  select to_jsonb(assignment), assignment
-  into v_before, v_assignment
+  select *
+  into v_assignment
   from public.agilecert_certificate_master_assignments assignment
   where assignment.id = p_assignment_id
   for update;
+
+  v_before := to_jsonb(v_assignment);
 
   if v_assignment.id is null then
     raise exception 'Certificate master assignment not found.';
