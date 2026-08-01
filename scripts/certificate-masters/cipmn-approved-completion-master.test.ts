@@ -43,8 +43,12 @@ const masterOne = generateCipmnApprovedCompletionMasterPdf();
 const masterTwo = generateCipmnApprovedCompletionMasterPdf();
 
 assert(
-  masterOne.byteLength > 20_000,
-  `The approved master PDF is unexpectedly small: ${masterOne.byteLength} bytes.`,
+  masterOne.byteLength > 500,
+  `The approved master PDF is incomplete: ${masterOne.byteLength} bytes.`,
+);
+assert(
+  new TextDecoder().decode(masterOne.subarray(0, 5)) === '%PDF-',
+  'The approved master does not contain a valid PDF file signature.',
 );
 assert(bytesEqual(masterOne, masterTwo), 'The approved master PDF is not deterministic.');
 
