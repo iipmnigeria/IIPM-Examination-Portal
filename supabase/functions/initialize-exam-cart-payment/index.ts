@@ -49,7 +49,7 @@ Deno.serve(async (request: Request) => {
 
     const candidateClient = userClient(request);
     const { data: orderResult, error: orderError } = await candidateClient.rpc(
-      'create_my_programme_exam_bulk_order',
+      'create_my_exam_bulk_order',
       {
         p_currency: currency,
         p_coupon_code: couponCode,
