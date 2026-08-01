@@ -1,0 +1,128 @@
+name: Validate Finance Console Snapshot Aggregate Fix
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/202608011130_finance_console_snapshot_coupon_aggregate_fix.sql'
+      - 'supabase/tests/finance_console_snapshot_coupon_aggregate_fix.sql'
+      - '.github/workflows/validate-finance-console-snapshot-aggregate-fix.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-console-snapshot-aggregate-fix-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  database:
+    name: Reset schema and validate corrected Finance Console snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Restrict change scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only origin/supabase-integration...HEAD | sort > changed-files.txt
+          cat > allowed-files.txt <<'EOF'
+          .github/workflows/validate-finance-console-snapshot-aggregate-fix.yml
+          supabase/migrations/202608011130_finance_console_snapshot_coupon_aggregate_fix.sql
+          supabase/tests/finance_console_snapshot_coupon_aggregate_fix.sql
+          EOF
+          sort -o allowed-files.txt allowed-files.txt
+          diff -u allowed-files.txt changed-files.txt
+
+      - name: Confirm protected systems are untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --quiet origin/supabase-integration...HEAD -- \
+            src \
+            supabase/functions \
+            supabase/migrations/202608010600_finance_console_completion.sql \
+            supabase/functions/initialize-exam-payment/index.ts \
+            supabase/functions/verify-exam-payment/index.ts \
+            supabase/functions/initialize-exam-cart-payment/index.ts \
+            supabase/functions/verify-exam-cart-payment/index.ts \
+            supabase/functions/paystack-webhook/index.ts
+          grep -q 'finance_coupon_performance_snapshot' \
+            supabase/migrations/202608011130_finance_console_snapshot_coupon_aggregate_fix.sql
+          grep -q 'count(redemption.id)::integer as redemptions' \
+            supabase/migrations/202608011130_finance_console_snapshot_coupon_aggregate_fix.sql
+          grep -q 'grouped.discount_amount_minor' \
+            supabase/migrations/202608011130_finance_console_snapshot_coupon_aggregate_fix.sql
+
+      - name: Neutralise production-only identity bootstrap in isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > supabase/migrations/202607200003_bootstrap_super_admin.sql <<'SQL'
+          begin;
+          -- CI-only: no production identity bootstrap.
+          commit;
+          SQL
+
+      - name: Start database-only Supabase services
+        shell: bash
+        run: |
+          set -euo pipefail
+          excluded='gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor'
+          timeout --signal=TERM --kill-after=15s 150s \
+            supabase start -x "$excluded" --ignore-health-check --debug \
+            > finance-snapshot-supabase-start.log 2>&1
+          for attempt in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 54322 -U postgres; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat finance-snapshot-supabase-start.log
+          exit 1
+
+      - name: Apply complete migration history
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db reset --local 2>&1 | tee finance-snapshot-db-reset.log
+          grep -q 'Applying migration 202608011130_finance_console_snapshot_coupon_aggregate_fix.sql' \
+            finance-snapshot-db-reset.log
+
+      - name: Run snapshot aggregate regression test
+        shell: bash
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/finance_console_snapshot_coupon_aggregate_fix.sql \
+            2>&1 | tee finance-snapshot-fix-test.log
+          grep -q 'snapshotAggregateFixVerified' finance-snapshot-fix-test.log
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-snapshot-aggregate-fix-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            changed-files.txt
+            allowed-files.txt
+            finance-snapshot-supabase-start.log
+            finance-snapshot-db-reset.log
+            finance-snapshot-fix-test.log
+
+      - name: Stop isolated Supabase services
+        if: always()
+        run: timeout --signal=TERM --kill-after=10s 45s supabase stop --no-backup || true
