@@ -1,0 +1,3 @@
+Diagnostic-safe Finance Console completion production commissioning trigger.
+
+All role and finance write tests run inside an explicit database transaction followed by ROLLBACK. The workflow captures the exact Supabase database error response if any assertion fails and verifies pre/post production state hashes.
