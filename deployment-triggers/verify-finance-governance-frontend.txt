@@ -1,0 +1,6 @@
+Read-only production verification for the Finance Operations and Governance GitHub Pages frontend.
+
+Approved source commit: f2fbdc44f0ba36ff0d0af7da72b89cb78c4ed3ad
+Published through PR #277.
+
+This disposable trigger performs no database write, migration, Edge Function deployment or Pages publication.
