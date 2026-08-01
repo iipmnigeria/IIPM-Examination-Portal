@@ -17,14 +17,15 @@ begin
     'agilecert_certificate_institutions',
     'agilecert_certificate_categories',
     'agilecert_certificate_assets',
-    'agilecert_certificate_templates',
-    'agilecert_certificate_template_versions',
-    'agilecert_certificate_template_assignments',
-    'agilecert_certificate_template_audit'
+    'agilecert_certificate_master_templates',
+    'agilecert_certificate_master_versions',
+    'agilecert_certificate_master_assignments',
+    'agilecert_certificate_master_audit'
   ] loop
     if to_regclass('public.' || v_table) is null then
       raise exception 'Certificate Management Console table is missing: %', v_table;
     end if;
+
     if not exists (
       select 1
       from pg_class relation
@@ -35,6 +36,7 @@ begin
     ) then
       raise exception 'RLS is not enabled for %', v_table;
     end if;
+
     if has_table_privilege('authenticated', 'public.' || v_table, 'select')
       or has_table_privilege('authenticated', 'public.' || v_table, 'insert')
       or has_table_privilege('authenticated', 'public.' || v_table, 'update')
@@ -43,7 +45,17 @@ begin
     end if;
   end loop;
 
-  select count(*) into v_permission_count
+  if to_regclass('public.agilecert_certificate_templates') is null then
+    raise exception 'The pre-existing certificate template authority table was removed.';
+  end if;
+
+  if to_regclass('public.agilecert_certificate_templates') =
+     to_regclass('public.agilecert_certificate_master_templates') then
+    raise exception 'Legacy and master-template authority tables must remain distinct.';
+  end if;
+
+  select count(*)
+  into v_permission_count
   from public.agilecert_certificate_permission_definitions
   where permission_key in (
     'certificate.console.view',
@@ -57,12 +69,15 @@ begin
     'certificate.assets.approve',
     'certificate.assignments.manage',
     'certificate.permissions.manage'
-  ) and is_active;
+  )
+    and is_active;
+
   if v_permission_count <> 11 then
     raise exception 'Certificate permission definitions are incomplete: %', v_permission_count;
   end if;
 
-  select count(*) into v_default_grants
+  select count(*)
+  into v_default_grants
   from public.agilecert_certificate_role_permissions
   where role = 'exam_admin'
     and is_granted
@@ -72,11 +87,13 @@ begin
       'certificate.templates.review',
       'certificate.assets.manage'
     );
+
   if v_default_grants <> 4 then
     raise exception 'Expected four default Examination Administrator grants, found %', v_default_grants;
   end if;
 
-  select count(*) into v_restricted_grants
+  select count(*)
+  into v_restricted_grants
   from public.agilecert_certificate_role_permissions
   where role = 'exam_admin'
     and is_granted
@@ -89,6 +106,7 @@ begin
       'certificate.assignments.manage',
       'certificate.permissions.manage'
     );
+
   if v_restricted_grants <> 0 then
     raise exception 'Restricted certificate permissions must remain ungranted by default.';
   end if;
@@ -96,7 +114,8 @@ begin
   if (
     select count(*)
     from public.agilecert_certificate_institutions
-    where upper(code) in ('IIPM', 'CIPMN') and is_active
+    where upper(code) in ('IIPM', 'CIPMN')
+      and is_active
   ) <> 2 then
     raise exception 'Initial IIPM and CIPMN issuing institutions are missing.';
   end if;
@@ -104,7 +123,8 @@ begin
   if (
     select count(*)
     from public.agilecert_certificate_categories
-    where lower(code) in ('completion', 'achievement', 'professional') and is_active
+    where lower(code) in ('completion', 'achievement', 'professional')
+      and is_active
   ) <> 3 then
     raise exception 'Initial completion, achievement and professional categories are missing.';
   end if;
@@ -120,12 +140,15 @@ begin
     if v_bucket.file_size_limit is null or v_bucket.file_size_limit <= 0 then
       raise exception 'Certificate storage bucket requires a file-size limit: %', v_bucket.id;
     end if;
-    if v_bucket.allowed_mime_types is null or cardinality(v_bucket.allowed_mime_types) = 0 then
+    if v_bucket.allowed_mime_types is null
+      or cardinality(v_bucket.allowed_mime_types) = 0 then
       raise exception 'Certificate storage bucket requires MIME restrictions: %', v_bucket.id;
     end if;
   end loop;
+
   if (
-    select count(*) from storage.buckets
+    select count(*)
+    from storage.buckets
     where id in ('certificate-masters', 'certificate-assets')
   ) <> 2 then
     raise exception 'Certificate master and asset storage buckets are incomplete.';
@@ -150,8 +173,12 @@ begin
     if to_regprocedure(v_function) is null then
       raise exception 'Certificate Management Console function is missing: %', v_function;
     end if;
+
     if not exists (
-      select 1 from pg_proc where oid = to_regprocedure(v_function) and prosecdef
+      select 1
+      from pg_proc
+      where oid = to_regprocedure(v_function)
+        and prosecdef
     ) then
       raise exception 'Certificate Management Console function must be security definer: %', v_function;
     end if;
@@ -182,18 +209,19 @@ begin
   end if;
 
   if not exists (
-    select 1 from pg_trigger
-    where tgname = 'agilecert_certificate_template_audit_immutable'
+    select 1
+    from pg_trigger
+    where tgname = 'agilecert_certificate_master_audit_immutable'
       and not tgisinternal
   ) then
-    raise exception 'Immutable certificate audit trigger is missing.';
+    raise exception 'Immutable certificate master audit trigger is missing.';
   end if;
 
   if not exists (
     select 1
     from pg_indexes
     where schemaname = 'public'
-      and indexname = 'agilecert_certificate_assignments_exam_active_uidx'
+      and indexname = 'agilecert_certificate_master_assignments_exam_active_uidx'
   ) then
     raise exception 'Examination-specific active assignment uniqueness is missing.';
   end if;
@@ -202,7 +230,7 @@ begin
     select 1
     from pg_indexes
     where schemaname = 'public'
-      and indexname = 'agilecert_certificate_assignments_programme_active_uidx'
+      and indexname = 'agilecert_certificate_master_assignments_programme_active_uidx'
   ) then
     raise exception 'Programme-specific active assignment uniqueness is missing.';
   end if;
@@ -211,7 +239,7 @@ begin
     select 1
     from pg_indexes
     where schemaname = 'public'
-      and indexname = 'agilecert_certificate_assignments_global_active_uidx'
+      and indexname = 'agilecert_certificate_master_assignments_global_active_uidx'
   ) then
     raise exception 'Global category assignment uniqueness is missing.';
   end if;
@@ -220,18 +248,27 @@ $test$;
 
 select jsonb_build_object(
   'institutions', (
-    select count(*) from public.agilecert_certificate_institutions where is_active
+    select count(*)
+    from public.agilecert_certificate_institutions
+    where is_active
   ),
   'categories', (
-    select count(*) from public.agilecert_certificate_categories where is_active
+    select count(*)
+    from public.agilecert_certificate_categories
+    where is_active
   ),
   'permissionDefinitions', (
-    select count(*) from public.agilecert_certificate_permission_definitions where is_active
+    select count(*)
+    from public.agilecert_certificate_permission_definitions
+    where is_active
   ),
   'privateBuckets', (
-    select count(*) from storage.buckets
-    where id in ('certificate-masters', 'certificate-assets') and public = false
+    select count(*)
+    from storage.buckets
+    where id in ('certificate-masters', 'certificate-assets')
+      and public = false
   ),
+  'legacyTemplateAuthorityPreserved', true,
   'browserMasterResolverDenied', true,
   'immutableAuditVerified', true,
   'certificateManagementConsolePhase1AVerified', true
