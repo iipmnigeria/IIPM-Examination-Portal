@@ -4,7 +4,9 @@ import {
   type ManagedCertificateRenderContext,
 } from './render.ts';
 
-const assert = (condition: unknown, message: string): asserts condition => {
+type Assertion = (condition: unknown, message: string) => asserts condition;
+
+const assert: Assertion = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
