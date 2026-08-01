@@ -1,3 +1,5 @@
+/// <reference lib="deno.ns" />
+
 import { jsPDF } from 'npm:jspdf@4.2.1';
 
 type JsPdfDocument = InstanceType<typeof jsPDF>;

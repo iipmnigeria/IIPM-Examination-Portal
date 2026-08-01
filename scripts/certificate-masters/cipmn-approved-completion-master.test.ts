@@ -1,3 +1,5 @@
+/// <reference lib="deno.ns" />
+
 import { PDFDocument } from 'npm:pdf-lib@1.17.1';
 import {
   renderManagedCertificate,
