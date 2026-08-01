@@ -10,6 +10,7 @@
 # Approved CIPMN sample-layout correction release: 2026-07-31
 # Finance Console Phase 1 production frontend release: 2026-07-31
 # Finance Console Phase 1B certification fees frontend release: 2026-07-31
+# Video progress and learning analytics frontend release: 2026-08-01
 name: Deploy to GitHub Pages
 
 on:
