@@ -1,0 +1,334 @@
+name: Deploy Finance Console Snapshot Hotfix v2
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/deploy-finance-console-snapshot-hotfix-production-v2.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-finance-console-snapshot-hotfix-production-v2
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Deploy and verify Finance Console snapshot hotfix
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPECTED_COMMIT: '4175b8f6cda2e3f1bc34ade449d43490ef12e21b'
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+    steps:
+      - name: Check out exact approved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Verify exact approved release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+          test -s supabase/migrations/202608011130_finance_console_snapshot_coupon_aggregate_fix.sql
+          grep -q 'finance_coupon_performance_snapshot' \
+            supabase/migrations/202608011130_finance_console_snapshot_coupon_aggregate_fix.sql
+          grep -q 'grouped.discount_amount_minor' \
+            supabase/migrations/202608011130_finance_console_snapshot_coupon_aggregate_fix.sql
+          ! git diff "$EXPECTED_COMMIT^" "$EXPECTED_COMMIT" --name-only \
+            | grep -E '^(src/|supabase/functions/|supabase/migrations/202608010600_)'
+          printf '%s\n' \
+            '202608011130_finance_console_snapshot_coupon_aggregate_fix.sql' \
+            > expected-pending-migrations.txt
+
+      - name: Link controlled Supabase project
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Snapshot protected production state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with protected_functions as (
+            select p.oid::regprocedure::text identity,
+                   md5(pg_get_functiondef(p.oid)) definition_hash
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in (
+                'create_exam_order', 'fulfil_paid_exam_order',
+                'create_exam_bulk_order', 'fulfil_paid_exam_bulk_order'
+              )
+          )
+          select jsonb_build_object(
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(
+                identity || ':' || definition_hash,
+                '|' order by identity
+              ), '')) from protected_functions
+            ),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'coupons', (select count(*) from public.coupons),
+            'couponRedemptions', (select count(*) from public.coupon_redemptions),
+            'examPrices', (select count(*) from public.exam_prices)
+          ) as state;
+          """
+          Path('/tmp/snapshot-hotfix-pre-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/snapshot-hotfix-pre-query.json \
+            -o snapshot-hotfix-pre-response.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('snapshot-hotfix-pre-response.json').read_text())
+          assert isinstance(data, list) and data, data
+          state = next(row['state'] for row in data if isinstance(row.get('state'), dict))
+          required = {
+              'protectedFunctionHash', 'examOrders', 'examPayments',
+              'bulkOrders', 'bulkPayments', 'coupons',
+              'couponRedemptions', 'examPrices',
+          }
+          assert required.issubset(state), state
+          Path('snapshot-hotfix-pre.json').write_text(
+              json.dumps(state, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(state, indent=2))
+          PY
+
+      - name: Require exactly one approved pending migration
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee snapshot-hotfix-dry-run.log
+          grep -Eo '20[0-9]{10}_[A-Za-z0-9._-]+\.sql' \
+            snapshot-hotfix-dry-run.log \
+            | sort -u > actual-pending-migrations.txt || true
+          diff -u expected-pending-migrations.txt actual-pending-migrations.txt
+          test "$(wc -l < actual-pending-migrations.txt | tr -d ' ')" -eq 1
+
+      - name: Apply approved snapshot hotfix migration
+        shell: bash
+        run: |
+          set -o pipefail
+          printf 'y\n' | supabase db push --linked 2>&1 \
+            | tee snapshot-hotfix-deploy.log
+          grep -q 'Applying migration 202608011130_finance_console_snapshot_coupon_aggregate_fix.sql' \
+            snapshot-hotfix-deploy.log
+          grep -q 'Finished supabase db push' snapshot-hotfix-deploy.log
+
+      - name: Verify live snapshot and preserved production state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          begin;
+          do $verify$
+          declare
+            v_super uuid;
+            v_payload jsonb;
+            v_definition text;
+          begin
+            if to_regprocedure(
+              'public.finance_coupon_performance_snapshot(timestamptz,timestamptz)'
+            ) is null then
+              raise exception 'Corrected coupon helper is missing.';
+            end if;
+
+            select pg_get_functiondef(
+              'public.get_finance_console_completion_snapshot(integer,timestamptz,timestamptz)'::regprocedure
+            ) into v_definition;
+
+            if position(
+              'public.finance_coupon_performance_snapshot(v_from, v_to)'
+              in v_definition
+            ) = 0 then
+              raise exception 'Snapshot RPC is not using the corrected coupon helper.';
+            end if;
+
+            if position(
+              $$'couponCode',upper(coupon.code),'redemptions',count(redemption.id)$$
+              in v_definition
+            ) > 0 then
+              raise exception 'Invalid nested coupon aggregate remains.';
+            end if;
+
+            if has_function_privilege(
+              'authenticated',
+              'public.finance_coupon_performance_snapshot(timestamptz,timestamptz)',
+              'execute'
+            ) then
+              raise exception 'Internal helper is directly executable by authenticated users.';
+            end if;
+
+            if not has_function_privilege(
+              'authenticated',
+              'public.get_finance_console_completion_snapshot(integer,timestamptz,timestamptz)',
+              'execute'
+            ) then
+              raise exception 'Authenticated snapshot execution was not preserved.';
+            end if;
+
+            select id into v_super
+            from public.profiles
+            where role = 'super_admin' and is_active = true
+            order by created_at
+            limit 1;
+
+            if v_super is null then
+              raise exception 'An active Super Administrator is required.';
+            end if;
+
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+            perform set_config('request.jwt.claim.sub', v_super::text, true);
+            v_payload := public.get_finance_console_completion_snapshot(
+              50, now() - interval '90 days', now()
+            );
+
+            if jsonb_typeof(v_payload) <> 'object'
+               or jsonb_typeof(v_payload -> 'dashboard') <> 'object'
+               or jsonb_typeof(v_payload -> 'dashboard' -> 'couponPerformance') <> 'array' then
+              raise exception 'Live Finance Console snapshot payload is invalid.';
+            end if;
+          end;
+          $verify$;
+          rollback;
+
+          with protected_functions as (
+            select p.oid::regprocedure::text identity,
+                   md5(pg_get_functiondef(p.oid)) definition_hash
+            from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in (
+                'create_exam_order', 'fulfil_paid_exam_order',
+                'create_exam_bulk_order', 'fulfil_paid_exam_bulk_order'
+              )
+          )
+          select jsonb_build_object(
+            'protectedFunctionHash', (
+              select md5(coalesce(string_agg(
+                identity || ':' || definition_hash,
+                '|' order by identity
+              ), '')) from protected_functions
+            ),
+            'examOrders', (select count(*) from public.exam_orders),
+            'examPayments', (select count(*) from public.exam_payments),
+            'bulkOrders', (select count(*) from public.exam_bulk_orders),
+            'bulkPayments', (select count(*) from public.exam_bulk_payments),
+            'coupons', (select count(*) from public.coupons),
+            'couponRedemptions', (select count(*) from public.coupon_redemptions),
+            'examPrices', (select count(*) from public.exam_prices),
+            'helperPresent', to_regprocedure(
+              'public.finance_coupon_performance_snapshot(timestamptz,timestamptz)'
+            ) is not null,
+            'liveSnapshotPassed', true
+          ) as state;
+          """
+          Path('/tmp/snapshot-hotfix-post-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/snapshot-hotfix-post-query.json \
+            -o snapshot-hotfix-post-response.json
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('snapshot-hotfix-post-response.json').read_text())
+          assert isinstance(data, list) and data, data
+          post = next(row['state'] for row in data if isinstance(row.get('state'), dict))
+          pre = json.loads(Path('snapshot-hotfix-pre.json').read_text())
+          preserved = (
+              'protectedFunctionHash', 'examOrders', 'examPayments',
+              'bulkOrders', 'bulkPayments', 'coupons',
+              'couponRedemptions', 'examPrices',
+          )
+          for key in preserved:
+              assert pre[key] == post[key], (key, pre, post)
+          assert post['helperPresent'] is True, post
+          assert post['liveSnapshotPassed'] is True, post
+          Path('snapshot-hotfix-post.json').write_text(
+              json.dumps(post, indent=2), encoding='utf-8'
+          )
+          Path('snapshot-hotfix-verification.json').write_text(
+              json.dumps({
+                  'prePostStateMatched': True,
+                  'liveSnapshotPassed': True,
+                  'helperPresent': True,
+                  'preservedStateKeys': list(preserved),
+              }, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(post, indent=2))
+          PY
+
+      - name: Confirm no migration remains pending
+        shell: bash
+        run: |
+          set -o pipefail
+          supabase db push --linked --dry-run 2>&1 \
+            | tee snapshot-hotfix-post-dry-run.log
+          grep -q 'Remote database is up to date' snapshot-hotfix-post-dry-run.log
+          ! grep -q '202608011130_finance_console_snapshot_coupon_aggregate_fix.sql' \
+            snapshot-hotfix-post-dry-run.log
+
+      - name: Upload production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-snapshot-hotfix-production-evidence-v2
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            expected-pending-migrations.txt
+            actual-pending-migrations.txt
+            snapshot-hotfix-pre-response.json
+            snapshot-hotfix-pre.json
+            snapshot-hotfix-dry-run.log
+            snapshot-hotfix-deploy.log
+            snapshot-hotfix-post-response.json
+            snapshot-hotfix-post.json
+            snapshot-hotfix-verification.json
+            snapshot-hotfix-post-dry-run.log
