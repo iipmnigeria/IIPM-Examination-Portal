@@ -1,3 +1,0 @@
-Hardened Finance Console completion production commissioning trigger.
-
-The workflow uses the exact approved source and performs all role and finance write tests inside a mandatory rollback transaction. When no active Examination Administrator exists, a second candidate receives a transaction-scoped role assignment that is also rolled back and hash-verified.
