@@ -1,0 +1,1 @@
+Deploy the validated Finance Console least-privilege activation from exact source commit 3485b6dd122cb694e53b25e8e70f0d8ee03c41b9 using the corrected singleton settings snapshot.
