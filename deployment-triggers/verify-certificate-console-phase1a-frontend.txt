@@ -1,0 +1,4 @@
+Read-only live frontend verification for Certificate Management Console Phase 1A.
+
+The workflow builds current supabase-integration, verifies the expected Phase 1A markers, waits for GitHub Pages and requires the deployed primary JavaScript asset to match the local production bundle byte-for-byte.
+No production data, database migration, Edge Function or Pages content is modified by this verifier.
