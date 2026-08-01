@@ -109,14 +109,15 @@ jobs:
           : > finance-console-supabase-start.log
           for attempt in 1 2 3; do
             echo "Supabase startup attempt ${attempt}/3" | tee -a finance-console-supabase-start.log
-            if supabase start --debug 2>&1 | tee -a finance-console-supabase-start.log; then
+            if timeout 240s supabase start --debug 2>&1 | tee -a finance-console-supabase-start.log; then
               supabase status 2>&1 | tee finance-console-supabase-status.log
               exit 0
             fi
-            echo "Startup attempt ${attempt} failed; collecting Docker diagnostics." | tee -a finance-console-supabase-start.log
+            exit_code=${PIPESTATUS[0]}
+            echo "Startup attempt ${attempt} failed with exit code ${exit_code}; collecting Docker diagnostics." | tee -a finance-console-supabase-start.log
             docker ps -a 2>&1 | tee -a finance-console-docker-ps.log || true
             docker system df 2>&1 | tee -a finance-console-docker-system-df.log || true
-            supabase stop --no-backup 2>&1 | tee -a finance-console-supabase-stop.log || true
+            timeout 60s supabase stop --no-backup 2>&1 | tee -a finance-console-supabase-stop.log || true
             sleep $((attempt * 10))
           done
           docker images 2>&1 | tee finance-console-docker-images.log || true
@@ -155,7 +156,7 @@ jobs:
             finance-console-completion-smoke.log
       - name: Stop isolated Supabase services
         if: always()
-        run: supabase stop --no-backup || true
+        run: timeout 60s supabase stop --no-backup || true
 
   boundaries:
     name: Confirm protected-system boundaries
