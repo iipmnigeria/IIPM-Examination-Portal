@@ -1,0 +1,1 @@
+Inventory render-ready global certificate masters and match the examination with the smallest active-certificate population. Read-only; no assignment is created or enabled.
