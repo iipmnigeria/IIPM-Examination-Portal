@@ -1,0 +1,4 @@
+Final Finance Console completion production commissioning trigger using one post-rollback result row.
+
+Approved corrected source: 4175b8f6cda2e3f1bc34ade449d43490ef12e21b
+All lifecycle assertions execute inside the transaction; the final management API result is returned only after ROLLBACK. Pre/post production hashes must match exactly.
