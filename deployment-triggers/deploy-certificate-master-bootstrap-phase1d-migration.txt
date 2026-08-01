@@ -1,0 +1,1 @@
+Deploy exactly migration 202608012400 and verify no certificate master, assignment, renderer or protected production record is created or changed.
