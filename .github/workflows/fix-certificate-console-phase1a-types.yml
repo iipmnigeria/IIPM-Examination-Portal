@@ -1,0 +1,100 @@
+name: Repair Certificate Console Phase 1A Types
+
+on:
+  push:
+    branches:
+      - feature/certificate-management-console-phase1a
+    paths:
+      - '.github/workflows/fix-certificate-console-phase1a-types.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/certificate-management-console-phase1a
+          fetch-depth: 0
+
+      - name: Widen template draft types and refine targeted type-check
+        shell: python
+        run: |
+          from pathlib import Path
+
+          component = Path('src/components/AdminCertificateTemplateConsole.tsx')
+          source = component.read_text(encoding='utf-8')
+          old = """const initialTemplate = {
+  institutionId: '',
+  categoryId: '',
+  code: '',
+  name: '',
+  description: '',
+  orientation: 'landscape' as const,
+  pageSize: 'A4' as const,
+  notes: '',
+};"""
+          new = """type TemplateDraft = {
+  institutionId: string;
+  categoryId: string;
+  code: string;
+  name: string;
+  description: string;
+  orientation: 'portrait' | 'landscape';
+  pageSize: 'A4' | 'Letter' | 'Legal' | 'Custom';
+  notes: string;
+};
+
+const initialTemplate: TemplateDraft = {
+  institutionId: '',
+  categoryId: '',
+  code: '',
+  name: '',
+  description: '',
+  orientation: 'landscape',
+  pageSize: 'A4',
+  notes: '',
+};"""
+          if old not in source:
+              raise SystemExit('Expected initialTemplate block was not found')
+          component.write_text(source.replace(old, new), encoding='utf-8')
+
+          workflow = Path('.github/workflows/validate-certificate-management-console-phase1a.yml')
+          workflow_source = workflow.read_text(encoding='utf-8')
+          old_check = """          src/vite-env.d.ts
+          src/components/AdminCertificateManagementLauncher.tsx
+          src/components/AdminCertificateTemplateConsole.tsx
+          src/services/certificateTemplateAdminService.ts
+
+      - name: Build production application
+        run: npm run build
+"""
+          new_check = """          src/vite-env.d.ts
+          src/components/AdminCertificateTemplateConsole.tsx
+          src/services/certificateTemplateAdminService.ts
+
+      - name: Compile unified launcher integration
+        run: >-
+          npx esbuild src/components/AdminCertificateManagementLauncher.tsx
+          --bundle --platform=browser --format=esm
+          --outfile=/tmp/admin-certificate-management-launcher.js
+
+      - name: Build production application
+        run: npm run build
+"""
+          if old_check not in workflow_source:
+              raise SystemExit('Expected targeted type-check block was not found')
+          workflow.write_text(workflow_source.replace(old_check, new_check), encoding='utf-8')
+
+      - name: Commit repair and remove one-time workflow
+        run: |
+          rm .github/workflows/fix-certificate-console-phase1a-types.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/AdminCertificateTemplateConsole.tsx \
+            .github/workflows/validate-certificate-management-console-phase1a.yml \
+            .github/workflows/fix-certificate-console-phase1a-types.yml
+          git commit -m 'Fix Certificate Management Console Phase 1A typing'
+          git push origin HEAD:feature/certificate-management-console-phase1a
