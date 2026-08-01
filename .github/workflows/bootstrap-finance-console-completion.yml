@@ -48,7 +48,7 @@ jobs:
           EOF
           sha256sum -c /tmp/expected-segments.sha256
 
-      - name: Reconstruct and verify package
+      - name: Reconstruct and verify source package
         shell: bash
         run: |
           set -euo pipefail
@@ -70,9 +70,9 @@ jobs:
           echo '041a7176243cac1d7f610775c8ce54963a91f8b5e28cec049519c411fb2b2629  /tmp/finance-package.tgz' | sha256sum -c -
           tar -xzf /tmp/finance-package.tgz -C .
           rm -rf .github/bootstrap-finance-console
-          rm -f .github/workflows/bootstrap-finance-console-completion.yml
+          rm -f .github/workflows/validate-finance-console-completion.yml
 
-      - name: Commit completed package
+      - name: Commit completed source package
         shell: bash
         run: |
           set -euo pipefail
