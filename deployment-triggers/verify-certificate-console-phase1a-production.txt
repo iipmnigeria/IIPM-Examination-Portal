@@ -1,0 +1,6 @@
+Read-only production verification trigger for Certificate Management Console Phase 1A.
+
+Approved source commit: f37851d8ade02956d8ac55739884806abff2c7a0
+Applied migration: 202608011300_certificate_master_console_phase1a.sql
+Verification scope: migration ledger, preserved certificate and examination authority, new master-template tables, RLS, permissions, private storage buckets and browser-denied resolver.
+No database mutation, Edge Function deployment, frontend publication or certificate issuance action is permitted.
