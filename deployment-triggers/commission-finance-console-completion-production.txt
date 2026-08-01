@@ -1,5 +1,0 @@
-Finance Console completion production UAT and commissioning trigger.
-
-Approved application source: 39255e9ea56178ef2b362a089bd0788846dcbbd7
-Execution model: live role and finance lifecycle inside a mandatory database rollback transaction.
-No production finance configuration, price, coupon, permission, audit, order or payment record is retained.
