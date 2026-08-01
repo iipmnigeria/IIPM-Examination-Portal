@@ -1,0 +1,5 @@
+Approved production release trigger for Certificate Management Console Phase 1A.
+
+Approved source commit: f37851d8ade02956d8ac55739884806abff2c7a0
+Approved migration: 202608011300_certificate_master_console_phase1a.sql
+Approved scope: database migration and production verification only; no Edge Functions, payment authority, examination authority, certificate issuance authority or renderer changes.
