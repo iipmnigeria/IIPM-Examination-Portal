@@ -1,0 +1,163 @@
+name: Verify Finance Console Completion Frontend Production
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/verify-finance-console-completion-frontend-production.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: verify-finance-console-completion-frontend-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Build exact source and verify live Pages files
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EXPECTED_SOURCE_COMMIT: '39255e9ea56178ef2b362a089bd0788846dcbbd7'
+      LIVE_BASE_URL: 'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+
+    steps:
+      - name: Check out exact published application source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_SOURCE_COMMIT }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build exact application bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_COMMIT"
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+          grep -R -q 'Advanced examination pricing saved and audited' dist/assets
+          grep -R -q 'finance-gateway-status' dist/assets
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum \
+            > finance-console-local-dist.sha256
+
+      - name: Verify live GitHub Pages matches exact build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import hashlib
+          import json
+          import re
+          import time
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          live_base = '${{ env.LIVE_BASE_URL }}'
+          expected_commit = '${{ env.EXPECTED_SOURCE_COMMIT }}'
+          dist = Path('dist')
+          local_index = (dist / 'index.html').read_bytes()
+          evidence = {
+              'liveBaseUrl': live_base,
+              'expectedSourceCommit': expected_commit,
+              'attempts': [],
+          }
+
+          def fetch(url: str) -> bytes:
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      'User-Agent': 'IIPM-Finance-Console-Production-Verifier',
+                      'Cache-Control': 'no-cache',
+                      'Pragma': 'no-cache',
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  assert response.status == 200, (url, response.status)
+                  return response.read()
+
+          last_error = None
+          for attempt in range(1, 13):
+              try:
+                  query = urllib.parse.urlencode({
+                      'release': expected_commit,
+                      'attempt': attempt,
+                      'time': int(time.time()),
+                  })
+                  live_index = fetch(f'{live_base}?{query}')
+                  index_match = live_index == local_index
+                  result = {
+                      'attempt': attempt,
+                      'indexMatch': index_match,
+                      'localIndexSha256': hashlib.sha256(local_index).hexdigest(),
+                      'liveIndexSha256': hashlib.sha256(live_index).hexdigest(),
+                  }
+                  evidence['attempts'].append(result)
+                  if not index_match:
+                      raise AssertionError('Live index.html does not yet match the exact approved build.')
+
+                  index_text = local_index.decode('utf-8')
+                  refs = sorted(set(re.findall(r'(?:src|href)=["\']([^"\']+)["\']', index_text)))
+                  compared = []
+                  live_bundle = bytearray()
+                  for ref in refs:
+                      if ref.startswith(('http://', 'https://', 'data:', '#')):
+                          continue
+                      relative = ref.lstrip('./').lstrip('/')
+                      local_path = dist / relative
+                      if not local_path.is_file():
+                          continue
+                      local_bytes = local_path.read_bytes()
+                      live_bytes = fetch(urllib.parse.urljoin(live_base, ref))
+                      assert live_bytes == local_bytes, f'Live file mismatch: {ref}'
+                      if relative.endswith(('.js', '.mjs')):
+                          live_bundle.extend(live_bytes)
+                      compared.append({
+                          'path': relative,
+                          'sha256': hashlib.sha256(local_bytes).hexdigest(),
+                          'bytes': len(local_bytes),
+                      })
+
+                  bundle_text = live_bundle.decode('utf-8', errors='ignore')
+                  assert 'Advanced examination pricing saved and audited' in bundle_text
+                  assert 'finance-gateway-status' in bundle_text
+                  evidence['verifiedFiles'] = compared
+                  evidence['financeCompletionMarkersPresent'] = True
+                  evidence['verifiedAt'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                  Path('finance-console-live-verification.json').write_text(
+                      json.dumps(evidence, indent=2), encoding='utf-8'
+                  )
+                  print(json.dumps(evidence, indent=2))
+                  break
+              except Exception as exc:
+                  last_error = str(exc)
+                  evidence['attempts'][-1]['error'] = last_error
+                  if attempt == 12:
+                      Path('finance-console-live-verification.json').write_text(
+                          json.dumps(evidence, indent=2), encoding='utf-8'
+                      )
+                      raise
+                  time.sleep(10)
+          else:
+              raise AssertionError(last_error or 'Live verification did not complete.')
+          PY
+
+      - name: Upload production verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-console-completion-frontend-production-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            finance-console-local-dist.sha256
+            finance-console-live-verification.json
