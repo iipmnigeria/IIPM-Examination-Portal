@@ -64,7 +64,7 @@ jobs:
           PY
 
           expected_file=$(cat expected-main-file.txt)
-          sha256sum "$expected_file" > expected-main.sha256
+          sha256sum "$expected_file" | awk '{print $1}' > expected-main.sha256
           cat expected-main-asset.txt
           cat expected-main.sha256
 
@@ -97,12 +97,13 @@ jobs:
               | tee -a frontend-verification-attempts.log
 
             if [ "$live_asset" = "$expected_asset" ]; then
+              live_path="${live_asset#./}"
               curl --fail-with-body --silent --show-error \
                 -H 'Cache-Control: no-cache' \
-                "${base_url}${live_asset}?certificate-console-phase1a=${cache_bust}" \
+                "${base_url}/${live_path}?certificate-console-phase1a=${cache_bust}" \
                 -o live-main.js
               cmp "$expected_file" live-main.js
-              sha256sum live-main.js > live-main.sha256
+              sha256sum live-main.js | awk '{print $1}' > live-main.sha256
               matched='true'
               break
             fi
@@ -123,8 +124,8 @@ jobs:
           evidence = {
               'pagesUrl': 'https://iipmnigeria.github.io/IIPM-Examination-Portal/',
               'expectedAsset': Path('expected-main-asset.txt').read_text().strip(),
-              'expectedHash': Path('expected-main.sha256').read_text().split()[0],
-              'liveHash': Path('live-main.sha256').read_text().split()[0],
+              'expectedHash': Path('expected-main.sha256').read_text().strip(),
+              'liveHash': Path('live-main.sha256').read_text().strip(),
               'phase1aMarkersVerified': True,
               'byteForByteMatch': True,
           }
