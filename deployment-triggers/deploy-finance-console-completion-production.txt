@@ -1,0 +1,9 @@
+Finance Console completion controlled production release.
+
+Approved source commit: 39255e9ea56178ef2b362a089bd0788846dcbbd7
+Approved migration: 202608010600_finance_console_completion.sql
+Approved Edge Functions:
+- admin-verify-exam-payment
+- finance-gateway-status
+
+The workflow must stop before production mutation unless the approved migration is the only pending database unit and the required server-side Paystack secret is present.
