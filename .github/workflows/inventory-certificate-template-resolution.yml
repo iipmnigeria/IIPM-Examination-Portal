@@ -6,6 +6,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'deployment-triggers/inventory-certificate-template-resolution.txt'
+      - '.github/workflows/inventory-certificate-template-resolution.yml'
 
 permissions:
   contents: read
@@ -92,9 +93,7 @@ jobs:
                 end
               ))
           ), active_population as (
-            select *
-            from certificate_population
-            where status = 'active'
+            select * from certificate_population where status = 'active'
           ), resolution as (
             select
               population.*,
@@ -115,6 +114,9 @@ jobs:
               population.category_code as certificate_category_code,
               population.certificates,
               assignment.id as assignment_id,
+              assignment.template_id,
+              assignment.template_version_id as version_id,
+              assignment.category_id,
               assignment.scope_type,
               assignment.programme_id as assignment_programme_id,
               assignment.examination_id as assignment_examination_id,
@@ -124,12 +126,6 @@ jobs:
               assignment.effective_from,
               assignment.effective_to,
               category.code as assignment_category_code,
-              template.id as template_id,
-              template.name as template_name,
-              institution.code as institution_code,
-              institution.name as institution_name,
-              version.id as version_id,
-              version.version_number,
               version.status as version_status,
               version.quality_status,
               version.source_format,
@@ -139,14 +135,10 @@ jobs:
               lower(category.code) = lower(population.category_code) as category_matches,
               (
                 assignment.scope_type = 'global'
-                or (
-                  assignment.scope_type = 'programme'
-                  and assignment.programme_id = population.programme_id
-                )
-                or (
-                  assignment.scope_type = 'examination'
-                  and assignment.examination_id = population.examination_id
-                )
+                or (assignment.scope_type = 'programme'
+                  and assignment.programme_id = population.programme_id)
+                or (assignment.scope_type = 'examination'
+                  and assignment.examination_id = population.examination_id)
               ) as scope_matches,
               (
                 assignment.effective_from <= now()
@@ -162,14 +154,10 @@ jobs:
                 and version.quality_status in ('passed', 'waived')
                 and (
                   assignment.scope_type = 'global'
-                  or (
-                    assignment.scope_type = 'programme'
-                    and assignment.programme_id = population.programme_id
-                  )
-                  or (
-                    assignment.scope_type = 'examination'
-                    and assignment.examination_id = population.examination_id
-                  )
+                  or (assignment.scope_type = 'programme'
+                    and assignment.programme_id = population.programme_id)
+                  or (assignment.scope_type = 'examination'
+                    and assignment.examination_id = population.examination_id)
                 )
               ) as resolver_eligible
             from active_population population
@@ -178,32 +166,29 @@ jobs:
               on category.id = assignment.category_id
             join public.agilecert_certificate_master_versions version
               on version.id = assignment.template_version_id
-            join public.agilecert_certificate_master_templates template
-              on template.id = assignment.template_id
-            join public.agilecert_certificate_institutions institution
-              on institution.id = template.institution_id
           ), version_inventory as (
-            select jsonb_build_object(
-              'id', version.id,
-              'templateId', version.template_id,
-              'versionNumber', version.version_number,
-              'status', version.status,
-              'qualityStatus', version.quality_status,
-              'qualityReason', version.quality_reason,
-              'sourceFormat', version.source_format,
-              'sourceFileName', version.source_file_name,
-              'storageBucket', version.storage_bucket,
-              'storagePath', version.storage_path,
-              'sha256', version.sha256,
-              'overlayElementCount', jsonb_array_length(coalesce(version.overlay_schema, '[]'::jsonb)),
-              'overlaySha256', public.agilecert_certificate_overlay_sha256(
-                coalesce(version.overlay_schema, '[]'::jsonb)
-              ),
-              'publishedAt', version.published_at,
-              'createdAt', version.created_at,
-              'updatedAt', version.updated_at
-            ) as item
+            select
+              (
+                to_jsonb(version)
+                  - 'overlay_schema'
+                  - 'created_by'
+                  - 'updated_by'
+                  - 'reviewed_by'
+                  - 'approved_by'
+                  - 'published_by'
+              ) || jsonb_build_object(
+                'overlay_element_count',
+                  jsonb_array_length(coalesce(version.overlay_schema, '[]'::jsonb)),
+                'overlay_sha256',
+                  public.agilecert_certificate_overlay_sha256(
+                    coalesce(version.overlay_schema, '[]'::jsonb)
+                  )
+              ) as item
             from public.agilecert_certificate_master_versions version
+          ), job_counts as (
+            select render_mode, status, count(*) as jobs
+            from public.agilecert_certificate_render_jobs
+            group by render_mode, status
           )
           select jsonb_build_object(
             'checkedAt', now(),
@@ -216,35 +201,28 @@ jobs:
               where version = '202608012400'
             ),
             'institutions', coalesce((
-              select jsonb_agg(jsonb_build_object(
-                'id', institution.id,
-                'code', institution.code,
-                'name', institution.name,
-                'isActive', institution.is_active
-              ) order by institution.code)
+              select jsonb_agg(
+                to_jsonb(institution) - 'created_by' - 'updated_by' - 'metadata'
+                order by institution.id
+              )
               from public.agilecert_certificate_institutions institution
             ), '[]'::jsonb),
             'categories', coalesce((
-              select jsonb_agg(jsonb_build_object(
-                'id', category.id,
-                'code', category.code,
-                'name', category.name,
-                'isActive', category.is_active
-              ) order by category.sort_order, category.code)
+              select jsonb_agg(
+                to_jsonb(category) - 'created_by' - 'updated_by' - 'metadata'
+                order by category.id
+              )
               from public.agilecert_certificate_categories category
             ), '[]'::jsonb),
             'templates', coalesce((
               select jsonb_agg(
-                to_jsonb(template)
-                  - 'created_by'
-                  - 'updated_by'
-                  - 'metadata'
-                order by template.created_at, template.id
+                to_jsonb(template) - 'created_by' - 'updated_by' - 'metadata'
+                order by template.id
               )
               from public.agilecert_certificate_master_templates template
             ), '[]'::jsonb),
             'versions', coalesce((
-              select jsonb_agg(item order by item->>'createdAt', item->>'id')
+              select jsonb_agg(item order by item->>'id')
               from version_inventory
             ), '[]'::jsonb),
             'assignments', coalesce((
@@ -253,56 +231,38 @@ jobs:
                   - 'created_by'
                   - 'updated_by'
                   - 'renderer_enabled_by'
-                order by assignment.created_at, assignment.id
+                order by assignment.id
               )
               from public.agilecert_certificate_master_assignments assignment
             ), '[]'::jsonb),
             'assets', coalesce((
-              select jsonb_agg(jsonb_build_object(
-                'id', asset.id,
-                'institutionId', asset.institution_id,
-                'assetType', asset.asset_type,
-                'name', asset.name,
-                'status', asset.status,
-                'mimeType', asset.mime_type,
-                'sha256Present', asset.sha256 is not null,
-                'storageBucket', asset.storage_bucket,
-                'storagePath', asset.storage_path
-              ) order by asset.created_at, asset.id)
+              select jsonb_agg(
+                to_jsonb(asset)
+                  - 'created_by'
+                  - 'updated_by'
+                  - 'approved_by'
+                  - 'metadata'
+                order by asset.id
+              )
               from public.agilecert_certificate_assets asset
             ), '[]'::jsonb),
             'certificatePopulation', coalesce((
-              select jsonb_agg(jsonb_build_object(
-                'examinationId', population.examination_id,
-                'examinationCode', population.examination_code,
-                'examinationTitle', population.examination_title,
-                'programmeId', population.programme_id,
-                'programmeCode', population.programme_code,
-                'programmeName', population.programme_name,
-                'status', population.status,
-                'categoryCode', population.category_code,
-                'certificates', population.certificates
-              ) order by population.status, population.programme_code,
-                population.examination_code, population.category_code)
+              select jsonb_agg(to_jsonb(population)
+                order by population.status, population.programme_code,
+                  population.examination_code, population.category_code)
               from certificate_population population
             ), '[]'::jsonb),
             'activeResolution', coalesce((
-              select jsonb_agg(jsonb_build_object(
-                'examinationId', resolution.examination_id,
-                'examinationCode', resolution.examination_code,
-                'examinationTitle', resolution.examination_title,
-                'programmeId', resolution.programme_id,
-                'programmeCode', resolution.programme_code,
-                'programmeName', resolution.programme_name,
-                'categoryCode', resolution.category_code,
-                'certificates', resolution.certificates,
-                'resolvedAssignment', resolution.resolved_assignment,
-                'renderMode', case
-                  when resolution.resolved_assignment is null then 'legacy'
-                  else 'managed'
-                end
-              ) order by resolution.programme_code,
-                resolution.examination_code, resolution.category_code)
+              select jsonb_agg(
+                to_jsonb(resolution) || jsonb_build_object(
+                  'render_mode', case
+                    when resolution.resolved_assignment is null then 'legacy'
+                    else 'managed'
+                  end
+                )
+                order by resolution.programme_code,
+                  resolution.examination_code, resolution.category_code
+              )
               from resolution
             ), '[]'::jsonb),
             'assignmentDiagnostics', coalesce((
@@ -317,13 +277,9 @@ jobs:
               select count(*) from public.agilecert_certificate_render_bindings
             ),
             'renderJobsByStatus', coalesce((
-              select jsonb_agg(jsonb_build_object(
-                'renderMode', job.render_mode,
-                'status', job.status,
-                'jobs', count(*)
-              ) order by job.render_mode, job.status)
-              from public.agilecert_certificate_render_jobs job
-              group by job.render_mode, job.status
+              select jsonb_agg(to_jsonb(job_count)
+                order by job_count.render_mode, job_count.status)
+              from job_counts job_count
             ), '[]'::jsonb),
             'certificateMasterStorageObjects', coalesce((
               select jsonb_agg(jsonb_build_object(
@@ -374,20 +330,23 @@ jobs:
 
           findings = []
           for resolution in resolutions:
-              if resolution.get('resolvedAssignment'):
+              if resolution.get('resolved_assignment'):
                   findings.append({
-                      'examinationCode': resolution.get('examinationCode'),
-                      'categoryCode': resolution.get('categoryCode'),
+                      'examinationCode': resolution.get('examination_code'),
+                      'examinationTitle': resolution.get('examination_title'),
+                      'programmeCode': resolution.get('programme_code'),
+                      'categoryCode': resolution.get('category_code'),
+                      'certificates': resolution.get('certificates'),
                       'renderMode': 'managed',
-                      'reason': 'A current renderer-enabled assignment resolves for this certificate population.',
+                      'reason': 'A current renderer-enabled assignment resolves for this active certificate population.',
                   })
                   continue
 
               relevant = [
                   item for item in diagnostics
-                  if item.get('examination_id') == resolution.get('examinationId')
+                  if item.get('examination_id') == resolution.get('examination_id')
                   and str(item.get('assignment_category_code', '')).lower()
-                    == str(resolution.get('categoryCode', '')).lower()
+                    == str(resolution.get('category_code', '')).lower()
               ]
               scoped = [item for item in relevant if item.get('scope_matches')]
               reasons = []
@@ -411,10 +370,10 @@ jobs:
               if not reasons:
                   reasons.append('No assignment satisfies every resolver condition at the same time.')
               findings.append({
-                  'examinationCode': resolution.get('examinationCode'),
-                  'examinationTitle': resolution.get('examinationTitle'),
-                  'programmeCode': resolution.get('programmeCode'),
-                  'categoryCode': resolution.get('categoryCode'),
+                  'examinationCode': resolution.get('examination_code'),
+                  'examinationTitle': resolution.get('examination_title'),
+                  'programmeCode': resolution.get('programme_code'),
+                  'categoryCode': resolution.get('category_code'),
                   'certificates': resolution.get('certificates'),
                   'renderMode': 'legacy',
                   'reasons': reasons,
@@ -432,10 +391,16 @@ jobs:
                   'categories': len(inventory.get('categories') or []),
                   'templates': len(templates),
                   'versions': len(versions),
-                  'publishedVersions': sum(1 for v in versions if v.get('status') == 'published'),
+                  'publishedVersions': sum(
+                      1 for version in versions if version.get('status') == 'published'
+                  ),
                   'assignments': len(assignments),
+                  'activeAssignments': sum(
+                      1 for assignment in assignments if assignment.get('is_active') is True
+                  ),
                   'rendererEnabledAssignments': sum(
-                      1 for a in assignments if a.get('renderer_enabled') is True
+                      1 for assignment in assignments
+                      if assignment.get('renderer_enabled') is True
                   ),
                   'renderBindings': inventory.get('renderBindings', 0),
               },
@@ -463,6 +428,7 @@ jobs:
               f"Templates: **{evidence['counts']['templates']}**",
               f"Published versions: **{evidence['counts']['publishedVersions']}**",
               f"Assignments: **{evidence['counts']['assignments']}**",
+              f"Active assignments: **{evidence['counts']['activeAssignments']}**",
               f"Renderer-enabled assignments: **{evidence['counts']['rendererEnabledAssignments']}**",
               f"Render bindings: **{evidence['counts']['renderBindings']}**",
               '',
