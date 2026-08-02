@@ -1,0 +1,1 @@
+This disposable control performs a sanitized read-only production query to determine why an active issued certificate still resolves to the legacy renderer after a master template was uploaded and published.
