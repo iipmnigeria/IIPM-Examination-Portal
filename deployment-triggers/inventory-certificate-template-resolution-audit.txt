@@ -1,0 +1,1 @@
+This control is intentionally disposable and must be closed without merge after evidence capture.
