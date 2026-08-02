@@ -1,0 +1,494 @@
+name: Inventory Certificate Template Resolution
+
+on:
+  pull_request:
+    branches: [supabase-integration]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'deployment-triggers/inventory-certificate-template-resolution.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inventory-certificate-template-resolution
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    name: Inspect published masters, assignments and renderer resolution
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROJECT_REF: 'cfecicvugfrrhcvhduzc'
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+
+      - name: Verify read-only inspection boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -s supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql
+          grep -q 'resolve_agilecert_certificate_render_master' \
+            supabase/migrations/202608012200_certificate_server_rendering_phase1c.sql
+
+      - name: Query current production certificate resolution state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          query = r"""
+          with certificate_population as (
+            select
+              certificate.examination_id,
+              examination.code as examination_code,
+              examination.title as examination_title,
+              examination.programme_id,
+              programme.code as programme_code,
+              programme.name as programme_name,
+              certificate.status,
+              lower(coalesce(
+                nullif(trim(certificate.metadata->>'certificateCategoryCode'), ''),
+                case
+                  when lower(coalesce(certificate.certificate_title, '')) like '%completion%'
+                    then 'completion'
+                  when lower(coalesce(certificate.metadata->>'productCode', '')) = 'professional'
+                    then 'professional'
+                  else 'achievement'
+                end
+              )) as category_code,
+              count(*) as certificates
+            from public.agilecert_issued_certificates certificate
+            join public.examinations examination
+              on examination.id = certificate.examination_id
+            left join public.programmes programme
+              on programme.id = examination.programme_id
+            group by
+              certificate.examination_id,
+              examination.code,
+              examination.title,
+              examination.programme_id,
+              programme.code,
+              programme.name,
+              certificate.status,
+              lower(coalesce(
+                nullif(trim(certificate.metadata->>'certificateCategoryCode'), ''),
+                case
+                  when lower(coalesce(certificate.certificate_title, '')) like '%completion%'
+                    then 'completion'
+                  when lower(coalesce(certificate.metadata->>'productCode', '')) = 'professional'
+                    then 'professional'
+                  else 'achievement'
+                end
+              ))
+          ), active_population as (
+            select *
+            from certificate_population
+            where status = 'active'
+          ), resolution as (
+            select
+              population.*,
+              public.resolve_agilecert_certificate_render_master(
+                population.examination_id,
+                population.category_code,
+                now()
+              ) as resolved_assignment
+            from active_population population
+          ), assignment_diagnostics as (
+            select
+              population.examination_id,
+              population.examination_code,
+              population.examination_title,
+              population.programme_id as certificate_programme_id,
+              population.programme_code,
+              population.programme_name,
+              population.category_code as certificate_category_code,
+              population.certificates,
+              assignment.id as assignment_id,
+              assignment.scope_type,
+              assignment.programme_id as assignment_programme_id,
+              assignment.examination_id as assignment_examination_id,
+              assignment.priority,
+              assignment.is_active,
+              assignment.renderer_enabled,
+              assignment.effective_from,
+              assignment.effective_to,
+              category.code as assignment_category_code,
+              template.id as template_id,
+              template.name as template_name,
+              institution.code as institution_code,
+              institution.name as institution_name,
+              version.id as version_id,
+              version.version_number,
+              version.status as version_status,
+              version.quality_status,
+              version.source_format,
+              version.sha256,
+              assignment.renderer_source_sha256,
+              assignment.renderer_overlay_sha256,
+              lower(category.code) = lower(population.category_code) as category_matches,
+              (
+                assignment.scope_type = 'global'
+                or (
+                  assignment.scope_type = 'programme'
+                  and assignment.programme_id = population.programme_id
+                )
+                or (
+                  assignment.scope_type = 'examination'
+                  and assignment.examination_id = population.examination_id
+                )
+              ) as scope_matches,
+              (
+                assignment.effective_from <= now()
+                and (assignment.effective_to is null or assignment.effective_to > now())
+              ) as effective_now,
+              (
+                lower(category.code) = lower(population.category_code)
+                and assignment.is_active
+                and assignment.renderer_enabled
+                and assignment.effective_from <= now()
+                and (assignment.effective_to is null or assignment.effective_to > now())
+                and version.status = 'published'
+                and version.quality_status in ('passed', 'waived')
+                and (
+                  assignment.scope_type = 'global'
+                  or (
+                    assignment.scope_type = 'programme'
+                    and assignment.programme_id = population.programme_id
+                  )
+                  or (
+                    assignment.scope_type = 'examination'
+                    and assignment.examination_id = population.examination_id
+                  )
+                )
+              ) as resolver_eligible
+            from active_population population
+            cross join public.agilecert_certificate_master_assignments assignment
+            join public.agilecert_certificate_categories category
+              on category.id = assignment.category_id
+            join public.agilecert_certificate_master_versions version
+              on version.id = assignment.template_version_id
+            join public.agilecert_certificate_master_templates template
+              on template.id = assignment.template_id
+            join public.agilecert_certificate_institutions institution
+              on institution.id = template.institution_id
+          ), version_inventory as (
+            select jsonb_build_object(
+              'id', version.id,
+              'templateId', version.template_id,
+              'versionNumber', version.version_number,
+              'status', version.status,
+              'qualityStatus', version.quality_status,
+              'qualityReason', version.quality_reason,
+              'sourceFormat', version.source_format,
+              'sourceFileName', version.source_file_name,
+              'storageBucket', version.storage_bucket,
+              'storagePath', version.storage_path,
+              'sha256', version.sha256,
+              'overlayElementCount', jsonb_array_length(coalesce(version.overlay_schema, '[]'::jsonb)),
+              'overlaySha256', public.agilecert_certificate_overlay_sha256(
+                coalesce(version.overlay_schema, '[]'::jsonb)
+              ),
+              'publishedAt', version.published_at,
+              'createdAt', version.created_at,
+              'updatedAt', version.updated_at
+            ) as item
+            from public.agilecert_certificate_master_versions version
+          )
+          select jsonb_build_object(
+            'checkedAt', now(),
+            'phase1cApplied', exists (
+              select 1 from supabase_migrations.schema_migrations
+              where version = '202608012200'
+            ),
+            'phase1dApplied', exists (
+              select 1 from supabase_migrations.schema_migrations
+              where version = '202608012400'
+            ),
+            'institutions', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'id', institution.id,
+                'code', institution.code,
+                'name', institution.name,
+                'isActive', institution.is_active
+              ) order by institution.code)
+              from public.agilecert_certificate_institutions institution
+            ), '[]'::jsonb),
+            'categories', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'id', category.id,
+                'code', category.code,
+                'name', category.name,
+                'isActive', category.is_active
+              ) order by category.sort_order, category.code)
+              from public.agilecert_certificate_categories category
+            ), '[]'::jsonb),
+            'templates', coalesce((
+              select jsonb_agg(
+                to_jsonb(template)
+                  - 'created_by'
+                  - 'updated_by'
+                  - 'metadata'
+                order by template.created_at, template.id
+              )
+              from public.agilecert_certificate_master_templates template
+            ), '[]'::jsonb),
+            'versions', coalesce((
+              select jsonb_agg(item order by item->>'createdAt', item->>'id')
+              from version_inventory
+            ), '[]'::jsonb),
+            'assignments', coalesce((
+              select jsonb_agg(
+                to_jsonb(assignment)
+                  - 'created_by'
+                  - 'updated_by'
+                  - 'renderer_enabled_by'
+                order by assignment.created_at, assignment.id
+              )
+              from public.agilecert_certificate_master_assignments assignment
+            ), '[]'::jsonb),
+            'assets', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'id', asset.id,
+                'institutionId', asset.institution_id,
+                'assetType', asset.asset_type,
+                'name', asset.name,
+                'status', asset.status,
+                'mimeType', asset.mime_type,
+                'sha256Present', asset.sha256 is not null,
+                'storageBucket', asset.storage_bucket,
+                'storagePath', asset.storage_path
+              ) order by asset.created_at, asset.id)
+              from public.agilecert_certificate_assets asset
+            ), '[]'::jsonb),
+            'certificatePopulation', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'examinationId', population.examination_id,
+                'examinationCode', population.examination_code,
+                'examinationTitle', population.examination_title,
+                'programmeId', population.programme_id,
+                'programmeCode', population.programme_code,
+                'programmeName', population.programme_name,
+                'status', population.status,
+                'categoryCode', population.category_code,
+                'certificates', population.certificates
+              ) order by population.status, population.programme_code,
+                population.examination_code, population.category_code)
+              from certificate_population population
+            ), '[]'::jsonb),
+            'activeResolution', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'examinationId', resolution.examination_id,
+                'examinationCode', resolution.examination_code,
+                'examinationTitle', resolution.examination_title,
+                'programmeId', resolution.programme_id,
+                'programmeCode', resolution.programme_code,
+                'programmeName', resolution.programme_name,
+                'categoryCode', resolution.category_code,
+                'certificates', resolution.certificates,
+                'resolvedAssignment', resolution.resolved_assignment,
+                'renderMode', case
+                  when resolution.resolved_assignment is null then 'legacy'
+                  else 'managed'
+                end
+              ) order by resolution.programme_code,
+                resolution.examination_code, resolution.category_code)
+              from resolution
+            ), '[]'::jsonb),
+            'assignmentDiagnostics', coalesce((
+              select jsonb_agg(to_jsonb(diagnostic)
+                order by diagnostic.examination_code,
+                  diagnostic.certificate_category_code,
+                  diagnostic.priority,
+                  diagnostic.assignment_id)
+              from assignment_diagnostics diagnostic
+            ), '[]'::jsonb),
+            'renderBindings', (
+              select count(*) from public.agilecert_certificate_render_bindings
+            ),
+            'renderJobsByStatus', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'renderMode', job.render_mode,
+                'status', job.status,
+                'jobs', count(*)
+              ) order by job.render_mode, job.status)
+              from public.agilecert_certificate_render_jobs job
+              group by job.render_mode, job.status
+            ), '[]'::jsonb),
+            'certificateMasterStorageObjects', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'name', object.name,
+                'createdAt', object.created_at,
+                'updatedAt', object.updated_at
+              ) order by object.name)
+              from storage.objects object
+              where object.bucket_id = 'certificate-masters'
+            ), '[]'::jsonb)
+          ) as inventory;
+          """
+          Path('/tmp/certificate-resolution-query.json').write_text(
+              json.dumps({'query': query}), encoding='utf-8'
+          )
+          PY
+
+          status=$(curl --silent --show-error \
+            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/certificate-resolution-query.json \
+            -o certificate-resolution-response.json \
+            -w '%{http_code}')
+          case "$status" in
+            2??) ;;
+            *) cat certificate-resolution-response.json; exit 1 ;;
+          esac
+
+      - name: Analyse and sanitize certificate resolution evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          raw = json.loads(Path('certificate-resolution-response.json').read_text())
+          assert isinstance(raw, list) and len(raw) == 1, raw
+          inventory = raw[0].get('inventory') or {}
+          assert inventory.get('phase1cApplied') is True, inventory
+
+          resolutions = inventory.get('activeResolution') or []
+          diagnostics = inventory.get('assignmentDiagnostics') or []
+          templates = inventory.get('templates') or []
+          versions = inventory.get('versions') or []
+          assignments = inventory.get('assignments') or []
+
+          findings = []
+          for resolution in resolutions:
+              if resolution.get('resolvedAssignment'):
+                  findings.append({
+                      'examinationCode': resolution.get('examinationCode'),
+                      'categoryCode': resolution.get('categoryCode'),
+                      'renderMode': 'managed',
+                      'reason': 'A current renderer-enabled assignment resolves for this certificate population.',
+                  })
+                  continue
+
+              relevant = [
+                  item for item in diagnostics
+                  if item.get('examination_id') == resolution.get('examinationId')
+                  and str(item.get('assignment_category_code', '')).lower()
+                    == str(resolution.get('categoryCode', '')).lower()
+              ]
+              scoped = [item for item in relevant if item.get('scope_matches')]
+              reasons = []
+              if not assignments:
+                  reasons.append('No certificate master assignment exists.')
+              elif not relevant:
+                  reasons.append('No assignment uses the certificate category required by the issued certificate.')
+              elif not scoped:
+                  reasons.append('Assignments exist for the category, but none match this programme or examination scope.')
+              else:
+                  if not any(item.get('is_active') for item in scoped):
+                      reasons.append('The matching assignment is inactive.')
+                  if not any(item.get('renderer_enabled') for item in scoped):
+                      reasons.append('Server Rendering is disabled for the matching assignment.')
+                  if not any(item.get('effective_now') for item in scoped):
+                      reasons.append('The matching assignment is outside its effective date window.')
+                  if not any(item.get('version_status') == 'published' for item in scoped):
+                      reasons.append('The assigned master version is not published.')
+                  if not any(item.get('quality_status') in ('passed', 'waived') for item in scoped):
+                      reasons.append('The assigned master version has not passed or received an authorised quality waiver.')
+              if not reasons:
+                  reasons.append('No assignment satisfies every resolver condition at the same time.')
+              findings.append({
+                  'examinationCode': resolution.get('examinationCode'),
+                  'examinationTitle': resolution.get('examinationTitle'),
+                  'programmeCode': resolution.get('programmeCode'),
+                  'categoryCode': resolution.get('categoryCode'),
+                  'certificates': resolution.get('certificates'),
+                  'renderMode': 'legacy',
+                  'reasons': reasons,
+              })
+
+          status = 'MANAGED_RENDER_ACTIVE' if any(
+              item.get('renderMode') == 'managed' for item in findings
+          ) else 'LEGACY_RENDER_ACTIVE'
+
+          evidence = {
+              'status': status,
+              'checkedAt': inventory.get('checkedAt'),
+              'counts': {
+                  'institutions': len(inventory.get('institutions') or []),
+                  'categories': len(inventory.get('categories') or []),
+                  'templates': len(templates),
+                  'versions': len(versions),
+                  'publishedVersions': sum(1 for v in versions if v.get('status') == 'published'),
+                  'assignments': len(assignments),
+                  'rendererEnabledAssignments': sum(
+                      1 for a in assignments if a.get('renderer_enabled') is True
+                  ),
+                  'renderBindings': inventory.get('renderBindings', 0),
+              },
+              'findings': findings,
+              'institutions': inventory.get('institutions') or [],
+              'categories': inventory.get('categories') or [],
+              'templates': templates,
+              'versions': versions,
+              'assignments': assignments,
+              'activeResolution': resolutions,
+              'assignmentDiagnostics': diagnostics,
+              'assets': inventory.get('assets') or [],
+              'certificatePopulation': inventory.get('certificatePopulation') or [],
+              'renderJobsByStatus': inventory.get('renderJobsByStatus') or [],
+              'certificateMasterStorageObjects': inventory.get('certificateMasterStorageObjects') or [],
+          }
+          Path('certificate-template-resolution-inventory.json').write_text(
+              json.dumps(evidence, indent=2), encoding='utf-8'
+          )
+
+          lines = [
+              '# Certificate Template Resolution Inventory',
+              '',
+              f"Status: **{status}**",
+              f"Templates: **{evidence['counts']['templates']}**",
+              f"Published versions: **{evidence['counts']['publishedVersions']}**",
+              f"Assignments: **{evidence['counts']['assignments']}**",
+              f"Renderer-enabled assignments: **{evidence['counts']['rendererEnabledAssignments']}**",
+              f"Render bindings: **{evidence['counts']['renderBindings']}**",
+              '',
+              '## Active certificate resolution',
+          ]
+          if not findings:
+              lines.append('- No active issued-certificate population was found.')
+          for finding in findings:
+              lines.append(
+                  f"- `{finding.get('examinationCode')}` / "
+                  f"`{finding.get('categoryCode')}`: **{finding.get('renderMode')}**"
+              )
+              for reason in finding.get('reasons', []):
+                  lines.append(f"  - {reason}")
+          Path('certificate-template-resolution-inventory.md').write_text(
+              '\n'.join(lines) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(evidence, indent=2))
+          PY
+
+      - name: Upload sanitized inventory evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: certificate-template-resolution-inventory
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            certificate-template-resolution-inventory.json
+            certificate-template-resolution-inventory.md
