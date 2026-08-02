@@ -1,0 +1,2 @@
+Read-only production inventory requested on 2026-08-02.
+No certificate, template, assignment, renderer or storage record may be changed.
