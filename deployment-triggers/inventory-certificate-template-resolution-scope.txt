@@ -1,0 +1,1 @@
+Scope: inspect institutions, categories, master templates, versions, assignments, active certificate category resolution, renderer flags, bindings, jobs and storage objects. Mutations are prohibited.
