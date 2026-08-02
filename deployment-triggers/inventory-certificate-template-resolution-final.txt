@@ -1,0 +1,1 @@
+Final marker for the disposable read-only production inventory package.
