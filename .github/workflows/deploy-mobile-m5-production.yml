@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: deploy-mobile-m5-production
@@ -87,3 +88,30 @@ jobs:
         run: |
           set -euo pipefail
           supabase functions list --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Report production activation result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_STATUS: ${{ job.status }}
+          DEPLOY_SHA: ${{ github.sha }}
+          DEPLOY_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="Phase M5 production activation: ${DEPLOY_STATUS}"
+          body=$(cat <<EOF
+          Automated production activation result for Phase M5.
+
+          - Status: ${DEPLOY_STATUS}
+          - Commit: ${DEPLOY_SHA}
+          - Run ID: ${DEPLOY_RUN_ID}
+          - Project: ${SUPABASE_PROJECT_ID}
+          - Migration: 202608020020_mobile_commerce_all_programmes.sql
+          - Function: initialize-exam-cart-payment
+          EOF
+          )
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$title" \
+            --body "$body"
