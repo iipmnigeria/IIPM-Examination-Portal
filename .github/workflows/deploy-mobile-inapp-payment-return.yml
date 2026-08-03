@@ -1,6 +1,9 @@
 name: Deploy Mobile In-App Payment Return
 
 on:
+  push:
+    branches:
+      - deploy/mobile-inapp-payment-return
   workflow_dispatch:
 
 permissions:
