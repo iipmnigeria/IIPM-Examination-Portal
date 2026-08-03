@@ -1,0 +1,74 @@
+name: Temporary Live Catalogue Fallback Verification
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - ".github/workflows/verify-live-catalogue-fallback-temporary.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify rendered live Programmes launcher
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright
+          npx playwright install chromium
+
+      - name: Verify live rendered interface
+        run: |
+          node <<'NODE'
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const target = 'https://agilecert.iipmi.org/';
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+            let lastError;
+
+            for (let attempt = 1; attempt <= 8; attempt += 1) {
+              try {
+                await page.goto(target, { waitUntil: 'networkidle', timeout: 60000 });
+                const launcher = page.getByRole('button', { name: 'Open AgileCert programme catalogue' });
+                await launcher.waitFor({ state: 'visible', timeout: 10000 });
+                const label = (await launcher.textContent())?.trim();
+                if (!label || !label.includes('Programmes')) {
+                  throw new Error(`Unexpected launcher label: ${JSON.stringify(label)}`);
+                }
+
+                await launcher.click();
+                await page.getByRole('heading', { name: 'AgileCert Programme Catalogue' }).waitFor({
+                  state: 'visible',
+                  timeout: 10000,
+                });
+
+                console.log(`Verified live rendered catalogue on attempt ${attempt}.`);
+                console.log(`Launcher text: ${label}`);
+                console.log('Catalogue dialog opened successfully.');
+                await browser.close();
+                process.exit(0);
+              } catch (error) {
+                lastError = error;
+                console.log(`Attempt ${attempt} not ready: ${error.message}`);
+                if (attempt < 8) await new Promise((resolve) => setTimeout(resolve, 15000));
+              }
+            }
+
+            await browser.close();
+            throw lastError;
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
