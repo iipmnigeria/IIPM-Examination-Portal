@@ -1,6 +1,11 @@
 name: Sync production source to AI Studio workspace
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/sync-ai-studio-workspace.yml'
   workflow_dispatch:
     inputs:
       target_branch:
@@ -23,7 +28,7 @@ jobs:
     timeout-minutes: 30
     env:
       WORKSPACE_REPOSITORY: iipmnigeria/IIPM-Examination-Portal-AI-Studio-Workspace
-      TARGET_BRANCH: ${{ inputs.target_branch }}
+      TARGET_BRANCH: ${{ github.event.inputs.target_branch || 'production-sync' }}
       WORKSPACE_TOKEN: ${{ secrets.AI_STUDIO_WORKSPACE_TOKEN }}
 
     steps:
