@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: deploy-mobile-payment-cors
@@ -84,3 +85,26 @@ jobs:
         run: |
           set -euo pipefail
           supabase functions list --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Report deployment result
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const body = [
+              'Automated deployment result for the Capacitor payment CORS correction.',
+              '',
+              `- Status: ${status}`,
+              `- Commit: ${{ github.sha }}`,
+              `- Run ID: ${{ github.run_id }}`,
+              '- Project: cfecicvugfrrhcvhduzc',
+              '- Functions: initialize-exam-cart-payment, verify-exam-cart-payment',
+              '- Required Android origin: https://localhost',
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Mobile payment CORS deployment: ${status}`,
+              body,
+            });
