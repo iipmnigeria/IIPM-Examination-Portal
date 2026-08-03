@@ -10,8 +10,6 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { getCurrentPortalUser } from '../services/authService';
 import {
   AGILE_PROGRAMME_CATALOGUE,
   AGILE_PROGRAMME_CATEGORIES,
@@ -35,7 +33,6 @@ const levelClasses: Record<AgileProgrammeLevel, string> = {
 };
 
 export default function AgileProgrammeCatalogue() {
-  const [isCandidate, setIsCandidate] = useState(false);
   const [menuRoot, setMenuRoot] = useState<HTMLElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<AgileProgrammeCategory>(
@@ -45,31 +42,6 @@ export default function AgileProgrammeCatalogue() {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const refreshAuthorisation = async () => {
-      try {
-        const current = await getCurrentPortalUser();
-        const candidate = current?.profile.role === 'candidate';
-        setIsCandidate(candidate);
-        if (!candidate) setIsOpen(false);
-      } catch {
-        setIsCandidate(false);
-        setIsOpen(false);
-      }
-    };
-
-    void refreshAuthorisation();
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      window.setTimeout(() => void refreshAuthorisation(), 0);
-    });
-    return () => listener.subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!isCandidate) {
-      setMenuRoot(null);
-      return;
-    }
-
     const attach = () => {
       const nav = document.querySelector<HTMLElement>('header nav');
       if (!nav) {
@@ -91,7 +63,7 @@ export default function AgileProgrammeCatalogue() {
     const observer = new MutationObserver(attach);
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [isCandidate]);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -121,7 +93,7 @@ export default function AgileProgrammeCatalogue() {
     });
   }, [activeCategory, activeLevel, searchTerm]);
 
-  if (!isCandidate || !menuRoot) return null;
+  if (!menuRoot) return null;
 
   return (
     <>
@@ -133,7 +105,7 @@ export default function AgileProgrammeCatalogue() {
           aria-label="Open AgileCert programme catalogue"
         >
           <GraduationCap className="h-3.5 w-3.5 text-cyan-300" />
-          <span className="hidden xl:inline">Programmes</span>
+          <span>Programmes</span>
         </button>,
         menuRoot,
       )}
