@@ -1,0 +1,131 @@
+name: Sync production source to AI Studio workspace
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Workspace branch that will receive the production source
+        required: true
+        default: production-sync
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-studio-production-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Prepare reviewable workspace sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      WORKSPACE_REPOSITORY: iipmnigeria/IIPM-Examination-Portal-AI-Studio-Workspace
+      TARGET_BRANCH: ${{ inputs.target_branch }}
+      WORKSPACE_TOKEN: ${{ secrets.AI_STUDIO_WORKSPACE_TOKEN }}
+
+    steps:
+      - name: Validate restricted workspace token and branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$WORKSPACE_TOKEN"
+          [[ "$TARGET_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]]
+          test "$TARGET_BRANCH" != "main"
+
+      - name: Check out current production source
+        uses: actions/checkout@v6
+        with:
+          ref: supabase-integration
+          fetch-depth: 0
+          path: production
+          persist-credentials: false
+
+      - name: Check out AI Studio workspace
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.WORKSPACE_REPOSITORY }}
+          ref: main
+          token: ${{ env.WORKSPACE_TOKEN }}
+          fetch-depth: 0
+          path: workspace
+
+      - name: Prepare workspace review branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd workspace
+          git config user.name "IIPM Production Sync"
+          git config user.email "actions@users.noreply.github.com"
+
+          git fetch origin "$TARGET_BRANCH" || true
+          if git show-ref --verify --quiet "refs/remotes/origin/$TARGET_BRANCH"; then
+            git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+          else
+            git checkout -B "$TARGET_BRANCH" origin/main
+          fi
+
+      - name: Copy production application without deployment authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git -C production rev-parse HEAD)"
+          synced_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.github/workflows/' \
+            --exclude='android/' \
+            --exclude='capacitor.config.ts' \
+            --exclude='metadata.json' \
+            --exclude='README.md' \
+            --exclude='AI_STUDIO_WORKFLOW.md' \
+            --exclude='.env' \
+            --exclude='.env.local' \
+            production/ workspace/
+
+          cat > workspace/PRODUCTION_SYNC.json <<JSON
+          {
+            "sourceRepository": "iipmnigeria/IIPM-Examination-Portal",
+            "sourceBranch": "supabase-integration",
+            "sourceCommit": "$source_sha",
+            "synchronisedAt": "$synced_at",
+            "targetBranch": "$TARGET_BRANCH"
+          }
+          JSON
+
+      - name: Confirm production workflows were not copied
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd workspace
+          if ! git diff --quiet -- .github/workflows; then
+            echo "The sync attempted to change workspace workflow authority."
+            git diff -- .github/workflows
+            exit 1
+          fi
+
+          if find . -maxdepth 2 -type f \( -name '.env' -o -name '.env.local' \) | grep -q .; then
+            echo "A local secret file is present in the workspace sync."
+            exit 1
+          fi
+
+      - name: Commit and push review branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd workspace
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Workspace is already synchronized with production."
+            exit 0
+          fi
+
+          source_sha="$(git -C ../production rev-parse HEAD)"
+          git commit -m "Sync production source ${source_sha:0:12}"
+          git push origin "HEAD:$TARGET_BRANCH" --force-with-lease
+
+          echo "Production source was copied to workspace branch $TARGET_BRANCH for review."
