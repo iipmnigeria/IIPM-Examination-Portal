@@ -49,7 +49,7 @@ Deno.serve(async (request: Request) => {
 
     const candidateClient = userClient(request);
     const { data: orderResult, error: orderError } = await candidateClient.rpc(
-      'create_my_exam_bulk_order',
+      'create_my_programme_exam_bulk_order',
       {
         p_currency: currency,
         p_coupon_code: couponCode,
@@ -133,6 +133,16 @@ Deno.serve(async (request: Request) => {
       'https://iipmnigeria.github.io/IIPM-Examination-Portal/'
     ).trim();
     const callbackBase = portalUrl.replace(/\/$/, '');
+    const mobileReturnUrl = (
+      Deno.env.get('IIPM_MOBILE_PAYMENT_RETURN_URL') ||
+      'https://agilecert.iipmi.org/mobile-payment-return.html'
+    ).trim();
+    const callbackUrl = checkoutSource === 'agilecert_mobile'
+      ? mobileReturnUrl
+      : `${callbackBase}/?payment=callback&view=exams`;
+    const cancelAction = checkoutSource === 'agilecert_mobile'
+      ? `${mobileReturnUrl}?cancelled=1`
+      : `${callbackBase}/?payment=cancelled&view=exams`;
 
     const paystackPayload = await paystackRequest('/transaction/initialize', {
       method: 'POST',
@@ -141,7 +151,7 @@ Deno.serve(async (request: Request) => {
         amount: String(order.payable_amount_minor),
         currency: order.currency,
         reference: order.reference,
-        callback_url: `${callbackBase}/?payment=callback&view=exams`,
+        callback_url: callbackUrl,
         metadata: JSON.stringify({
           bulkOrderId: order.id,
           candidateId: order.candidate_id,
@@ -149,6 +159,8 @@ Deno.serve(async (request: Request) => {
           checkoutType: 'agilecert_exam_cart',
           checkoutSource,
           pricingRoute: 'location_routed',
+          mobileReturnVersion: checkoutSource === 'agilecert_mobile' ? 1 : null,
+          cancel_action: cancelAction,
           portal: 'AgileCert Global',
         }),
       }),
@@ -188,6 +200,7 @@ Deno.serve(async (request: Request) => {
             checkout_type: 'agilecert_exam_cart',
             checkout_source: checkoutSource,
             pricing_route: 'location_routed',
+            callback_url: callbackUrl,
           },
         },
         { onConflict: 'provider,reference' },
@@ -209,6 +222,7 @@ Deno.serve(async (request: Request) => {
       paymentRequired: true,
       expiresAt: order.expires_at,
       pricingRoute: 'location_routed',
+      returnMode: checkoutSource === 'agilecert_mobile' ? 'in_app' : 'web',
     });
   } catch (error) {
     console.error('initialize-exam-cart-payment failed:', error);
