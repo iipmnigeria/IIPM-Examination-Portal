@@ -93,22 +93,25 @@ export default function AgileProgrammeCatalogue() {
     });
   }, [activeCategory, activeLevel, searchTerm]);
 
-  if (!menuRoot) return null;
+  const launcher = (
+    <button
+      type="button"
+      onClick={() => setIsOpen(true)}
+      className={
+        menuRoot
+          ? 'flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold text-slate-400 transition hover:bg-slate-800 hover:text-white'
+          : 'fixed bottom-5 right-5 z-[240] flex items-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-sm font-black text-white shadow-2xl ring-1 ring-white/10 transition hover:-translate-y-0.5 hover:bg-slate-800'
+      }
+      aria-label="Open AgileCert programme catalogue"
+    >
+      <GraduationCap className={menuRoot ? 'h-3.5 w-3.5 text-cyan-300' : 'h-5 w-5 text-cyan-300'} />
+      <span>Programmes</span>
+    </button>
+  );
 
   return (
     <>
-      {createPortal(
-        <button
-          type="button"
-          onClick={() => setIsOpen(true)}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold text-slate-400 transition hover:bg-slate-800 hover:text-white"
-          aria-label="Open AgileCert programme catalogue"
-        >
-          <GraduationCap className="h-3.5 w-3.5 text-cyan-300" />
-          <span>Programmes</span>
-        </button>,
-        menuRoot,
-      )}
+      {menuRoot ? createPortal(launcher, menuRoot) : launcher}
 
       {isOpen &&
         createPortal(
