@@ -1,0 +1,86 @@
+name: Deploy Mobile Payment CORS Fix
+
+on:
+  push:
+    branches:
+      - deploy/mobile-native-cors
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-mobile-payment-cors
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: cfecicvugfrrhcvhduzc
+
+    steps:
+      - name: Check out corrected production source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Verify deployment credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            echo "SUPABASE_ACCESS_TOKEN is not configured." >&2
+            exit 1
+          fi
+
+      - name: Deploy cart initializer with native CORS
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions deploy initialize-exam-cart-payment \
+            --project-ref "$SUPABASE_PROJECT_ID" \
+            --no-verify-jwt \
+            --use-api
+
+      - name: Deploy cart verifier with native CORS
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions deploy verify-exam-cart-payment \
+            --project-ref "$SUPABASE_PROJECT_ID" \
+            --no-verify-jwt \
+            --use-api
+
+      - name: Verify Android preflight origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          for function_name in initialize-exam-cart-payment verify-exam-cart-payment; do
+            headers_file="${function_name}-headers.txt"
+            body_file="${function_name}-body.txt"
+            curl --fail-with-body --silent --show-error \
+              --dump-header "$headers_file" \
+              --output "$body_file" \
+              --request OPTIONS \
+              --header 'Origin: https://localhost' \
+              --header 'Access-Control-Request-Method: POST' \
+              --header 'Access-Control-Request-Headers: authorization,apikey,content-type' \
+              "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/${function_name}"
+
+            tr -d '\r' < "$headers_file" | grep -i '^access-control-allow-origin: https://localhost$'
+            tr -d '\r' < "$headers_file" | grep -i '^access-control-allow-methods: POST, OPTIONS$'
+          done
+
+      - name: Confirm deployed functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions list --project-ref "$SUPABASE_PROJECT_ID"
