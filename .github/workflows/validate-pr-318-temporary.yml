@@ -1,0 +1,32 @@
+name: Temporary PR 318 Public Catalogue Placement Validation
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - "src/main.tsx"
+      - ".github/workflows/validate-pr-318-temporary.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build production application
+        run: npm run build
