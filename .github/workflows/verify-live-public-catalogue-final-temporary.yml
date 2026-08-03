@@ -11,54 +11,11 @@ permissions:
   contents: read
 
 jobs:
-  verify:
-    name: Verify public Programmes launcher and catalogue
+  diagnose:
+    name: Diagnose live catalogue rendering
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Verify latest catalogue bundle is deployed
-        run: |
-          python - <<'PY'
-          import re
-          import time
-          import urllib.parse
-          import urllib.request
-
-          base_url = 'https://agilecert.iipmi.org/'
-          required = [
-              'Open AgileCert programme catalogue',
-              'fixed bottom-5 right-5 z-[240]',
-          ]
-          last_error = None
-
-          for attempt in range(1, 9):
-              try:
-                  request = urllib.request.Request(base_url, headers={'User-Agent': 'IIPM-Final-Live-Verification/1.0'})
-                  with urllib.request.urlopen(request, timeout=30) as response:
-                      html = response.read().decode('utf-8', errors='replace')
-                  scripts = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html, flags=re.I)
-                  assets = [html]
-                  for source in scripts:
-                      url = urllib.parse.urljoin(base_url, source)
-                      asset_request = urllib.request.Request(url, headers={'User-Agent': 'IIPM-Final-Live-Verification/1.0'})
-                      with urllib.request.urlopen(asset_request, timeout=30) as response:
-                          assets.append(response.read().decode('utf-8', errors='replace'))
-                  deployed = '\n'.join(assets)
-                  missing = [marker for marker in required if marker not in deployed]
-                  if not missing:
-                      print(f'Latest catalogue bundle verified on attempt {attempt}.')
-                      print(f'Downloaded {len(scripts)} script asset(s).')
-                      break
-                  raise RuntimeError(f'Missing marker(s): {missing}')
-              except Exception as error:
-                  last_error = error
-                  print(f'Bundle attempt {attempt} not ready: {error}')
-                  if attempt < 8:
-                      time.sleep(10)
-          else:
-              raise SystemExit(f'Latest catalogue bundle not deployed: {last_error}')
-          PY
-
       - name: Set up Node.js 24
         uses: actions/setup-node@v6
         with:
@@ -69,7 +26,7 @@ jobs:
           npm install --no-save playwright
           npx playwright install chromium
 
-      - name: Verify rendered public interface
+      - name: Capture live runtime diagnostics
         run: |
           node <<'NODE'
           const { chromium } = require('playwright');
@@ -77,42 +34,55 @@ jobs:
           (async () => {
             const browser = await chromium.launch({ headless: true });
             const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-            let lastError;
+            const consoleMessages = [];
+            const pageErrors = [];
+            const failedRequests = [];
 
-            for (let attempt = 1; attempt <= 8; attempt += 1) {
-              try {
-                await page.goto('https://agilecert.iipmi.org/', {
-                  waitUntil: 'domcontentloaded',
-                  timeout: 45000,
-                });
-                const launcher = page.getByRole('button', {
-                  name: 'Open AgileCert programme catalogue',
-                });
-                await launcher.waitFor({ state: 'visible', timeout: 15000 });
-                const label = (await launcher.textContent())?.trim();
-                if (!label || !label.includes('Programmes')) {
-                  throw new Error(`Unexpected launcher label: ${JSON.stringify(label)}`);
-                }
+            page.on('console', (message) => consoleMessages.push(`${message.type()}: ${message.text()}`));
+            page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+            page.on('requestfailed', (request) => failedRequests.push(`${request.url()} :: ${request.failure()?.errorText}`));
 
-                await launcher.click();
-                await page.getByRole('heading', {
-                  name: 'AgileCert Programme Catalogue',
-                }).waitFor({ state: 'visible', timeout: 10000 });
+            const response = await page.goto('https://agilecert.iipmi.org/', {
+              waitUntil: 'domcontentloaded',
+              timeout: 45000,
+            });
+            await page.waitForTimeout(12000);
 
-                console.log(`Verified rendered public catalogue on attempt ${attempt}.`);
-                console.log(`Launcher text: ${label}`);
-                console.log('Catalogue dialog opened successfully.');
-                await browser.close();
-                process.exit(0);
-              } catch (error) {
-                lastError = error;
-                console.log(`Browser attempt ${attempt} not ready: ${error.message}`);
-                if (attempt < 8) await new Promise((resolve) => setTimeout(resolve, 15000));
-              }
-            }
+            const diagnostics = await page.evaluate(() => {
+              const root = document.getElementById('root');
+              const startup = document.getElementById('iipm-startup-diagnostic');
+              const launcher = document.querySelector('[aria-label="Open AgileCert programme catalogue"]');
+              return {
+                url: window.location.href,
+                title: document.title,
+                readyState: document.readyState,
+                bodyText: document.body.innerText.slice(0, 4000),
+                rootHtml: root?.innerHTML.slice(0, 5000) ?? null,
+                rootChildCount: root?.childElementCount ?? null,
+                launcherCount: document.querySelectorAll('[aria-label="Open AgileCert programme catalogue"]').length,
+                launcherOuterHtml: launcher?.outerHTML ?? null,
+                startupDisplay: startup ? getComputedStyle(startup).display : null,
+                startupText: startup?.innerText.slice(0, 2000) ?? null,
+                scripts: Array.from(document.scripts).map((script) => script.src || '[inline]'),
+              };
+            });
+
+            console.log(`HTTP status: ${response?.status()}`);
+            console.log('DIAGNOSTICS_START');
+            console.log(JSON.stringify(diagnostics, null, 2));
+            console.log('DIAGNOSTICS_END');
+            console.log('CONSOLE_START');
+            console.log(consoleMessages.join('\n') || '[none]');
+            console.log('CONSOLE_END');
+            console.log('PAGE_ERRORS_START');
+            console.log(pageErrors.join('\n---\n') || '[none]');
+            console.log('PAGE_ERRORS_END');
+            console.log('FAILED_REQUESTS_START');
+            console.log(failedRequests.join('\n') || '[none]');
+            console.log('FAILED_REQUESTS_END');
 
             await browser.close();
-            throw lastError;
+            if (diagnostics.launcherCount < 1) process.exit(1);
           })().catch((error) => {
             console.error(error);
             process.exit(1);
