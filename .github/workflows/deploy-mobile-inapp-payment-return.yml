@@ -21,8 +21,8 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: cfecicvugfrrhcvhduzc
-      MOBILE_RETURN_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/mobile-payment-return.html
-      DEPLOYMENT_PURPOSE: mobile-in-app-payment-return-retry
+      MOBILE_RETURN_URL: https://cfecicvugfrrhcvhduzc.supabase.co/functions/v1/mobile-payment-return
+      DEPLOYMENT_PURPOSE: mobile-in-app-payment-return-supabase-bridge
 
     steps:
       - name: Check out production source
@@ -46,6 +46,7 @@ jobs:
 
       - name: Type-check mobile payment functions
         run: |
+          deno check supabase/functions/mobile-payment-return/index.ts
           deno check supabase/functions/initialize-exam-cart-payment/index.ts
           deno check supabase/functions/verify-exam-cart-payment/index.ts
 
@@ -59,24 +60,23 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${SUPABASE_ACCESS_TOKEN:-}"
-          test "$DEPLOYMENT_PURPOSE" = 'mobile-in-app-payment-return-retry'
+          test "$DEPLOYMENT_PURPOSE" = 'mobile-in-app-payment-return-supabase-bridge'
 
-      - name: Wait for the mobile return page
+      - name: Deploy public mobile return bridge
         shell: bash
         run: |
           set -euo pipefail
-          success=0
-          for attempt in $(seq 1 30); do
-            status="$(curl -L --silent --show-error --max-time 30 -o "$RUNNER_TEMP/mobile-return.html" -w '%{http_code}' "${MOBILE_RETURN_URL}?deployment=${GITHUB_SHA}&attempt=${attempt}" || true)"
-            if [ "$status" = "200" ] \
-              && grep -q 'Returning to AgileCert Global' "$RUNNER_TEMP/mobile-return.html"; then
-              success=1
-              break
-            fi
-            echo "Mobile return page not ready yet (attempt ${attempt}, HTTP ${status})."
-            sleep 10
-          done
-          test "$success" = "1"
+          supabase functions deploy mobile-payment-return \
+            --project-ref "$SUPABASE_PROJECT_ID" \
+            --no-verify-jwt \
+            --use-api
+
+      - name: Verify mobile return bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error "$MOBILE_RETURN_URL?deployment=${GITHUB_SHA}" \
+            | grep 'Returning to AgileCert Global'
 
       - name: Deploy cart initializer
         shell: bash
@@ -87,12 +87,13 @@ jobs:
             --no-verify-jwt \
             --use-api
 
-      - name: Confirm deployed function
+      - name: Confirm deployed functions
         shell: bash
         run: |
           set -euo pipefail
-          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" \
-            | grep 'initialize-exam-cart-payment'
+          function_list="$(supabase functions list --project-ref "$SUPABASE_PROJECT_ID")"
+          printf '%s\n' "$function_list" | grep 'mobile-payment-return'
+          printf '%s\n' "$function_list" | grep 'initialize-exam-cart-payment'
 
       - name: Report deployment result
         if: always()
@@ -107,8 +108,8 @@ jobs:
               `- Commit: ${{ github.sha }}`,
               `- Run ID: ${{ github.run_id }}`,
               '- Project: cfecicvugfrrhcvhduzc',
-              '- Function: initialize-exam-cart-payment',
-              '- Return page: https://iipmnigeria.github.io/IIPM-Examination-Portal/mobile-payment-return.html',
+              '- Functions: mobile-payment-return, initialize-exam-cart-payment',
+              '- Return page: https://cfecicvugfrrhcvhduzc.supabase.co/functions/v1/mobile-payment-return',
             ].join('\n');
             await github.rest.issues.create({
               owner: context.repo.owner,
