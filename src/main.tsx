@@ -16,6 +16,7 @@ import AdminPeopleMessagingLauncher from './components/AdminPeopleMessagingLaunc
 import AdminPrimaryToolsMenu from './components/AdminPrimaryToolsMenu';
 import AdminVideoLearningAnalyticsLauncher from './components/AdminVideoLearningAnalyticsLauncher';
 import AgileCertPolicyExperience from './components/AgileCertPolicyExperience';
+import AgileProgrammeCatalogue from './components/AgileProgrammeCatalogue';
 import AiCertificationAdviser from './components/AiCertificationAdviser';
 import AiCvEnhancementLauncher from './components/AiCvEnhancementLauncher';
 import CandidateCertificateCommerce from './components/CandidateCertificateCommerce';
@@ -175,6 +176,7 @@ createRoot(rootElement).render(
         <CandidateCipmnCardMountRepair />
         <AdminPrimaryToolsMenu />
         <AgileCertPolicyExperience />
+        <AgileProgrammeCatalogue />
         <CandidateCommerceOverlay />
         <PaymentReturnHandler />
         <AdminCommerceConsole />
