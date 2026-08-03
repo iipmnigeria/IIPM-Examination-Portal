@@ -11,22 +11,41 @@ permissions:
   contents: read
 
 jobs:
-  diagnose:
-    name: Diagnose live catalogue rendering
+  verify:
+    name: Verify rendered production catalogue locally
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
+      - name: Check out production source
+        uses: actions/checkout@v6
+
       - name: Set up Node.js 24
         uses: actions/setup-node@v6
         with:
           node-version: "24"
 
-      - name: Install Playwright
+      - name: Install application and browser dependencies
         run: |
+          npm install --no-audit --no-fund
           npm install --no-save playwright
           npx playwright install chromium
 
-      - name: Capture live runtime diagnostics
+      - name: Build production application
+        run: npm run build
+
+      - name: Start production preview
+        run: |
+          npx vite preview --host 127.0.0.1 --port 4173 > /tmp/agilecert-preview.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/agilecert-preview.log
+          exit 1
+
+      - name: Verify rendered catalogue launcher and dialog
         run: |
           node <<'NODE'
           const { chromium } = require('playwright');
@@ -34,55 +53,32 @@ jobs:
           (async () => {
             const browser = await chromium.launch({ headless: true });
             const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-            const consoleMessages = [];
             const pageErrors = [];
-            const failedRequests = [];
-
-            page.on('console', (message) => consoleMessages.push(`${message.type()}: ${message.text()}`));
             page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
-            page.on('requestfailed', (request) => failedRequests.push(`${request.url()} :: ${request.failure()?.errorText}`));
 
-            const response = await page.goto('https://agilecert.iipmi.org/', {
+            const response = await page.goto('http://127.0.0.1:4173/', {
               waitUntil: 'domcontentloaded',
               timeout: 45000,
             });
-            await page.waitForTimeout(12000);
-
-            const diagnostics = await page.evaluate(() => {
-              const root = document.getElementById('root');
-              const startup = document.getElementById('iipm-startup-diagnostic');
-              const launcher = document.querySelector('[aria-label="Open AgileCert programme catalogue"]');
-              return {
-                url: window.location.href,
-                title: document.title,
-                readyState: document.readyState,
-                bodyText: document.body.innerText.slice(0, 4000),
-                rootHtml: root?.innerHTML.slice(0, 5000) ?? null,
-                rootChildCount: root?.childElementCount ?? null,
-                launcherCount: document.querySelectorAll('[aria-label="Open AgileCert programme catalogue"]').length,
-                launcherOuterHtml: launcher?.outerHTML ?? null,
-                startupDisplay: startup ? getComputedStyle(startup).display : null,
-                startupText: startup?.innerText.slice(0, 2000) ?? null,
-                scripts: Array.from(document.scripts).map((script) => script.src || '[inline]'),
-              };
+            const launcher = page.getByRole('button', {
+              name: 'Open AgileCert programme catalogue',
             });
+            await launcher.waitFor({ state: 'visible', timeout: 15000 });
+            const label = (await launcher.textContent())?.trim();
+            if (!label || !label.includes('Programmes')) {
+              throw new Error(`Unexpected launcher label: ${JSON.stringify(label)}`);
+            }
 
-            console.log(`HTTP status: ${response?.status()}`);
-            console.log('DIAGNOSTICS_START');
-            console.log(JSON.stringify(diagnostics, null, 2));
-            console.log('DIAGNOSTICS_END');
-            console.log('CONSOLE_START');
-            console.log(consoleMessages.join('\n') || '[none]');
-            console.log('CONSOLE_END');
-            console.log('PAGE_ERRORS_START');
-            console.log(pageErrors.join('\n---\n') || '[none]');
-            console.log('PAGE_ERRORS_END');
-            console.log('FAILED_REQUESTS_START');
-            console.log(failedRequests.join('\n') || '[none]');
-            console.log('FAILED_REQUESTS_END');
+            await launcher.click();
+            await page.getByRole('heading', {
+              name: 'AgileCert Programme Catalogue',
+            }).waitFor({ state: 'visible', timeout: 10000 });
 
+            console.log(`Preview HTTP status: ${response?.status()}`);
+            console.log(`Verified launcher text: ${label}`);
+            console.log('Catalogue dialog opened successfully.');
+            console.log(`Page errors: ${pageErrors.length ? pageErrors.join('\n---\n') : '[none]'}`);
             await browser.close();
-            if (diagnostics.launcherCount < 1) process.exit(1);
           })().catch((error) => {
             console.error(error);
             process.exit(1);
