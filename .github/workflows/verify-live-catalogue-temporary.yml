@@ -1,0 +1,83 @@
+name: Temporary Live Catalogue Verification
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - ".github/workflows/verify-live-catalogue-temporary.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify deployed catalogue bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check deployed portal assets
+        run: |
+          python - <<'PY'
+          import re
+          import sys
+          import time
+          import urllib.parse
+          import urllib.request
+
+          base_url = "https://agilecert.iipmi.org/"
+          required_markers = [
+              "AgileCert Programme Catalogue",
+              "Controlled catalogue release:",
+              "Academic review pending",
+          ]
+          last_error = None
+
+          for attempt in range(1, 21):
+              try:
+                  request = urllib.request.Request(
+                      base_url,
+                      headers={"User-Agent": "IIPM-Deployment-Verification/1.0"},
+                  )
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      status = response.status
+                      html = response.read().decode("utf-8", errors="replace")
+
+                  if status != 200:
+                      raise RuntimeError(f"Portal returned HTTP {status}")
+
+                  script_sources = re.findall(
+                      r'<script[^>]+src=["\']([^"\']+)["\']',
+                      html,
+                      flags=re.IGNORECASE,
+                  )
+                  assets = [html]
+
+                  for source in script_sources:
+                      asset_url = urllib.parse.urljoin(base_url, source)
+                      asset_request = urllib.request.Request(
+                          asset_url,
+                          headers={"User-Agent": "IIPM-Deployment-Verification/1.0"},
+                      )
+                      with urllib.request.urlopen(asset_request, timeout=30) as response:
+                          assets.append(response.read().decode("utf-8", errors="replace"))
+
+                  deployed_text = "\n".join(assets)
+                  missing = [marker for marker in required_markers if marker not in deployed_text]
+                  if not missing:
+                      print(f"Verified live portal on attempt {attempt}.")
+                      print(f"Downloaded {len(script_sources)} script asset(s).")
+                      for marker in required_markers:
+                          print(f"FOUND: {marker}")
+                      sys.exit(0)
+
+                  last_error = RuntimeError(f"Missing deployed marker(s): {', '.join(missing)}")
+              except Exception as error:
+                  last_error = error
+
+              print(f"Attempt {attempt} not ready: {last_error}")
+              if attempt < 20:
+                  time.sleep(15)
+
+          raise SystemExit(f"Live catalogue verification failed: {last_error}")
+          PY
