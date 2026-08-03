@@ -22,6 +22,7 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: cfecicvugfrrhcvhduzc
       MOBILE_RETURN_URL: https://agilecert.iipmi.org/mobile-payment-return.html
+      DEPLOYMENT_PURPOSE: mobile-in-app-payment-return
 
     steps:
       - name: Check out production source
@@ -58,6 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          test "$DEPLOYMENT_PURPOSE" = 'mobile-in-app-payment-return'
 
       - name: Wait for the mobile return page
         shell: bash
