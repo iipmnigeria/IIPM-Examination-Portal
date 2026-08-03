@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       workspace_base_ref:
-        description: Workspace base ref, normally production-sync
+        description: Workspace base ref used to create the feature, normally main
         required: true
-        default: production-sync
+        default: main
         type: string
       workspace_head_ref:
         description: Workspace branch or commit containing the AI Studio changes

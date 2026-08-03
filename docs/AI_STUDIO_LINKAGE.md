@@ -30,18 +30,20 @@ Run **Sync production source to AI Studio workspace** from GitHub Actions.
 
 The workflow copies the current `supabase-integration` source into the workspace branch `production-sync`. It preserves workspace-only mobile and AI Studio files and does not copy production deployment workflows.
 
-Review the generated `production-sync` branch before merging it into the workspace `main` branch.
+Review and merge the generated `production-sync` branch into the workspace `main` branch after its validation passes. Google AI Studio development should then begin from the refreshed workspace `main` branch.
 
 ## Workspace to production
 
-Create AI Studio changes on a branch based on `production-sync`.
+Create each AI Studio feature on a separate branch based on the current workspace `main` branch.
 
 Run **Promote AI Studio changes to production PR** in this repository and provide:
 
-- workspace base ref, normally `production-sync`
+- workspace base ref, normally `main`
 - workspace head ref containing the AI Studio changes
 - a short feature slug
 - a pull-request title
+
+If the workspace `main` branch changes after the feature branch was created, use the exact base commit or branch from which that feature was created.
 
 The workflow imports only the difference between the two workspace refs, blocks production workflow and secret files, creates a new branch in this repository, and opens a draft pull request against `supabase-integration`.
 
