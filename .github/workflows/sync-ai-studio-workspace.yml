@@ -57,6 +57,12 @@ jobs:
           fetch-depth: 0
           path: workspace
 
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
       - name: Prepare workspace review branch
         shell: bash
         run: |
@@ -79,6 +85,9 @@ jobs:
           source_sha="$(git -C production rev-parse HEAD)"
           synced_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
+          git -C workspace show origin/main:package.json > "$RUNNER_TEMP/workspace-package.json"
+          git -C workspace show origin/main:bun.lock > "$RUNNER_TEMP/workspace-bun.lock" || true
+
           rsync -a --delete \
             --exclude='.git/' \
             --exclude='.github/workflows/' \
@@ -87,9 +96,48 @@ jobs:
             --exclude='metadata.json' \
             --exclude='README.md' \
             --exclude='AI_STUDIO_WORKFLOW.md' \
+            --exclude='bun.lock' \
             --exclude='.env' \
             --exclude='.env.local' \
             production/ workspace/
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          package_path = Path('workspace/package.json')
+          source_package = json.loads(package_path.read_text(encoding='utf-8'))
+          workspace_package = json.loads(
+              (Path(os.environ['RUNNER_TEMP']) / 'workspace-package.json').read_text(encoding='utf-8')
+          )
+
+          source_scripts = source_package.setdefault('scripts', {})
+          workspace_scripts = workspace_package.get('scripts', {})
+          for name in ('android:sync', 'android:open', 'android:build'):
+              if name in workspace_scripts:
+                  source_scripts[name] = workspace_scripts[name]
+
+          source_dependencies = source_package.setdefault('dependencies', {})
+          workspace_dependencies = workspace_package.get('dependencies', {})
+          for name in ('@capacitor/android', '@capacitor/cli', '@capacitor/core'):
+              if name in workspace_dependencies:
+                  source_dependencies[name] = workspace_dependencies[name]
+
+          package_path.write_text(
+              json.dumps(source_package, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+          if [ -s "$RUNNER_TEMP/workspace-bun.lock" ]; then
+            cp "$RUNNER_TEMP/workspace-bun.lock" workspace/bun.lock
+          fi
+
+          (
+            cd workspace
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          )
 
           cat > workspace/PRODUCTION_SYNC.json <<JSON
           {
@@ -101,7 +149,7 @@ jobs:
           }
           JSON
 
-      - name: Confirm production workflows were not copied
+      - name: Confirm production workflows and mobile foundation are safe
         shell: bash
         run: |
           set -euo pipefail
@@ -116,6 +164,12 @@ jobs:
             echo "A local secret file is present in the workspace sync."
             exit 1
           fi
+
+          test -d android
+          test -s capacitor.config.ts
+          grep -q '"android:sync"' package.json
+          grep -q '"@capacitor/android"' package.json
+          grep -q '"@capacitor/core"' package.json
 
       - name: Commit and push review branch
         shell: bash
