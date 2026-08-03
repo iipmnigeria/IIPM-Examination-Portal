@@ -37,7 +37,8 @@ jobs:
           {
             "extends": "./tsconfig.json",
             "compilerOptions": {
-              "noEmit": true
+              "noEmit": true,
+              "types": ["vite/client"]
             },
             "include": [
               "src/components/AgileProgrammeCatalogue.tsx",
