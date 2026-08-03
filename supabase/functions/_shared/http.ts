@@ -3,6 +3,15 @@ const allowedOrigins = new Set([
   'https://agilecert.iipmi.org',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+
+  // Capacitor serves packaged Android content from a localhost origin. The
+  // current Android configuration uses the HTTPS scheme, while the remaining
+  // explicit origins keep local and future native shells compatible without
+  // opening authenticated Edge Functions to a wildcard origin.
+  'https://localhost',
+  'http://localhost',
+  'capacitor://localhost',
+  'ionic://localhost',
 ]);
 
 export function corsHeaders(request: Request): Record<string, string> {
