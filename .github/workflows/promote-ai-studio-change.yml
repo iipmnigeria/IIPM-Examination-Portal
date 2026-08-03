@@ -1,0 +1,180 @@
+name: Promote AI Studio changes to production PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace_base_ref:
+        description: Workspace base ref, normally production-sync
+        required: true
+        default: production-sync
+        type: string
+      workspace_head_ref:
+        description: Workspace branch or commit containing the AI Studio changes
+        required: true
+        type: string
+      feature_slug:
+        description: Lowercase short name such as programme-admin
+        required: true
+        type: string
+      pull_request_title:
+        description: Draft pull-request title
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ai-studio-production-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Import exact workspace difference
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      WORKSPACE_REPOSITORY: iipmnigeria/IIPM-Examination-Portal-AI-Studio-Workspace
+      WORKSPACE_TOKEN: ${{ secrets.AI_STUDIO_WORKSPACE_TOKEN }}
+      BASE_REF: ${{ inputs.workspace_base_ref }}
+      HEAD_REF: ${{ inputs.workspace_head_ref }}
+      FEATURE_SLUG: ${{ inputs.feature_slug }}
+      PR_TITLE: ${{ inputs.pull_request_title }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Validate promotion request
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$WORKSPACE_TOKEN"
+          test -n "$BASE_REF"
+          test -n "$HEAD_REF"
+          [[ "$FEATURE_SLUG" =~ ^[a-z0-9][a-z0-9-]{1,40}$ ]]
+          test "$BASE_REF" != "$HEAD_REF"
+
+      - name: Check out current production source
+        uses: actions/checkout@v6
+        with:
+          ref: supabase-integration
+          fetch-depth: 0
+
+      - name: Fetch exact workspace refs
+        id: refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace_url="https://x-access-token:${WORKSPACE_TOKEN}@github.com/${WORKSPACE_REPOSITORY}.git"
+
+          git fetch --no-tags "$workspace_url" "$BASE_REF"
+          base_sha="$(git rev-parse FETCH_HEAD)"
+
+          git fetch --no-tags "$workspace_url" "$HEAD_REF"
+          head_sha="$(git rev-parse FETCH_HEAD)"
+
+          git merge-base --is-ancestor "$base_sha" "$head_sha"
+          test "$base_sha" != "$head_sha"
+
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "head_short=${head_sha:0:8}" >> "$GITHUB_OUTPUT"
+
+      - name: Create production feature branch and apply workspace patch
+        id: import
+        shell: bash
+        env:
+          BASE_SHA: ${{ steps.refs.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.refs.outputs.head_sha }}
+          HEAD_SHORT: ${{ steps.refs.outputs.head_short }}
+        run: |
+          set -euo pipefail
+          branch="ai-studio/${FEATURE_SLUG}-${HEAD_SHORT}"
+          git config user.name "IIPM AI Studio Promotion"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -b "$branch"
+
+          git diff --binary "$BASE_SHA" "$HEAD_SHA" -- . \
+            ':(exclude).github/workflows/**' \
+            ':(exclude).env' \
+            ':(exclude).env.*' \
+            ':(exclude)android/**' \
+            ':(exclude)capacitor.config.*' \
+            ':(exclude)deployment-triggers/**' \
+            > "$RUNNER_TEMP/ai-studio-change.patch"
+
+          test -s "$RUNNER_TEMP/ai-studio-change.patch"
+          git apply --index --3way "$RUNNER_TEMP/ai-studio-change.patch"
+
+          git diff --cached --name-only > "$RUNNER_TEMP/ai-studio-changed-files.txt"
+          test -s "$RUNNER_TEMP/ai-studio-changed-files.txt"
+
+          if grep -E '(^|/)\.env($|\.)|^\.github/workflows/|^android/|^capacitor\.config\.|^deployment-triggers/' \
+            "$RUNNER_TEMP/ai-studio-changed-files.txt"; then
+            echo "The AI Studio change contains a protected production or secret file."
+            exit 1
+          fi
+
+          git commit -m "Import AI Studio change: ${FEATURE_SLUG}"
+          git push origin "$branch"
+
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Validate imported application
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --include=dev --include=optional --no-audit --no-fund
+          npm run lint
+          npm run build
+          test -s dist/index.html
+
+      - name: Open draft pull request
+        shell: bash
+        env:
+          IMPORT_BRANCH: ${{ steps.import.outputs.branch }}
+          BASE_SHA: ${{ steps.refs.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.refs.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          body="$RUNNER_TEMP/ai-studio-pr-body.md"
+          cat > "$body" <<EOF
+          ## Source
+
+          - AI Studio workspace: \`${WORKSPACE_REPOSITORY}\`
+          - Workspace base: \`${BASE_REF}\` (\`${BASE_SHA}\`)
+          - Workspace head: \`${HEAD_REF}\` (\`${HEAD_SHA}\`)
+          - Production target: \`supabase-integration\`
+
+          ## Controls
+
+          - Imported only the exact difference between the workspace base and head refs.
+          - Excluded GitHub workflows, secret files, Android packaging and deployment triggers.
+          - TypeScript validation and the production application build passed before opening this PR.
+          - This is a draft PR and does not deploy to Namecheap until reviewed and merged through the normal production process.
+
+          ## Changed files
+
+          \`\`\`
+          $(cat "$RUNNER_TEMP/ai-studio-changed-files.txt")
+          \`\`\`
+          EOF
+
+          gh pr create \
+            --draft \
+            --base supabase-integration \
+            --head "$IMPORT_BRANCH" \
+            --title "$PR_TITLE" \
+            --body-file "$body"
+
+      - name: Upload import evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-studio-promotion-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/ai-studio-change.patch
+            ${{ runner.temp }}/ai-studio-changed-files.txt
+            ${{ runner.temp }}/ai-studio-pr-body.md
