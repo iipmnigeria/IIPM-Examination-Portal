@@ -1,0 +1,66 @@
+name: Temporary Live Programmes Button Verification
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - ".github/workflows/verify-live-programmes-button-temporary.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify rendered public programmes button
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright
+          npx playwright install chromium
+
+      - name: Verify live rendered interface
+        run: |
+          node <<'NODE'
+          const { chromium } = require('playwright');
+
+          const target = 'https://agilecert.iipmi.org/';
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+
+          let lastError;
+          for (let attempt = 1; attempt <= 20; attempt += 1) {
+            try {
+              await page.goto(target, { waitUntil: 'networkidle', timeout: 60000 });
+              const launcher = page.getByRole('button', { name: 'Open AgileCert programme catalogue' });
+              await launcher.waitFor({ state: 'visible', timeout: 10000 });
+              const label = await launcher.textContent();
+              if (!label || !label.includes('Programmes')) {
+                throw new Error(`Launcher label was not visible: ${JSON.stringify(label)}`);
+              }
+
+              await launcher.click();
+              const heading = page.getByRole('heading', { name: 'AgileCert Programme Catalogue' });
+              await heading.waitFor({ state: 'visible', timeout: 10000 });
+              console.log(`Verified rendered live catalogue on attempt ${attempt}.`);
+              console.log(`Launcher text: ${label.trim()}`);
+              console.log('Catalogue dialog opened successfully.');
+              await browser.close();
+              process.exit(0);
+            } catch (error) {
+              lastError = error;
+              console.log(`Attempt ${attempt} not ready: ${error.message}`);
+              if (attempt < 20) await new Promise((resolve) => setTimeout(resolve, 15000));
+            }
+          }
+
+          await browser.close();
+          throw lastError;
+          NODE
