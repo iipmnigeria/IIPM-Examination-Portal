@@ -1,0 +1,113 @@
+name: Deploy Mobile In-App Payment Return
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: deploy-mobile-inapp-payment-return
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: cfecicvugfrrhcvhduzc
+      MOBILE_RETURN_URL: https://agilecert.iipmi.org/mobile-payment-return.html
+
+    steps:
+      - name: Check out production source
+        uses: actions/checkout@v4
+        with:
+          ref: supabase-integration
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies for Deno npm resolution
+        run: npm install --no-audit --no-fund
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check mobile payment functions
+        run: |
+          deno check supabase/functions/initialize-exam-cart-payment/index.ts
+          deno check supabase/functions/verify-exam-cart-payment/index.ts
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Verify deployment credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+
+      - name: Wait for the mobile return page
+        shell: bash
+        run: |
+          set -euo pipefail
+          success=0
+          for attempt in $(seq 1 30); do
+            status="$(curl -L --silent --show-error --max-time 30 -o "$RUNNER_TEMP/mobile-return.html" -w '%{http_code}' "${MOBILE_RETURN_URL}?deployment=${GITHUB_SHA}&attempt=${attempt}" || true)"
+            if [ "$status" = "200" ] \
+              && grep -q 'Returning to AgileCert Global' "$RUNNER_TEMP/mobile-return.html"; then
+              success=1
+              break
+            fi
+            echo "Mobile return page not ready yet (attempt ${attempt}, HTTP ${status})."
+            sleep 10
+          done
+          test "$success" = "1"
+
+      - name: Deploy cart initializer
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions deploy initialize-exam-cart-payment \
+            --project-ref "$SUPABASE_PROJECT_ID" \
+            --no-verify-jwt \
+            --use-api
+
+      - name: Confirm deployed function
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" \
+            | grep 'initialize-exam-cart-payment'
+
+      - name: Report deployment result
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const body = [
+              'Automated deployment result for the mobile in-app Paystack return flow.',
+              '',
+              `- Status: ${status}`,
+              `- Commit: ${{ github.sha }}`,
+              `- Run ID: ${{ github.run_id }}`,
+              '- Project: cfecicvugfrrhcvhduzc',
+              '- Function: initialize-exam-cart-payment',
+              '- Return page: https://agilecert.iipmi.org/mobile-payment-return.html',
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Mobile in-app payment return deployment: ${status}`,
+              body,
+            });
