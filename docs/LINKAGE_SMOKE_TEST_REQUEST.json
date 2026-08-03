@@ -1,0 +1,7 @@
+{
+  "workspaceBaseRef": "main",
+  "workspaceHeadRef": "ai-studio/linkage-smoke-test",
+  "featureSlug": "linkage-smoke-test",
+  "pullRequestTitle": "Test AI Studio production linkage",
+  "status": "validation-only"
+}
