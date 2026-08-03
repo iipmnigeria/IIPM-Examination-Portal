@@ -1,0 +1,39 @@
+name: Temporary PR 312 Catalogue Validation
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - "src/components/AgileProgrammeCatalogue.tsx"
+      - "src/data/agileProgrammeCatalogue.ts"
+      - "src/main.tsx"
+      - "docs/AGILECERT_PROGRAMME_CATALOGUE_FOUNDATION.md"
+      - ".github/workflows/validate-pr-312-temporary.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Typecheck and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run TypeScript validation
+        run: npm run typecheck
+
+      - name: Build production application
+        run: npm run build
