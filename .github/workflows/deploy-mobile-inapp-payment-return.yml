@@ -21,7 +21,7 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: cfecicvugfrrhcvhduzc
-      MOBILE_RETURN_URL: https://agilecert.iipmi.org/mobile-payment-return.html
+      MOBILE_RETURN_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/mobile-payment-return.html
 
     steps:
       - name: Check out production source
@@ -106,7 +106,7 @@ jobs:
               `- Run ID: ${{ github.run_id }}`,
               '- Project: cfecicvugfrrhcvhduzc',
               '- Function: initialize-exam-cart-payment',
-              '- Return page: https://agilecert.iipmi.org/mobile-payment-return.html',
+              '- Return page: https://iipmnigeria.github.io/IIPM-Examination-Portal/mobile-payment-return.html',
             ].join('\n');
             await github.rest.issues.create({
               owner: context.repo.owner,
