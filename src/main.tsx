@@ -168,6 +168,7 @@ window.addEventListener('unhandledrejection', (event) => {
 
 createRoot(rootElement).render(
   <StrictMode>
+    <AgileProgrammeCatalogue />
     <SupabaseSessionBoundary>
       <CandidateOnboardingBoundary>
         <App />
@@ -176,7 +177,6 @@ createRoot(rootElement).render(
         <CandidateCipmnCardMountRepair />
         <AdminPrimaryToolsMenu />
         <AgileCertPolicyExperience />
-        <AgileProgrammeCatalogue />
         <CandidateCommerceOverlay />
         <PaymentReturnHandler />
         <AdminCommerceConsole />
