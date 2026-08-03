@@ -31,36 +31,41 @@ jobs:
           node <<'NODE'
           const { chromium } = require('playwright');
 
-          const target = 'https://agilecert.iipmi.org/';
-          const browser = await chromium.launch({ headless: true });
-          const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+          (async () => {
+            const target = 'https://agilecert.iipmi.org/';
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 
-          let lastError;
-          for (let attempt = 1; attempt <= 20; attempt += 1) {
-            try {
-              await page.goto(target, { waitUntil: 'networkidle', timeout: 60000 });
-              const launcher = page.getByRole('button', { name: 'Open AgileCert programme catalogue' });
-              await launcher.waitFor({ state: 'visible', timeout: 10000 });
-              const label = await launcher.textContent();
-              if (!label || !label.includes('Programmes')) {
-                throw new Error(`Launcher label was not visible: ${JSON.stringify(label)}`);
+            let lastError;
+            for (let attempt = 1; attempt <= 20; attempt += 1) {
+              try {
+                await page.goto(target, { waitUntil: 'networkidle', timeout: 60000 });
+                const launcher = page.getByRole('button', { name: 'Open AgileCert programme catalogue' });
+                await launcher.waitFor({ state: 'visible', timeout: 10000 });
+                const label = await launcher.textContent();
+                if (!label || !label.includes('Programmes')) {
+                  throw new Error(`Launcher label was not visible: ${JSON.stringify(label)}`);
+                }
+
+                await launcher.click();
+                const heading = page.getByRole('heading', { name: 'AgileCert Programme Catalogue' });
+                await heading.waitFor({ state: 'visible', timeout: 10000 });
+                console.log(`Verified rendered live catalogue on attempt ${attempt}.`);
+                console.log(`Launcher text: ${label.trim()}`);
+                console.log('Catalogue dialog opened successfully.');
+                await browser.close();
+                process.exit(0);
+              } catch (error) {
+                lastError = error;
+                console.log(`Attempt ${attempt} not ready: ${error.message}`);
+                if (attempt < 20) await new Promise((resolve) => setTimeout(resolve, 15000));
               }
-
-              await launcher.click();
-              const heading = page.getByRole('heading', { name: 'AgileCert Programme Catalogue' });
-              await heading.waitFor({ state: 'visible', timeout: 10000 });
-              console.log(`Verified rendered live catalogue on attempt ${attempt}.`);
-              console.log(`Launcher text: ${label.trim()}`);
-              console.log('Catalogue dialog opened successfully.');
-              await browser.close();
-              process.exit(0);
-            } catch (error) {
-              lastError = error;
-              console.log(`Attempt ${attempt} not ready: ${error.message}`);
-              if (attempt < 20) await new Promise((resolve) => setTimeout(resolve, 15000));
             }
-          }
 
-          await browser.close();
-          throw lastError;
+            await browser.close();
+            throw lastError;
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
           NODE
