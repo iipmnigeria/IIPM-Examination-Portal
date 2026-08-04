@@ -135,7 +135,7 @@ Deno.serve(async (request: Request) => {
     const callbackBase = portalUrl.replace(/\/$/, '');
     const mobileReturnUrl = (
       Deno.env.get('IIPM_MOBILE_PAYMENT_RETURN_URL') ||
-      'https://cfecicvugfrrhcvhduzc.supabase.co/functions/v1/mobile-payment-return'
+      'https://iipmnigeria.github.io/IIPM-Examination-Portal/mobile-payment-return.html'
     ).trim();
     const callbackUrl = checkoutSource === 'agilecert_mobile'
       ? mobileReturnUrl
