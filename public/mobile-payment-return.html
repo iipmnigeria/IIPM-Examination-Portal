@@ -14,6 +14,7 @@
       h1 { margin: 0 0 10px; font-size: 22px; }
       p { margin: 0; color: #5b6f67; line-height: 1.55; }
       small { display: block; margin-top: 16px; color: #7b8d86; }
+      button { width: 100%; margin-top: 20px; border: 0; border-radius: 14px; padding: 14px 18px; background: #0f7a4d; color: #fff; font: inherit; font-weight: 800; cursor: pointer; }
     </style>
   </head>
   <body>
@@ -21,14 +22,33 @@
       <div class="mark" aria-hidden="true">✓</div>
       <h1 id="title">Returning to AgileCert Global</h1>
       <p id="message">Your payment result is being sent securely back to the app.</p>
-      <small>You may close this page if it does not close automatically.</small>
+      <button id="returnButton" type="button">Return to AgileCert</button>
+      <small id="fallback">Returning automatically…</small>
     </main>
     <script>
       const params = new URLSearchParams(window.location.search);
-      if (params.get('cancelled') === '1') {
+      const reference = params.get('reference') || params.get('trxref') || '';
+      const cancelled = params.get('cancelled') === '1';
+      const appParams = new URLSearchParams();
+      if (reference) appParams.set('reference', reference);
+      if (cancelled) appParams.set('cancelled', '1');
+      const appUrl = `agilecert://payment-return?${appParams.toString()}`;
+
+      if (cancelled) {
         document.getElementById('title').textContent = 'Payment window closed';
-        document.getElementById('message').textContent = 'No access will be granted unless Paystack confirms a successful payment.';
+        document.getElementById('message').textContent = 'Returning to AgileCert. No access will be granted unless Paystack confirms payment.';
       }
+
+      const returnToApp = () => {
+        window.location.replace(appUrl);
+        window.setTimeout(() => {
+          document.getElementById('fallback').textContent =
+            'If AgileCert did not open, tap the button above.';
+        }, 1200);
+      };
+
+      document.getElementById('returnButton').addEventListener('click', returnToApp);
+      window.setTimeout(returnToApp, 150);
     </script>
   </body>
 </html>
