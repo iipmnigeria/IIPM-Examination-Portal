@@ -21,7 +21,7 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: cfecicvugfrrhcvhduzc
-      MOBILE_RETURN_URL: https://cfecicvugfrrhcvhduzc.supabase.co/functions/v1/mobile-payment-return
+      MOBILE_RETURN_URL: https://iipmnigeria.github.io/IIPM-Examination-Portal/mobile-payment-return.html
 
     steps:
       - name: Check out production source
@@ -107,7 +107,7 @@ jobs:
               `- Run ID: ${{ github.run_id }}`,
               '- Project: cfecicvugfrrhcvhduzc',
               '- Functions: mobile-payment-return, initialize-exam-cart-payment',
-              '- Return page: https://cfecicvugfrrhcvhduzc.supabase.co/functions/v1/mobile-payment-return',
+              '- Return page: https://iipmnigeria.github.io/IIPM-Examination-Portal/mobile-payment-return.html',
             ].join('\n');
             await github.rest.issues.create({
               owner: context.repo.owner,
