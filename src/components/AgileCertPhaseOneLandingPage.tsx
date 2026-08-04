@@ -251,12 +251,12 @@ export default function AgileCertPhaseOneLandingPage({
               <div className="border-b border-emerald-200 bg-white px-6 py-7 md:px-8">
                 <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                   <div className="max-w-3xl">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
+                    <h3 className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
                       IIPM Specialist Certification Catalogue
-                    </p>
-                    <h3 className="mt-2 text-2xl font-black text-slate-950 md:text-3xl">
-                      Build competence one focused area at a time
                     </h3>
+                    <h4 className="mt-2 text-2xl font-black text-slate-950 md:text-3xl">
+                      Build competence one focused area at a time
+                    </h4>
                     <p className="mt-3 text-sm leading-7 text-slate-600">
                       These six established IIPM specialist certification programmes retain their current examinations, candidate access and operational arrangements within AgileCert Global.
                     </p>
@@ -298,16 +298,16 @@ export default function AgileCertPhaseOneLandingPage({
               <div className="grid gap-8 px-6 py-8 md:px-8 lg:grid-cols-[1fr_auto] lg:items-center">
                 <div className="max-w-4xl">
                   <div className="flex flex-wrap items-center gap-3">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-300">
+                    <h3 className="text-xs font-black uppercase tracking-[0.18em] text-cyan-300">
                       AgileCert Certification Catalogue
-                    </p>
+                    </h3>
                     <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-200">
                       Catalogue preview
                     </span>
                   </div>
-                  <h3 className="mt-3 text-2xl font-black md:text-3xl">
+                  <h4 className="mt-3 text-2xl font-black md:text-3xl">
                     Progressive Agile Project, Agile HRM and Agile Leadership pathways
-                  </h3>
+                  </h4>
                   <p className="mt-4 text-sm leading-7 text-slate-300">
                     Review proposed Foundation, Associate, Professional, Specialist and Executive pathways. These programmes remain separate from the six live IIPM specialist certifications and are not yet activated for examinations, pricing or enrolment.
                   </p>
