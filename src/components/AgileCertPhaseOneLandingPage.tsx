@@ -98,6 +98,10 @@ function scrollToCandidateAccess() {
   });
 }
 
+function openAgileCertCertificationCatalogue() {
+  window.dispatchEvent(new Event('agilecert:open-certification-programmes'));
+}
+
 export default function AgileCertPhaseOneLandingPage({
   onLoginSuccess,
 }: AgileCertPhaseOneLandingPageProps) {
@@ -121,9 +125,12 @@ export default function AgileCertPhaseOneLandingPage({
             </div>
           </button>
 
-          <nav className="hidden items-center gap-6 text-xs font-bold text-slate-300 lg:flex">
-            <a href="#certifications" className="hover:text-white">
-              Certifications
+          <nav
+            data-agilecert-public-navigation="true"
+            className="hidden items-center gap-6 text-xs font-bold text-slate-300 lg:flex"
+          >
+            <a href="#certification-programmes" className="hover:text-white">
+              Certification Programmes
             </a>
             <a href="#how-it-works" className="hover:text-white">
               How It Works
@@ -176,10 +183,10 @@ export default function AgileCertPhaseOneLandingPage({
                   Register or Sign In <ArrowRight className="h-4 w-4" />
                 </button>
                 <a
-                  href="#certifications"
+                  href="#certification-programmes"
                   className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-6 py-3.5 text-sm font-black text-white transition hover:border-slate-500 hover:bg-slate-800"
                 >
-                  Explore Specialist Areas <BookOpen className="h-4 w-4 text-emerald-400" />
+                  Explore Certification Programmes <BookOpen className="h-4 w-4 text-emerald-400" />
                 </a>
               </div>
 
@@ -226,45 +233,102 @@ export default function AgileCertPhaseOneLandingPage({
           </div>
         </section>
 
-        <section id="certifications" className="scroll-mt-24 bg-white py-20">
+        <section id="certification-programmes" className="scroll-mt-24 bg-white py-20">
           <div className="mx-auto max-w-7xl px-4 md:px-6">
-            <div className="max-w-3xl">
+            <div className="max-w-4xl">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">
-                Specialist examination areas
+                Certification programmes
               </p>
               <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
-                Build competence one focused area at a time
+                Choose the certification route that matches your professional goal
               </h2>
               <p className="mt-4 text-base leading-7 text-slate-600">
-                AgileCert Global supports modular, niche and specialised competencies. Full training-led professional certification pathways remain available within the IIPM professional ecosystem.
+                Explore the existing IIPM specialist certifications currently open to candidates and the separate AgileCert progressive certification pathways undergoing controlled academic review.
               </p>
             </div>
 
-            <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-              {specialistAreas.map(({ title, description, icon: Icon }) => (
-                <article
-                  key={title}
-                  className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-emerald-300 hover:shadow-xl"
-                >
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 transition group-hover:bg-emerald-600 group-hover:text-white">
-                    <Icon className="h-6 w-6" />
+            <section className="mt-12 overflow-hidden rounded-3xl border border-emerald-200 bg-emerald-50/40 shadow-sm">
+              <div className="border-b border-emerald-200 bg-white px-6 py-7 md:px-8">
+                <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                  <div className="max-w-3xl">
+                    <h3 className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
+                      IIPM Specialist Certification Catalogue
+                    </h3>
+                    <h4 className="mt-2 text-2xl font-black text-slate-950 md:text-3xl">
+                      Build competence one focused area at a time
+                    </h4>
+                    <p className="mt-3 text-sm leading-7 text-slate-600">
+                      These six established IIPM specialist certification programmes retain their current examinations, candidate access and operational arrangements within AgileCert Global.
+                    </p>
                   </div>
-                  <h3 className="mt-5 text-lg font-black text-slate-950">{title}</h3>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
-                  <button
-                    type="button"
-                    onClick={scrollToCandidateAccess}
-                    className="mt-5 inline-flex items-center gap-1 text-xs font-black uppercase tracking-wider text-emerald-700 hover:underline"
-                  >
-                    Open candidate access <ArrowRight className="h-4 w-4" />
-                  </button>
-                </article>
-              ))}
-            </div>
+                  <span className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800">
+                    <CheckCircle2 className="h-4 w-4" /> 6 open specialist programmes
+                  </span>
+                </div>
+              </div>
 
-            <div className="mt-8 rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm leading-6 text-blue-900">
-              AgileCert Global examinations are independently developed and delivered by AgileCert Global, powered by IIPM. References to external frameworks or certification bodies do not imply affiliation, authorisation, endorsement or equivalence.
-            </div>
+              <div className="grid gap-5 p-6 md:grid-cols-2 md:p-8 lg:grid-cols-3">
+                {specialistAreas.map(({ title, description, icon: Icon }) => (
+                  <article
+                    key={title}
+                    className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-emerald-300 hover:shadow-xl"
+                  >
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 transition group-hover:bg-emerald-600 group-hover:text-white">
+                      <Icon className="h-6 w-6" />
+                    </div>
+                    <h4 className="mt-5 text-lg font-black text-slate-950">{title}</h4>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
+                    <button
+                      type="button"
+                      onClick={scrollToCandidateAccess}
+                      className="mt-5 inline-flex items-center gap-1 text-xs font-black uppercase tracking-wider text-emerald-700 hover:underline"
+                    >
+                      Open candidate access <ArrowRight className="h-4 w-4" />
+                    </button>
+                  </article>
+                ))}
+              </div>
+
+              <div className="border-t border-blue-200 bg-blue-50 px-6 py-4 text-sm leading-6 text-blue-900 md:px-8">
+                AgileCert Global examinations are independently developed and delivered by AgileCert Global, powered by IIPM. References to external frameworks or certification bodies do not imply affiliation, authorisation, endorsement or equivalence.
+              </div>
+            </section>
+
+            <section className="mt-8 overflow-hidden rounded-3xl border border-cyan-800 bg-slate-950 text-white shadow-xl">
+              <div className="grid gap-8 px-6 py-8 md:px-8 lg:grid-cols-[1fr_auto] lg:items-center">
+                <div className="max-w-4xl">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h3 className="text-xs font-black uppercase tracking-[0.18em] text-cyan-300">
+                      AgileCert Certification Catalogue
+                    </h3>
+                    <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-200">
+                      Catalogue preview
+                    </span>
+                  </div>
+                  <h4 className="mt-3 text-2xl font-black md:text-3xl">
+                    Progressive Agile Project, Agile HRM and Agile Leadership pathways
+                  </h4>
+                  <p className="mt-4 text-sm leading-7 text-slate-300">
+                    Review proposed Foundation, Associate, Professional, Specialist and Executive pathways. These programmes remain separate from the six live IIPM specialist certifications and are not yet activated for examinations, pricing or enrolment.
+                  </p>
+                  <div className="mt-5 flex flex-wrap gap-2 text-xs font-bold text-slate-200">
+                    {['Project, Product & Delivery', 'Agile HRM', 'Agile Leadership'].map((category) => (
+                      <span key={category} className="rounded-full border border-slate-700 bg-slate-900 px-3 py-2">
+                        {category}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={openAgileCertCertificationCatalogue}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-6 py-3.5 text-sm font-black text-slate-950 transition hover:bg-cyan-300"
+                >
+                  Open AgileCert Catalogue <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            </section>
           </div>
         </section>
 
