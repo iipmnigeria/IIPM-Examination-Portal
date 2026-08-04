@@ -1,0 +1,130 @@
+name: Temporary PR 321 Certification Programmes Validation
+
+on:
+  pull_request:
+    branches:
+      - supabase-integration
+    paths:
+      - "src/components/AgileCertPhaseOneLandingPage.tsx"
+      - "src/components/AgileProgrammeCatalogue.tsx"
+      - ".github/workflows/validate-pr-321-certification-programmes-temporary.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Build and verify unified certification catalogues
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install application and browser dependencies
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-save playwright
+          npx playwright install chromium
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Start production preview
+        run: |
+          npx vite preview --host 127.0.0.1 --port 4173 > /tmp/agilecert-preview.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/agilecert-preview.log
+          exit 1
+
+      - name: Verify combined catalogue experience
+        run: |
+          node <<'NODE'
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
+            const pageErrors = [];
+            page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+
+            const response = await page.goto('http://127.0.0.1:4173/', {
+              waitUntil: 'domcontentloaded',
+              timeout: 45000,
+            });
+
+            if (response?.status() !== 200) {
+              throw new Error(`Unexpected preview status: ${response?.status()}`);
+            }
+
+            const publicNavigation = page.locator('[data-agilecert-public-navigation="true"]');
+            await publicNavigation.waitFor({ state: 'visible', timeout: 15000 });
+            const combinedLinks = publicNavigation.getByRole('link', { name: 'Certification Programmes' });
+            if (await combinedLinks.count() !== 1) {
+              throw new Error('Expected exactly one Certification Programmes link in public navigation.');
+            }
+
+            if (await page.getByRole('button', { name: 'Open Certification Programmes' }).count()) {
+              throw new Error('A duplicate catalogue launcher rendered on the public landing page.');
+            }
+
+            await page.getByRole('heading', { name: 'IIPM Specialist Certification Catalogue' }).waitFor({
+              state: 'visible',
+              timeout: 15000,
+            });
+
+            const specialistTitles = [
+              'Project Risk & Quality Management',
+              'Project Planning & Schedule Management',
+              'Project Communication & Information Management',
+              'Agile Project Management',
+              'Procurement & Contract Management',
+              'Performance and People Management',
+            ];
+
+            for (const title of specialistTitles) {
+              await page.getByRole('heading', { name: title, exact: true }).waitFor({
+                state: 'visible',
+                timeout: 10000,
+              });
+            }
+
+            const candidateAccessButtons = page.getByRole('button', { name: /Open candidate access/i });
+            if (await candidateAccessButtons.count() !== 6) {
+              throw new Error(`Expected 6 specialist candidate-access buttons, found ${await candidateAccessButtons.count()}.`);
+            }
+
+            await page.getByRole('heading', { name: 'AgileCert Certification Catalogue', exact: true }).waitFor({
+              state: 'visible',
+              timeout: 10000,
+            });
+            await page.getByRole('button', { name: 'Open AgileCert Catalogue' }).click();
+            await page.getByRole('dialog').getByRole('heading', {
+              name: 'AgileCert Certification Catalogue',
+              exact: true,
+            }).waitFor({ state: 'visible', timeout: 10000 });
+
+            if (pageErrors.length) {
+              throw new Error(`Browser page errors:\n${pageErrors.join('\n---\n')}`);
+            }
+
+            console.log('Unified Certification Programmes navigation verified.');
+            console.log('IIPM Specialist Certification Catalogue verified with six retained programmes.');
+            console.log('Six Open candidate access actions verified.');
+            console.log('AgileCert Certification Catalogue dialog opened successfully.');
+            await browser.close();
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
