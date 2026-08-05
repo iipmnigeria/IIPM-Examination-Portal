@@ -20,6 +20,33 @@ type CommerceTest = Test & {
   prices?: ExamPrice[];
 };
 
+const CART_MOUNT_ATTRIBUTE = 'data-agilecert-cipmn-card-cart-mount';
+
+const findPrimaryExamAction = (
+  card: HTMLElement,
+  examinationId: string,
+): HTMLButtonElement | null => {
+  const buttons = Array.from(card.querySelectorAll<HTMLButtonElement>('button'));
+  const outsideCart = (button: HTMLButtonElement) =>
+    !button.closest(`[${CART_MOUNT_ATTRIBUTE}="${examinationId}"]`);
+
+  return (
+    buttons.find(
+      (button) => button.dataset.agilecertCipmnPrimaryAction === examinationId,
+    )
+    || buttons.find((button) => {
+      if (!outsideCart(button)) return false;
+      const label = (button.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+      return label.includes('launch secure session')
+        || label.includes('launch secured session')
+        || label.includes('pay and unlock')
+        || label.includes('pay & unlock')
+        || label.includes('pay for re-take');
+    })
+    || null
+  );
+};
+
 const currencyDigits = (currency: string): number => {
   try {
     return new Intl.NumberFormat('en', {
@@ -122,7 +149,7 @@ export default function CandidateCommerceOverlay() {
         const card = document.getElementById(`exam-card-${test.id}`);
         if (!card) return;
 
-        const button = card.querySelector('button') as HTMLButtonElement | null;
+        const button = findPrimaryExamAction(card, test.id);
         if (!button) return;
 
         const buttonParent = button.parentElement;
@@ -142,7 +169,10 @@ export default function CandidateCommerceOverlay() {
 
         const price = test.defaultPrice || test.prices?.[0] || null;
         const priceLabel = price ? formatMoney(price.amountMinor, price.currency) : 'Price unavailable';
-        const unlocked = Boolean(test.canLaunch);
+        // The catalogue contract exposes both fields. Treat either affirmative
+        // signal as authoritative so an eligible candidate is never relocked by
+        // this legacy DOM overlay after the card repair layer restores launch.
+        const unlocked = Boolean(test.canLaunch || test.accessStatus === 'unlocked');
 
         const desiredPanelText = unlocked
           ? '✓ Examination Unlocked'
