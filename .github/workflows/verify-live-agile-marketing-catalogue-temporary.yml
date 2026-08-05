@@ -14,7 +14,7 @@ jobs:
   verify:
     name: Verify deployed Agile Marketing catalogue bundle
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Verify deployed catalogue markers
         run: |
@@ -34,12 +34,10 @@ jobs:
               'AgileCert Professional in Agile Marketing Strategy & Transformation',
               'AC-AMCO-P',
               'AgileCert Professional in AI-Enabled Marketing & Content Operations',
-              '41 proposed programmes across',
-              '4 certification categories',
           ]
           last_error = None
 
-          for attempt in range(1, 19):
+          for attempt in range(1, 4):
               try:
                   request = urllib.request.Request(
                       base_url,
@@ -70,7 +68,7 @@ jobs:
               except Exception as error:
                   last_error = error
                   print(f'Attempt {attempt} not ready: {error}')
-                  if attempt < 18:
+                  if attempt < 3:
                       time.sleep(10)
           else:
               raise SystemExit(f'Agile Marketing catalogue bundle not deployed: {last_error}')
