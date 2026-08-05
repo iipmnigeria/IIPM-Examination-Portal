@@ -22,6 +22,7 @@ const categoryLabels: Record<AgileProgrammeCategory, string> = {
   'Agile Project Management, Product and Delivery Certifications': 'Project, Product & Delivery',
   'Agile Human Resource Management Certifications': 'Agile HRM',
   'Agile Leadership Certifications': 'Agile Leadership',
+  'Agile Marketing Certifications': 'Agile Marketing',
 };
 
 const levelClasses: Record<AgileProgrammeLevel, string> = {
@@ -156,7 +157,7 @@ export default function AgileProgrammeCatalogue() {
                         </span>
                       </div>
                       <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                        Review the proposed Agile Project, Agile HRM and Agile Leadership certification pathways before examination, pricing and enrolment activation.
+                        Review the proposed Agile Project, Agile HRM, Agile Leadership and Agile Marketing certification pathways before examination, pricing and enrolment activation.
                       </p>
                     </div>
                   </div>
@@ -285,7 +286,7 @@ export default function AgileProgrammeCatalogue() {
                     <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                     Existing portal services remain unchanged.
                   </span>
-                  <span>{AGILE_PROGRAMME_CATALOGUE.length} proposed programmes across 3 certification categories.</span>
+                  <span>{AGILE_PROGRAMME_CATALOGUE.length} proposed programmes across {AGILE_PROGRAMME_CATEGORIES.length} certification categories.</span>
                 </div>
               </footer>
             </div>

@@ -3,7 +3,8 @@ export type AgileProgrammeLevel = 'Foundation' | 'Associate' | 'Professional' | 
 export type AgileProgrammeCategory =
   'Agile Project Management, Product and Delivery Certifications'
   | 'Agile Human Resource Management Certifications'
-  | 'Agile Leadership Certifications';
+  | 'Agile Leadership Certifications'
+  | 'Agile Marketing Certifications';
 
 export interface AgileProgrammeCatalogueItem {
   code: string;
@@ -18,6 +19,7 @@ export const AGILE_PROGRAMME_CATEGORIES: readonly AgileProgrammeCategory[] = [
   'Agile Project Management, Product and Delivery Certifications',
   'Agile Human Resource Management Certifications',
   'Agile Leadership Certifications',
+  'Agile Marketing Certifications',
 ] as const;
 
 export const AGILE_PROGRAMME_LEVELS: readonly AgileProgrammeLevel[] = [
@@ -67,6 +69,9 @@ const programmeRows = [
   ['AC-RLCA-P', 'AgileCert Professional in Resilient Leadership & Crisis Adaptation', 'Agile Leadership Certifications', 'Professional', 'Sense-and-respond leadership, crisis prioritisation, commander intent, antifragility and red teaming.'],
   ['AC-BAAG-E', 'AgileCert Executive in Board Agility & Adaptive Governance', 'Agile Leadership Certifications', 'Executive', 'Adaptive boards, staged investment, technology-risk governance, executive incentives and ESG integration.'],
   ['AC-RHDL-S', 'AgileCert Specialist in Remote, Hybrid & Distributed Team Leadership', 'Agile Leadership Certifications', 'Specialist', 'Asynchronous work, proximity-bias control, right-to-disconnect, outcome measures and time-zone equity.'],
+  ['AC-ACGO-A', 'AgileCert Associate Practitioner in Agile Campaign & Growth Operations', 'Agile Marketing Certifications', 'Associate', 'Sprint campaign planning, marketing Kanban, rapid creative testing, growth experimentation and campaign retrospectives.'],
+  ['AC-AMST-P', 'AgileCert Professional in Agile Marketing Strategy & Transformation', 'Agile Marketing Certifications', 'Professional', 'Marketing operating-model redesign, value-stream mapping, brand systems, marketing OKRs and adaptive agency contracting.'],
+  ['AC-AMCO-P', 'AgileCert Professional in AI-Enabled Marketing & Content Operations', 'Agile Marketing Certifications', 'Professional', 'Generative-AI campaign workflows, responsible AI, predictive personalisation, marketing prompt libraries and content governance.'],
 ] as const;
 
 export const AGILE_PROGRAMME_CATALOGUE: readonly AgileProgrammeCatalogueItem[] = programmeRows.map(
