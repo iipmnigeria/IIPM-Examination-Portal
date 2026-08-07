@@ -328,8 +328,13 @@ export default function CandidateCipmnModuleCart() {
           cardMount = document.createElement('div');
           cardMount.dataset.agilecertCipmnCardCartMount = test.id;
           cardMount.className = 'w-full';
-          actionArea.insertBefore(cardMount, launchButton);
+          // Keep the real launch/payment action first in DOM order. The card
+          // repair layer relies on this invariant to distinguish it from the
+          // portal-mounted cart action and to avoid a remove/recreate loop.
+          actionArea.insertBefore(cardMount, launchButton.nextSibling);
         }
+        cardMount.style.order = '1';
+        launchButton.style.order = '2';
         nextRoots.push({ examinationId: test.id, element: cardMount });
       });
 
