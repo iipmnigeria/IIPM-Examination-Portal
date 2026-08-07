@@ -36,7 +36,7 @@ const findPrimaryExamAction = (
     )
     || buttons.find((button) => {
       if (!outsideCart(button)) return false;
-      const label = (button.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+      const label = (button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
       return label.includes('launch secure session')
         || label.includes('launch secured session')
         || label.includes('pay and unlock')
