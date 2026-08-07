@@ -704,16 +704,10 @@ export default function StudentDashboard({
                       <div className="pt-2 self-center">
                         <button
                           onClick={() => {
-                            if (studentName.trim() === '') {
-                              alert('Please fill in your Legal Name at the top of the page before starting.');
-                              return;
-                            }
-                            if (cameraState !== 'active') {
-                              const confirmProceed = window.confirm(
-                                'Warning: Your webcam diagnosis is inactive. While testing will load, real-time AI proctoring will not function properly without camera permissions. Proceed anyway?'
-                              );
-                              if (!confirmProceed) return;
-                            }
+                            // Candidate eligibility and profile completeness are
+                            // enforced by start_exam_secure. Do not block an
+                            // entitled candidate on stale browser-only name or
+                            // camera state before the secure session can start.
                             onStartExam(test.id);
                           }}
                           className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
