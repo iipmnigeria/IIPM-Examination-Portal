@@ -142,5 +142,8 @@
         JavaScript is required to use the AgileCert Global examination portal.
       </div>
     </noscript>
+    <!-- Keep the application entry under the browser's native module loader.
+         Cloudflare Rocket Loader can otherwise defer/rewrite this script in
+         Android WebViews and leave the boot shell waiting indefinitely. -->
   </body>
 </html>
