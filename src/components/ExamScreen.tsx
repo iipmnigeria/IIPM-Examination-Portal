@@ -17,7 +17,8 @@ import {
   AlertTriangle,
   Check,
   FileText,
-  Lock
+  Lock,
+  RefreshCw
 } from 'lucide-react';
 import { Test, Question, ProctorLogEvent, ProctorEventType } from '../types';
 import CountdownTimer from './CountdownTimer';
@@ -112,6 +113,11 @@ export default function ExamScreen({
 
   // Proctor & Webcam states
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const cameraRequired = Boolean(test.proctoringPolicy?.requireCamera);
+  const [cameraState, setCameraState] = useState<'starting' | 'active' | 'blocked'>('starting');
+  const [cameraError, setCameraError] = useState('');
+  const [cameraRetry, setCameraRetry] = useState(0);
+  const cameraBlockedRef = useRef(cameraRequired);
   const [proctorLogs, setProctorLogs] = useState<ProctorLogEvent[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [proctorStatus, setProctorStatus] = useState<'healthy' | 'warning' | 'critical'>('healthy');
@@ -125,6 +131,10 @@ export default function ExamScreen({
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const proctorIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    cameraBlockedRef.current = cameraRequired && cameraState !== 'active';
+  }, [cameraRequired, cameraState]);
 
   // Play a soft sound alert on proctor flags
   const playAlertSound = () => {
@@ -156,6 +166,7 @@ export default function ExamScreen({
     // Countdown clock
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
+        if (cameraBlockedRef.current) return prev;
         if (prev <= 1) {
           clearInterval(timerRef.current!);
           handleAutoSubmit();
@@ -168,6 +179,7 @@ export default function ExamScreen({
     // AI Proctor Check-In counter
     countdownRef.current = setInterval(() => {
       setNextCheckIn((prev) => {
+        if (cameraBlockedRef.current) return prev;
         if (prev <= 1) {
           captureAndAnalyzeProctorFrame();
           return 12; // Cycle back every 12 seconds
@@ -182,33 +194,68 @@ export default function ExamScreen({
     };
   }, []);
 
-  // 2. Initialize Video Stream
+  // 2. Initialize and continuously enforce the mandatory video stream.
   useEffect(() => {
     let activeStream: MediaStream | null = null;
+    let muteTimer: number | null = null;
+    let disposed = false;
+
+    const blockCamera = (message: string) => {
+      if (disposed) return;
+      setCameraState('blocked');
+      setCameraError(message);
+      addProctorLog('camera_disabled', 'high', message);
+    };
+
     async function startWebcam() {
+      setCameraState('starting');
+      setCameraError('');
       try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('This browser does not support secure webcam access.');
+        }
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 320, height: 240, facingMode: 'user' },
           audio: false
         });
+        const track = stream.getVideoTracks()[0];
+        if (!track || track.readyState !== 'live' || !track.enabled) {
+          stream.getTracks().forEach((item) => item.stop());
+          throw new Error('No live webcam video track was detected.');
+        }
         activeStream = stream;
         setCameraStream(stream);
+        track.addEventListener('ended', () => blockCamera('The webcam disconnected or camera permission was withdrawn. The examination is paused.'));
+        track.addEventListener('mute', () => {
+          muteTimer = window.setTimeout(() => {
+            if (track.muted) blockCamera('The webcam stopped providing video. The examination is paused until the camera is restored.');
+          }, 2000);
+        });
+        track.addEventListener('unmute', () => {
+          if (muteTimer) window.clearTimeout(muteTimer);
+        });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          await videoRef.current.play();
         }
+        if (!disposed) setCameraState('active');
       } catch (err) {
         console.error('Failed to get webcam stream during testing:', err);
-        addProctorLog('camera_disabled', 'medium', 'System warning: Examination camera feed is disabled or offline. Connection required.');
+        blockCamera(err instanceof Error
+          ? `${err.message} Camera access is mandatory and the examination is paused.`
+          : 'The examination camera is disabled or unavailable. Camera access is mandatory and the examination is paused.');
       }
     }
-    startWebcam();
+    void startWebcam();
 
     return () => {
+      disposed = true;
+      if (muteTimer) window.clearTimeout(muteTimer);
       if (activeStream) {
         activeStream.getTracks().forEach(track => track.stop());
       }
     };
-  }, []);
+  }, [cameraRetry]);
 
   // 3. Setup Browser Navigation Monitoring & Anti-Cheat Restrictions (Prevent tab switching, copying, right-clicks, or print screenshots)
   useEffect(() => {
@@ -460,6 +507,8 @@ export default function ExamScreen({
       snapshotUrl
     };
 
+    window.dispatchEvent(new CustomEvent('agilecert-proctor-event', { detail: newLog }));
+
     setProctorLogs((prev) => {
       const updated = [newLog, ...prev];
       // Evaluate proctor safety level
@@ -582,6 +631,18 @@ export default function ExamScreen({
 
   return (
     <div id="exam-screen" className="min-h-screen bg-slate-950 text-slate-100 flex flex-col select-none">
+      {cameraRequired && cameraState !== 'active' && (
+        <div className="fixed inset-0 z-[200] grid place-items-center bg-slate-950/95 p-4 backdrop-blur-md">
+          <section className="w-full max-w-lg rounded-3xl border border-rose-700/60 bg-slate-900 p-7 text-center shadow-2xl">
+            <Video className="mx-auto h-12 w-12 text-rose-400" />
+            <h2 className="mt-4 text-xl font-black text-white">Camera required — examination paused</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-300">{cameraState === 'starting' ? 'Starting and verifying the live webcam feed…' : cameraError}</p>
+            {cameraState === 'blocked' && (
+              <button type="button" onClick={() => setCameraRetry((value) => value + 1)} className="mx-auto mt-6 flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white hover:bg-emerald-500"><RefreshCw className="h-4 w-4" /> Restore camera and continue</button>
+            )}
+          </section>
+        </div>
+      )}
       {/* Exam Screen Banner Header */}
       <header className="border-b border-slate-900 bg-slate-950 px-6 py-4 flex items-center justify-between sticky top-0 z-40">
         <div className="flex items-center gap-4">
