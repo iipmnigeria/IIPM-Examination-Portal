@@ -112,6 +112,11 @@ jobs:
 
           app.disable('x-powered-by');
 
+          app.use((_request, response, next) => {
+            response.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+            next();
+          });
+
           app.get('/healthz', (_request, response) => {
             response.set('Cache-Control', 'no-store');
             response.json({ ok: true, service: 'agilecert' });
@@ -231,6 +236,21 @@ jobs:
           cp "$release/package.json" "$APP_PATH/package.json"
           cp "$release/package-lock.json" "$APP_PATH/package-lock.json"
 
+          # LiteSpeed applies its own response headers after the Node process.
+          # Keep the restrictive defaults, but permit the examination portal to
+          # use a camera from its own origin for mandatory proctoring.
+          touch "$APP_PATH/.htaccess"
+          sed -i \
+            '/# BEGIN AGILECERT PERMISSIONS POLICY/,/# END AGILECERT PERMISSIONS POLICY/d' \
+            "$APP_PATH/.htaccess"
+          cat >> "$APP_PATH/.htaccess" <<'HTACCESS'
+          # BEGIN AGILECERT PERMISSIONS POLICY
+          <IfModule mod_headers.c>
+            Header always set Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+          </IfModule>
+          # END AGILECERT PERMISSIONS POLICY
+          HTACCESS
+
           set +u
           source "/home/$CPANEL_USER/nodevenv/$app_name/22/bin/activate"
           set -u
@@ -254,10 +274,12 @@ jobs:
           sleep 20
 
           response_file="$(mktemp)"
+          response_headers="$(mktemp)"
           status="$({ curl \
             --location \
             --silent \
             --show-error \
+            --dump-header "$response_headers" \
             --output "$response_file" \
             --write-out '%{http_code}' \
             --retry 4 \
@@ -270,6 +292,8 @@ jobs:
           case "$status" in
             200)
               grep -q 'AgileCert Global' "$response_file"
+              grep -Eiq '^permissions-policy:[[:space:]]*camera=\(self\)' "$response_headers"
+              ! grep -Eiq '^permissions-policy:.*camera=\(\)' "$response_headers"
               echo "AgileCert production deployment is live from commit $SOURCE_SHA with bundle $BUNDLE_SHA."
               ;;
             403)
