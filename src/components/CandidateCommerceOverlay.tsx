@@ -155,6 +155,19 @@ export default function CandidateCommerceOverlay() {
         const buttonParent = button.parentElement;
         if (!buttonParent) return;
 
+        const unlocked = Boolean(test.canLaunch || test.accessStatus === 'unlocked');
+
+        // Unlocked examination actions are owned entirely by React. Never
+        // rewrite, reclassify or attach capture handlers to them; doing so can
+        // swallow the secure-launch event before it reaches App.
+        if (unlocked) {
+          const stalePanel = buttonParent.querySelector(
+            `[data-iipm-commerce-status="${test.id}"]`,
+          );
+          stalePanel?.remove();
+          return;
+        }
+
         let statusPanel = buttonParent.querySelector(
           `[data-iipm-commerce-status="${test.id}"]`,
         ) as HTMLDivElement | null;
@@ -169,11 +182,6 @@ export default function CandidateCommerceOverlay() {
 
         const price = test.defaultPrice || test.prices?.[0] || null;
         const priceLabel = price ? formatMoney(price.amountMinor, price.currency) : 'Price unavailable';
-        // The catalogue contract exposes both fields. Treat either affirmative
-        // signal as authoritative so an eligible candidate is never relocked by
-        // this legacy DOM overlay after the card repair layer restores launch.
-        const unlocked = Boolean(test.canLaunch || test.accessStatus === 'unlocked');
-
         const desiredPanelText = unlocked
           ? '✓ Examination Unlocked'
           : `🔒 Payment Required • ${priceLabel}`;

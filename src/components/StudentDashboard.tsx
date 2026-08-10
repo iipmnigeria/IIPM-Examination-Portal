@@ -652,6 +652,13 @@ export default function StudentDashboard({
                 </div>
               )}
               {catalogueTests.map((test) => {
+                const commerceTest = test as Test & {
+                  canLaunch?: boolean;
+                  accessStatus?: string;
+                };
+                const canLaunch = Boolean(
+                  commerceTest.canLaunch || commerceTest.accessStatus === 'unlocked',
+                );
                 const pastAttempts = catalogueAttempts.filter(a => a.testId === test.id);
                 const isCompleted = pastAttempts.some(a => a.status === 'submitted' || a.status === 'flagged');
 
@@ -703,6 +710,9 @@ export default function StudentDashboard({
 
                       <div className="pt-2 self-center">
                         <button
+                          key={`${test.id}-${canLaunch ? 'unlocked' : 'locked'}`}
+                          type="button"
+                          data-agilecert-access-status={canLaunch ? 'unlocked' : 'locked'}
                           onClick={() => {
                             // Candidate eligibility and profile completeness are
                             // enforced by start_exam_secure. Do not block an
