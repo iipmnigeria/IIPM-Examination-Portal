@@ -6,6 +6,11 @@ import {
   openProctoringSession,
   recordIdentityProctoringConsent,
 } from '../services/identityProctoringService';
+import {
+  clearSecuredCameraStream,
+  holdSecuredCameraStream,
+  takeSecuredCameraStream,
+} from '../services/secureCameraSession';
 
 interface SecureExamIntegrityPreflightProps {
   test: Test;
@@ -33,14 +38,17 @@ export default function SecureExamIntegrityPreflight({ test, onReady, onCancel }
   const [error, setError] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const requestedRef = useRef(false);
   const policy = test.proctoringPolicy;
 
-  const stopPreview = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
+  const detachPreview = useCallback(() => {
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
   }, []);
+
+  const stopPreview = useCallback(() => {
+    clearSecuredCameraStream();
+    detachPreview();
+  }, [detachPreview]);
 
   const requestCamera = useCallback(async () => {
     if (!policy?.requireCamera) {
@@ -66,6 +74,7 @@ export default function SecureExamIntegrityPreflight({ test, onReady, onCancel }
         stream.getTracks().forEach((item) => item.stop());
         throw new Error('A live webcam video track was not detected.');
       }
+      holdSecuredCameraStream(stream);
       streamRef.current = stream;
       if (!videoRef.current) throw new Error('The secure camera preview could not be prepared.');
       videoRef.current.srcObject = stream;
@@ -82,11 +91,17 @@ export default function SecureExamIntegrityPreflight({ test, onReady, onCancel }
   }, [policy?.requireCamera, stopPreview]);
 
   useEffect(() => {
-    if (requestedRef.current) return;
-    requestedRef.current = true;
-    void requestCamera();
-    return stopPreview;
-  }, [requestCamera, stopPreview]);
+    const stream = takeSecuredCameraStream();
+    if (!stream?.getVideoTracks().some((track) => track.readyState === 'live' && track.enabled)) return detachPreview;
+    streamRef.current = stream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      void waitForLiveVideo(videoRef.current).then(() => setCameraReady(true)).catch((previewError) => {
+        setError(previewError instanceof Error ? previewError.message : 'The live camera preview could not be displayed.');
+      });
+    }
+    return detachPreview;
+  }, [detachPreview]);
 
   const openQuestions = async () => {
     if (!test.sessionId || !policy || !cameraReady || !streamRef.current?.getVideoTracks().some((track) => track.readyState === 'live' && track.enabled)) {
@@ -113,7 +128,7 @@ export default function SecureExamIntegrityPreflight({ test, onReady, onCancel }
         fullscreenStatus: 'not_requested',
       });
       const hydrated = await getProctoredExamPayload(test.sessionId);
-      stopPreview();
+      detachPreview();
       onReady({
         ...hydrated,
         proctoringSessionId: proctoring.id,
@@ -156,7 +171,7 @@ export default function SecureExamIntegrityPreflight({ test, onReady, onCancel }
               {opening ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               My camera is working — open questions
             </button>
-            <button type="button" disabled={requesting || opening} onClick={() => void requestCamera()} className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 px-5 py-3 text-sm font-black text-slate-200 hover:bg-slate-800 disabled:opacity-40"><RefreshCw className="h-4 w-4" /> Retry camera</button>
+            {!cameraReady && <button type="button" disabled={requesting || opening} onClick={() => void requestCamera()} className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 px-5 py-3 text-sm font-black text-slate-200 hover:bg-slate-800 disabled:opacity-40"><RefreshCw className="h-4 w-4" /> Turn on camera</button>}
           </aside>
         </div>
       </div>
