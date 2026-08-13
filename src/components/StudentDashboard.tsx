@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { Test, Attempt } from '../types';
+import { clearSecuredCameraStream, holdSecuredCameraStream } from '../services/secureCameraSession';
 // @ts-ignore
 import iipmSeal from '../assets/images/iipm_seal_1784411386400.jpg';
 
@@ -339,6 +340,35 @@ export default function StudentDashboard({
       setCameraState('error');
       setErrorMessage(err.message || 'Camera permission denied or camera in use by another application.');
     }
+  };
+
+  const launchSecuredExam = async (test: Test) => {
+    if (test.course === 'CIPMN-MOCK') {
+      setCameraState('checking');
+      setErrorMessage('');
+      clearSecuredCameraStream();
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('This browser does not support secure camera access.');
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+          audio: false,
+        });
+        const track = stream.getVideoTracks()[0];
+        if (!track || track.readyState !== 'live' || !track.enabled) {
+          stream.getTracks().forEach((item) => item.stop());
+          throw new Error('No live webcam video track was detected.');
+        }
+        holdSecuredCameraStream(stream);
+        setCameraState('active');
+      } catch (error) {
+        setCameraState('error');
+        setErrorMessage(error instanceof Error ? error.message : 'Camera permission was not granted.');
+        return;
+      }
+    }
+    onStartExam(test.id);
   };
 
   // Cleanup camera stream on unmount
@@ -718,7 +748,7 @@ export default function StudentDashboard({
                             // enforced by start_exam_secure. Do not block an
                             // entitled candidate on stale browser-only name or
                             // camera state before the secure session can start.
-                            onStartExam(test.id);
+                            void launchSecuredExam(test);
                           }}
                           className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
                             isCompleted
