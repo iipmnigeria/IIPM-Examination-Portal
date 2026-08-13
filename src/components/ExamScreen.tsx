@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { Test, Question, ProctorLogEvent, ProctorEventType } from '../types';
 import CountdownTimer from './CountdownTimer';
+import { clearSecuredCameraStream, takeSecuredCameraStream } from '../services/secureCameraSession';
 
 // Dynamically determine API Base URL.
 // When running in a custom deployed frontend (such as GitHub Pages or local preview targeting remote server),
@@ -214,10 +215,13 @@ export default function ExamScreen({
         if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error('This browser does not support secure webcam access.');
         }
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 320, height: 240, facingMode: 'user' },
-          audio: false
-        });
+        const heldStream = takeSecuredCameraStream();
+        const stream = heldStream?.getVideoTracks().some((item) => item.readyState === 'live' && item.enabled)
+          ? heldStream
+          : await navigator.mediaDevices.getUserMedia({
+              video: { width: 320, height: 240, facingMode: 'user' },
+              audio: false
+            });
         const track = stream.getVideoTracks()[0];
         if (!track || track.readyState !== 'live' || !track.enabled) {
           stream.getTracks().forEach((item) => item.stop());
@@ -254,6 +258,7 @@ export default function ExamScreen({
       if (activeStream) {
         activeStream.getTracks().forEach(track => track.stop());
       }
+      clearSecuredCameraStream(false);
     };
   }, [cameraRetry]);
 
