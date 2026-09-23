@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getCurrentPortalUser, signOut } from '../services/authService';
@@ -16,8 +16,11 @@ export default function CandidateOnboardingBoundary({ children }: CandidateOnboa
   );
   const [checking, setChecking] = useState(true);
   const [required, setRequired] = useState(false);
+  const refreshInFlightRef = useRef(false);
 
   const refresh = async () => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
     setChecking(true);
     try {
       const current = await getCurrentPortalUser();
@@ -45,6 +48,7 @@ export default function CandidateOnboardingBoundary({ children }: CandidateOnboa
       setCandidateSession(false);
       setRequired(false);
     } finally {
+      refreshInFlightRef.current = false;
       setChecking(false);
     }
   };
