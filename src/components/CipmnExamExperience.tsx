@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ProctorLogEvent, ProctorEventType, Test } from '../types';
+import type { ProctorLogEvent, Test } from '../types';
 import CipmnMixedExamScreen from './CipmnMixedExamScreen';
 import LiveProctoringEventBridge from './LiveProctoringEventBridge';
 import SecureExamIntegrityPreflight from './SecureExamIntegrityPreflight';
@@ -12,25 +12,6 @@ interface Props {
   onSubmitTheory: (answers: Record<string, string>, logs: ProctorLogEvent[], tabAwayCount: number) => Promise<void>;
   onExitExam: () => void;
 }
-
-const detectionType = (detections: unknown): ProctorEventType => {
-  const values = Array.isArray(detections) ? detections.map(String) : [];
-  if (values.includes('phone_detected')) return 'phone_detected';
-  if (values.includes('multiple_people')) return 'multiple_people';
-  if (values.includes('no_face')) return 'no_face';
-  if (values.includes('notes_detected')) return 'notes_detected';
-  return 'looking_away';
-};
-
-const requestSnapshot = (body: BodyInit | null | undefined): string | undefined => {
-  if (typeof body !== 'string') return undefined;
-  try {
-    const payload = JSON.parse(body) as Record<string, unknown>;
-    return typeof payload.image === 'string' && payload.image.startsWith('data:image/') ? payload.image : undefined;
-  } catch {
-    return undefined;
-  }
-};
 
 export default function CipmnExamExperience(props: Props) {
   const [activeTest, setActiveTest] = useState(props.test);
