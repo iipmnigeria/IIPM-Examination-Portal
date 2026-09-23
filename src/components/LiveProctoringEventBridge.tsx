@@ -78,6 +78,12 @@ export default function LiveProctoringEventBridge({ examSessionId, proctoringSes
         message,
         metadata: safeMetadata,
         occurredAt: occurredAt || new Date().toISOString(),
+      }).then((result) => {
+        if (result.terminated) {
+          window.dispatchEvent(new CustomEvent('agilecert-proctor-terminated', {
+            detail: { qualifyingFlagCount: result.qualifyingFlagCount, reason: result.terminationReason },
+          }));
+        }
       }).catch((error) => {
         console.warn('Live proctor event could not be persisted:', error);
       });
@@ -99,13 +105,6 @@ export default function LiveProctoringEventBridge({ examSessionId, proctoringSes
         });
       if (uploadError) throw uploadError;
       return path;
-    };
-
-    const sendDirect = (eventType: string, severity: 'low' | 'medium' | 'high', message: string) => {
-      const now = Date.now();
-      if (now - (lastDirectEvent.current[eventType] || 0) < 750) return;
-      lastDirectEvent.current[eventType] = now;
-      send(eventType, severity, message, { source: 'live_browser' });
     };
 
     const localEvent = (event: Event) => {
@@ -137,25 +136,6 @@ export default function LiveProctoringEventBridge({ examSessionId, proctoringSes
         );
       })();
     };
-    const blur = () => sendDirect('browser_focus_lost', 'medium', 'The examination window lost browser focus.');
-    const visibility = () => {
-      if (document.visibilityState === 'hidden') sendDirect('visibility_hidden', 'high', 'The examination page became hidden.');
-    };
-    const copy = () => sendDirect('clipboard_copy', 'high', 'Clipboard copy activity was detected during the examination.');
-    const cut = () => sendDirect('clipboard_cut', 'high', 'Clipboard cut activity was detected during the examination.');
-    const paste = () => sendDirect('clipboard_paste', 'medium', 'Clipboard paste activity was detected during the examination.');
-    const print = () => sendDirect('print_attempt', 'high', 'A print action was detected during the examination.');
-    const keydown = (event: KeyboardEvent) => {
-      const key = event.key?.toLowerCase();
-      const command = event.ctrlKey || event.metaKey;
-      if (event.key === 'PrintScreen' || event.key === 'PrtScn' || event.key === 'Snapshot') {
-        sendDirect('screenshot_attempt', 'high', 'A screen-capture keyboard action was detected.');
-      } else if (event.key === 'F12' || (command && event.shiftKey && ['i', 'c', 'j'].includes(key))) {
-        sendDirect('developer_tools_attempt', 'high', 'A developer-tools keyboard action was detected.');
-      } else if (command && key === 'p') {
-        sendDirect('print_attempt', 'high', 'A print keyboard action was detected.');
-      }
-    };
     const fullscreen = () => send(
       document.fullscreenElement ? 'fullscreen_enter' : 'fullscreen_exit',
       document.fullscreenElement ? 'low' : 'medium',
@@ -167,13 +147,6 @@ export default function LiveProctoringEventBridge({ examSessionId, proctoringSes
     const heartbeat = window.setInterval(() => send('session_heartbeat', 'low', 'Secure examination session heartbeat.', { source: 'live_browser' }), 30_000);
 
     window.addEventListener('agilecert-proctor-event', localEvent as EventListener);
-    window.addEventListener('blur', blur);
-    document.addEventListener('visibilitychange', visibility);
-    document.addEventListener('copy', copy);
-    document.addEventListener('cut', cut);
-    document.addEventListener('paste', paste);
-    window.addEventListener('beforeprint', print);
-    window.addEventListener('keydown', keydown);
     document.addEventListener('fullscreenchange', fullscreen);
     window.addEventListener('online', online);
     window.addEventListener('offline', offline);
@@ -183,13 +156,6 @@ export default function LiveProctoringEventBridge({ examSessionId, proctoringSes
       active = false;
       window.clearInterval(heartbeat);
       window.removeEventListener('agilecert-proctor-event', localEvent as EventListener);
-      window.removeEventListener('blur', blur);
-      document.removeEventListener('visibilitychange', visibility);
-      document.removeEventListener('copy', copy);
-      document.removeEventListener('cut', cut);
-      document.removeEventListener('paste', paste);
-      window.removeEventListener('beforeprint', print);
-      window.removeEventListener('keydown', keydown);
       document.removeEventListener('fullscreenchange', fullscreen);
       window.removeEventListener('online', online);
       window.removeEventListener('offline', offline);
