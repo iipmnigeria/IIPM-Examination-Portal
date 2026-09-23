@@ -453,8 +453,8 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
       {section==='theory' && mcqScore!==null && <p className="text-xs text-slate-400 flex gap-1 items-center justify-end"><Lock className="w-3 h-3"/> MCQ locked: {mcqScore}%</p>}</div>
       </div>
     </header>
-    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] min-h-[calc(100vh-73px)]">
-    <main className="p-6 md:p-10 space-y-6 overflow-y-auto max-h-[calc(100vh-73px)]">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] min-h-[calc(100vh-73px)]">
+    <main className="p-6 md:p-10 space-y-6">
       {showSubmissionReview ? <section className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-6">
         <div>
           <p className="text-xs uppercase font-extrabold tracking-widest text-slate-400 flex items-center gap-2"><Lock className="w-4 h-4 text-emerald-500"/> Secure Submission Review</p>
@@ -507,7 +507,7 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
     </main>
 
     {/* Original secured-exam AI Proctoring Sidebar */}
-    <aside className="border-l border-slate-900 bg-slate-950/40 p-5 space-y-6 max-h-[calc(100vh-73px)] overflow-y-auto">
+    <aside className="border-l border-slate-900 bg-slate-950/40 p-6 space-y-6 overflow-visible">
       <div className="space-y-1">
         <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-400 flex items-center gap-2">
           <Eye className="w-4 h-4 text-emerald-500" /> Proctor Monitor
@@ -559,7 +559,7 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
 
       <div className="space-y-3">
         <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Real-Time Integrity Logs</h4>
-        <div className="space-y-2 max-h-[190px] overflow-y-auto pr-1">
+        <div className="space-y-2 pr-1">
           {proctorLogs.length === 0 ? (
             <div className="text-center py-6 text-slate-600 text-[11px] border border-dashed border-slate-900 rounded-lg bg-slate-950/20">
               No integrity alerts logged. Compliance looks flawless.
