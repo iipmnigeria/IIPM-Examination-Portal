@@ -80,25 +80,7 @@ export default function ExamExperience(props: ExamExperienceProps) {
           });
         }
 
-        const capturedFrame = policy.retainWebcamImages ? requestSnapshot(init?.body) : undefined;
         const response = await originalFetch(input, init);
-        if (response.ok && policy.liveEventCaptureEnabled) {
-          void response.clone().json().then((payload: Record<string, unknown>) => {
-            if (!payload?.isSuspicious) return;
-            const confidence = Math.max(0, Math.min(1, Number(payload.confidence || 0)));
-            const detail = {
-              id: `ai-${Date.now()}-${crypto.randomUUID()}`,
-              timestamp: new Date().toISOString(),
-              type: detectionType(payload.detections),
-              severity: confidence >= 0.8 ? 'high' : 'medium',
-              message: String(payload.reason || 'AI visual-analysis risk indicator recorded.'),
-              aiGenerated: true,
-              confidence,
-              snapshotUrl: capturedFrame,
-            };
-            window.dispatchEvent(new CustomEvent('agilecert-proctor-event', { detail }));
-          }).catch(() => undefined);
-        }
         return response;
       };
 
