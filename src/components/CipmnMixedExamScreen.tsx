@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Lock, RefreshCw, ShieldAlert, Video } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Eye, Lock, RefreshCw, ShieldAlert, Video } from 'lucide-react';
 import type { ProctorEventType, ProctorLogEvent, Question, Test } from '../types';
 import { clearSecuredCameraStream, takeSecuredCameraStream } from '../services/secureCameraSession';
 import CountdownTimer from './CountdownTimer';
@@ -443,8 +443,6 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
         <button type="button" onClick={() => setShowBlurModal(false)} className="mt-5 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-black">Return to examination</button>
       </section>
     </div>}
-    <video ref={videoRef} autoPlay muted playsInline className="fixed bottom-4 right-4 z-50 h-24 w-32 rounded-lg border border-slate-700 bg-black object-cover shadow-xl" />
-    <canvas ref={canvasRef} width={320} height={240} className="hidden" />
     <header className="border-b border-slate-800 px-6 py-4 flex justify-between items-center">
       <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400"><span className={`h-2 w-2 rounded-full ${proctorStatus === 'healthy' ? 'bg-emerald-500' : proctorStatus === 'warning' ? 'bg-amber-500' : 'bg-rose-500'}`}></span> Secure Proctor Mode Active · {tabAwayCount} security event{tabAwayCount === 1 ? '' : 's'}</div>
       <div><p className="text-xs text-emerald-400 font-bold uppercase">{section==='mcq'?'Section A — MCQ':'Section B — Theory'}</p>
@@ -455,7 +453,8 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
       {section==='theory' && mcqScore!==null && <p className="text-xs text-slate-400 flex gap-1 items-center justify-end"><Lock className="w-3 h-3"/> MCQ locked: {mcqScore}%</p>}</div>
       </div>
     </header>
-    <main className="max-w-4xl mx-auto p-6 md:p-10 space-y-6">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] min-h-[calc(100vh-73px)]">
+    <main className="p-6 md:p-10 space-y-6 overflow-y-auto max-h-[calc(100vh-73px)]">
       {showSubmissionReview ? <section className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-6">
         <div>
           <p className="text-xs uppercase font-extrabold tracking-widest text-slate-400 flex items-center gap-2"><Lock className="w-4 h-4 text-emerald-500"/> Secure Submission Review</p>
@@ -506,5 +505,86 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
       </div>
       </>}
     </main>
+
+    {/* Original secured-exam AI Proctoring Sidebar */}
+    <aside className="border-l border-slate-900 bg-slate-950/40 p-5 space-y-6 max-h-[calc(100vh-73px)] overflow-y-auto">
+      <div className="space-y-1">
+        <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-400 flex items-center gap-2">
+          <Eye className="w-4 h-4 text-emerald-500" /> Proctor Monitor
+        </h3>
+        <p className="text-[10px] text-slate-500">Live AI compliance checking</p>
+      </div>
+
+      <div className="relative aspect-video bg-slate-950 border border-slate-900 rounded-xl overflow-hidden shadow-inner shrink-0">
+        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
+        <div className="absolute top-2 left-2 bg-slate-950/80 backdrop-blur-sm border border-slate-800 px-1.5 py-0.5 rounded text-[8px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping"></span> Live Webcam
+        </div>
+        {isAnalyzing && (
+          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px] flex items-center justify-center gap-2">
+            <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-[10px] font-bold text-white uppercase tracking-wider">AI Auditing Frame...</span>
+          </div>
+        )}
+      </div>
+
+      <canvas ref={canvasRef} width={320} height={240} className="hidden" />
+
+      <div className="bg-slate-950 border border-slate-900 rounded-xl p-4 space-y-3.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Status Audit</span>
+          <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider ${
+            proctorStatus === 'healthy'
+              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+              : proctorStatus === 'warning'
+              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+              : 'bg-rose-500/10 text-rose-400 border border-rose-500/20 animate-pulse'
+          }`}>
+            {proctorStatus === 'healthy' ? 'SECURE' : proctorStatus === 'warning' ? 'WARNINGS' : 'CRITICAL FLAG'}
+          </span>
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
+            <span>Tab Away Tally</span>
+            <span className={tabAwayCount > 0 ? 'text-amber-500 font-bold' : 'text-slate-300'}>{tabAwayCount}</span>
+          </div>
+          <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
+            <span>AI Proctor Logs</span><span>{proctorLogs.length} flags</span>
+          </div>
+          <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
+            <span>Verification Schedule</span><span className="font-mono text-emerald-400 font-bold">Every {nextCheckIn}s</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Real-Time Integrity Logs</h4>
+        <div className="space-y-2 max-h-[190px] overflow-y-auto pr-1">
+          {proctorLogs.length === 0 ? (
+            <div className="text-center py-6 text-slate-600 text-[11px] border border-dashed border-slate-900 rounded-lg bg-slate-950/20">
+              No integrity alerts logged. Compliance looks flawless.
+            </div>
+          ) : proctorLogs.map((log) => (
+            <div key={log.id} className={`p-2.5 rounded-lg border text-[11px] leading-snug space-y-1 ${
+              log.severity === 'high'
+                ? 'bg-rose-950/20 border-rose-900/40 text-rose-300'
+                : 'bg-amber-950/20 border-amber-900/40 text-amber-300'
+            }`}>
+              <div className="flex items-center justify-between text-[9px] text-slate-500 font-bold">
+                <span className="uppercase">{log.type.replace('_', ' ')}</span>
+                <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
+              </div>
+              <p className="font-medium text-slate-300">{log.message}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="p-3.5 bg-slate-900/40 border border-slate-900 rounded-xl flex items-start gap-2 text-[10px] text-slate-500 leading-normal">
+        <AlertCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+        <p>Your camera capture processes fully inside our secure AI microservices. Keep your environment bright, quiet, and do not use electronic devices.</p>
+      </div>
+    </aside>
+    </div>
   </div>;
 }
