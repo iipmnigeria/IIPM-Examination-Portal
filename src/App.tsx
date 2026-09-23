@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import StudentDashboard from './components/StudentDashboard';
 import ExamExperience from './components/ExamExperience';
-import CipmnMixedExamScreen from './components/CipmnMixedExamScreen';
+import CipmnExamExperience from './components/CipmnExamExperience';
 import AdminPortal from './components/AdminPortal';
 import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
 import AiCvProfileBuilder from './components/AiCvProfileBuilder';
@@ -414,12 +414,16 @@ export default function App() {
           {view === 'exam' && selectedTest && (
             <motion.div key="exam" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               {selectedTest.examFormat === 'cipmn_mixed' ? (
-                <CipmnMixedExamScreen
+                <CipmnExamExperience
                   test={selectedTest}
                   studentName={studentName}
                   simType={simType}
                   onSubmitMcq={handleSubmitCipmnMcq}
                   onSubmitTheory={handleSubmitCipmnTheory}
+                  onExitExam={() => {
+                    setSelectedTest(null);
+                    setView('dashboard');
+                  }}
                 />
               ) : (
                 <ExamExperience
