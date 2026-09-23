@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getCurrentPortalUser, signOut } from '../services/authService';
+import { signOut } from '../services/authService';
 import { getMyCandidateOnboardingStatus } from '../services/candidateProfileService';
 import MandatoryCandidateOnboarding from './MandatoryCandidateOnboarding';
 
@@ -23,15 +23,19 @@ export default function CandidateOnboardingBoundary({ children }: CandidateOnboa
     refreshInFlightRef.current = true;
     setChecking(true);
     try {
-      const current = await getCurrentPortalUser();
-      if (!current || current.profile.role !== 'candidate') {
+      // The application has already established the portal role before this
+      // boundary mounts. Reuse that authenticated candidate state instead of
+      // repeating getSession() + profiles lookup on every startup/auth event.
+      // The mandatory server-side onboarding check remains authoritative.
+      const isCandidate = localStorage.getItem('aura_logged_role') === 'student';
+      if (!isCandidate) {
         setCandidateSession(false);
         setRequired(false);
         return;
       }
 
       setCandidateSession(true);
-      setCandidateName(current.profile.full_name || 'Candidate');
+      setCandidateName(localStorage.getItem('aura_student_name') || 'Candidate');
 
       try {
         const status = await getMyCandidateOnboardingStatus();
