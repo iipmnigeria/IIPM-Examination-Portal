@@ -2,7 +2,7 @@ begin;
 
 -- Replace only CIPMN-MOD-001. Other CIPMN modules and all non-CIPMN exams are untouched.
 update public.examinations set exam_format='cipmn_mixed', updated_at=now() where id='2e5fea8b-a4de-5c61-9a43-e53e9d28403f';
-delete from public.questions where examination_id='2e5fea8b-a4de-5c61-9a43-e53e9d28403f';
+update public.questions set is_active=false, position=position+1000, updated_at=now() where examination_id='2e5fea8b-a4de-5c61-9a43-e53e9d28403f' and is_active=true;
 
 with q as (
  insert into public.questions(examination_id,question_text,question_type,section,position,points,is_active)
