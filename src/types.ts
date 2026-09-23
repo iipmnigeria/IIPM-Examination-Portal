@@ -49,7 +49,7 @@ export interface Test {
   canLaunch?: boolean;
   accessStatus?: 'unlocked' | 'locked' | 'available';
   priceAvailable?: boolean;
-  prices?: { NGN?: number; USD?: number };
+  prices?: Array<{ currency: string; amountMinor: number }>;
 }
 
 export type ProctorEventType =
