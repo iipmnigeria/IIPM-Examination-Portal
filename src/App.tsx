@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import StudentDashboard from './components/StudentDashboard';
 import ExamExperience from './components/ExamExperience';
+import CipmnMixedExamScreen from './components/CipmnMixedExamScreen';
 import AdminPortal from './components/AdminPortal';
 import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
 import AiCvProfileBuilder from './components/AiCvProfileBuilder';
@@ -23,6 +24,8 @@ import {
   getPortalAttempts,
   startSecureExam,
   submitSecureExam,
+  submitCipmnMcqSection,
+  submitCipmnTheorySection,
 } from './services/examService';
 import type { Attempt, ProctorLogEvent, Test } from './types';
 
@@ -189,6 +192,32 @@ export default function App() {
       );
     }
   };
+
+  const handleSubmitCipmnMcq = async (
+    answers: Record<string, number>,
+    logs: ProctorLogEvent[],
+    tabAwayCount: number,
+  ): Promise<number> => {
+    if (!selectedTest?.sessionId) throw new Error('The secure examination session identifier is missing.');
+    const result = await submitCipmnMcqSection({ sessionId: selectedTest.sessionId, answers, logs, tabAwayCount });
+    setSelectedTest((previous) => previous ? { ...previous, currentSection: 'theory', mcqScore: result.mcqScore } : previous);
+    return result.mcqScore;
+  };
+
+  const handleSubmitCipmnTheory = async (
+    answers: Record<string, string>,
+    logs: ProctorLogEvent[],
+    tabAwayCount: number,
+  ) => {
+    if (!selectedTest?.sessionId) throw new Error('The secure examination session identifier is missing.');
+    const newAttempt = await submitCipmnTheorySection({ sessionId: selectedTest.sessionId, answers, logs, tabAwayCount });
+    setAttempts((previous) => [newAttempt, ...previous]);
+    setJustCompletedAttempt(newAttempt);
+    setSelectedTest(null);
+    setView('dashboard');
+    void fetchPortalData();
+  };
+
 
   const handleViewAttemptDetails = (_attempt: Attempt) => {
     if (userRole === 'admin') setView('admin');
@@ -384,16 +413,25 @@ export default function App() {
 
           {view === 'exam' && selectedTest && (
             <motion.div key="exam" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <ExamExperience
-                test={selectedTest}
-                studentName={studentName}
-                simType={simType}
-                onSubmitExam={handleSubmitExam}
-                onExitExam={() => {
-                  setSelectedTest(null);
-                  setView('dashboard');
-                }}
-              />
+              {selectedTest.examFormat === 'cipmn_mixed' ? (
+                <CipmnMixedExamScreen
+                  test={selectedTest}
+                  studentName={studentName}
+                  onSubmitMcq={handleSubmitCipmnMcq}
+                  onSubmitTheory={handleSubmitCipmnTheory}
+                />
+              ) : (
+                <ExamExperience
+                  test={selectedTest}
+                  studentName={studentName}
+                  simType={simType}
+                  onSubmitExam={handleSubmitExam}
+                  onExitExam={() => {
+                    setSelectedTest(null);
+                    setView('dashboard');
+                  }}
+                />
+              )}
             </motion.div>
           )}
 
