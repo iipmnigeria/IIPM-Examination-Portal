@@ -279,7 +279,26 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
         else if (result.detections.includes('multiple_people')) type = 'multiple_people';
         else if (result.detections.includes('no_face')) type = 'no_face';
         else if (result.detections.includes('notes_detected')) type = 'notes_detected';
-        addProctorLog(type, 'high', `AI Alert: ${result.reason} (Confidence: ${Math.round(result.confidence * 100)}%)`, base64Image);
+        const detail: ProctorLogEvent = {
+          id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          timestamp: new Date().toISOString(),
+          type,
+          severity: 'high',
+          message: `AI Alert: ${result.reason} (Confidence: ${Math.round(result.confidence * 100)}%)`,
+          snapshotUrl: base64Image,
+          aiGenerated: true,
+          confidence: result.confidence,
+        };
+        window.dispatchEvent(new CustomEvent('agilecert-proctor-event', { detail }));
+        setProctorLogs((previous) => {
+          const updated = [detail, ...previous];
+          const highAlerts = updated.filter((log) => log.severity === 'high').length;
+          const mediumAlerts = updated.filter((log) => log.severity === 'medium').length;
+          if (highAlerts >= 3 || updated.length >= 8) setProctorStatus('critical');
+          else if (highAlerts > 0 || mediumAlerts > 1) setProctorStatus('warning');
+          else setProctorStatus('healthy');
+          return updated;
+        });
       }
     } catch (error) {
       console.error('Proctor snapshot routine error:', error);
