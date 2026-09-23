@@ -113,6 +113,16 @@ export default function CipmnExamExperience(props: Props) {
     };
   }, [activeTest.proctorPreflightRequired, activeTest.proctoringPolicy]);
 
+  useEffect(() => {
+    const terminate = (event: Event) => {
+      const detail = (event as CustomEvent<{ qualifyingFlagCount?: number; reason?: string }>).detail;
+      window.alert(detail?.reason || 'CIPMN preparation session terminated after four qualifying proctoring violations. Your integrity events have been recorded.');
+      props.onExitExam();
+    };
+    window.addEventListener('agilecert-proctor-terminated', terminate as EventListener);
+    return () => window.removeEventListener('agilecert-proctor-terminated', terminate as EventListener);
+  }, [props.onExitExam]);
+
   if (activeTest.proctorPreflightRequired) {
     return <SecureExamIntegrityPreflight test={activeTest} onReady={setActiveTest} onCancel={props.onExitExam} />;
   }
