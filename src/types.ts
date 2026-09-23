@@ -45,11 +45,6 @@ export interface Test {
   theoryCount?: number;
   currentSection?: ExamSection;
   mcqScore?: number;
-  requiresPayment?: boolean;
-  canLaunch?: boolean;
-  accessStatus?: 'unlocked' | 'locked' | 'available';
-  priceAvailable?: boolean;
-  prices?: Array<{ currency: string; amountMinor: number }>;
 }
 
 export type ProctorEventType =
