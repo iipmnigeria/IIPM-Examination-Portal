@@ -89,7 +89,6 @@ export default function ExamScreen({
   });
   const [tabAwayCount, setTabAwayCount] = useState(0);
   const [showBlurModal, setShowBlurModal] = useState(false);
-  const lastTabAwayAtRef = useRef(0);
   const [showSummaryView, setShowSummaryView] = useState(false);
   const [honorCodeChecked, setHonorCodeChecked] = useState(false);
 
