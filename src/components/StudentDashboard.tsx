@@ -755,7 +755,7 @@ export default function StudentDashboard({
                 const priceLabel = ngnPrice !== null
                   ? `₦${ngnPrice.toLocaleString('en-NG')}`
                   : usdPrice !== null
-                    ? `${usdPrice.toLocaleString('en-US')}`
+                    ? `USD ${usdPrice.toLocaleString('en-US')}`
                     : null;
                 const pastAttempts = catalogueAttempts.filter(a => a.testId === test.id);
                 const isCompleted = pastAttempts.some(a => a.status === 'submitted' || a.status === 'flagged');
