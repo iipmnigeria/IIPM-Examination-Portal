@@ -33,8 +33,23 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
   const initialSection = test.currentSection === 'theory' ? 'theory' : 'mcq';
   const [section, setSection] = useState<'mcq'|'mcq_result'|'theory'>(initialSection);
   const [index, setIndex] = useState(0);
-  const [mcqAnswers, setMcqAnswers] = useState<Record<string, number>>({});
-  const [theoryAnswers, setTheoryAnswers] = useState<Record<string, string>>({});
+  const [mcqAnswers, setMcqAnswers] = useState<Record<string, number>>(() => {
+    if (initialSection === 'theory') return {};
+    try {
+      const saved = localStorage.getItem(`aura_exam_answers_${test.id}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [theoryAnswers, setTheoryAnswers] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem(`aura_exam_theory_answers_${test.id}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
   const [mcqScore, setMcqScore] = useState<number | null>(test.mcqScore ?? null);
   const [busy, setBusy] = useState(false);
   const [timeLeft, setTimeLeft] = useState(() => {
@@ -286,6 +301,16 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
 
 
   useEffect(() => {
+    if (section === 'mcq') {
+      localStorage.setItem(`aura_exam_answers_${test.id}`, JSON.stringify(mcqAnswers));
+    }
+  }, [mcqAnswers, section, test.id]);
+
+  useEffect(() => {
+    localStorage.setItem(`aura_exam_theory_answers_${test.id}`, JSON.stringify(theoryAnswers));
+  }, [theoryAnswers, test.id]);
+
+  useEffect(() => {
     localStorage.setItem(`aura_exam_time_${test.id}`, timeLeft.toString());
   }, [timeLeft, test.id]);
 
@@ -315,6 +340,8 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
     try {
       const score = await onSubmitMcq(mcqAnswers, proctorLogs, tabAwayCount);
       setMcqScore(score);
+      localStorage.removeItem(`aura_exam_answers_${test.id}`);
+      setMcqAnswers({});
       setSection('mcq_result');
       setIndex(0);
     } finally { setBusy(false); }
@@ -323,7 +350,11 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
   async function submitTheory() {
     if (!test.sessionId || busy) return;
     setBusy(true);
-    try { await onSubmitTheory(theoryAnswers, proctorLogs, tabAwayCount); }
+    try {
+      await onSubmitTheory(theoryAnswers, proctorLogs, tabAwayCount);
+      localStorage.removeItem(`aura_exam_theory_answers_${test.id}`);
+      localStorage.removeItem(`aura_exam_time_${test.id}`);
+    }
     finally { setBusy(false); }
   }
 
