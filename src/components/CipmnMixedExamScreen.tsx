@@ -52,6 +52,8 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
   });
   const [mcqScore, setMcqScore] = useState<number | null>(test.mcqScore ?? null);
   const [busy, setBusy] = useState(false);
+  const [showSubmissionReview, setShowSubmissionReview] = useState(false);
+  const [honorCodeChecked, setHonorCodeChecked] = useState(false);
   const [timeLeft, setTimeLeft] = useState(() => {
     try {
       const saved = localStorage.getItem(`aura_exam_time_${test.id}`);
@@ -335,7 +337,7 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
     : Object.keys(mcqAnswers).length;
 
   async function submitMcq() {
-    if (!test.sessionId || busy) return;
+    if (!test.sessionId || busy || !honorCodeChecked) return;
     setBusy(true);
     try {
       const score = await onSubmitMcq(mcqAnswers, proctorLogs, tabAwayCount);
@@ -343,12 +345,14 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
       localStorage.removeItem(`aura_exam_answers_${test.id}`);
       setMcqAnswers({});
       setSection('mcq_result');
+      setShowSubmissionReview(false);
+      setHonorCodeChecked(false);
       setIndex(0);
     } finally { setBusy(false); }
   }
 
   async function submitTheory() {
-    if (!test.sessionId || busy) return;
+    if (!test.sessionId || busy || !honorCodeChecked) return;
     setBusy(true);
     try {
       await onSubmitTheory(theoryAnswers, proctorLogs, tabAwayCount);
@@ -402,6 +406,36 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
       </div>
     </header>
     <main className="max-w-4xl mx-auto p-6 md:p-10 space-y-6">
+      {showSubmissionReview ? <section className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-6">
+        <div>
+          <p className="text-xs uppercase font-extrabold tracking-widest text-slate-400 flex items-center gap-2"><Lock className="w-4 h-4 text-emerald-500"/> Secure Submission Review</p>
+          <h2 className="mt-2 text-xl font-bold">Academic Integrity Review & Final Confirmation</h2>
+          <p className="mt-2 text-xs text-slate-400">Please review your {section === 'mcq' ? 'MCQ' : 'Theory'} responses below. Unanswered questions will receive zero credit.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4"><p className="text-[10px] uppercase font-bold text-slate-500">Answered</p><p className="mt-1 text-2xl font-extrabold text-emerald-400">{answered} <span className="text-xs text-slate-500">/ {list.length}</span></p></div>
+          <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4"><p className="text-[10px] uppercase font-bold text-slate-500">Unanswered</p><p className={`mt-1 text-2xl font-extrabold ${list.length - answered > 0 ? 'text-amber-500' : 'text-slate-400'}`}>{list.length - answered}</p></div>
+        </div>
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {list.map((q, i) => {
+            const hasAnswer = section === 'mcq' ? mcqAnswers[q.id] !== undefined : Boolean(theoryAnswers[q.id]?.trim());
+            return <button key={q.id} type="button" onClick={() => { setIndex(i); setShowSubmissionReview(false); }} className="w-full flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/30 p-3 text-left hover:border-slate-700">
+              <span className="text-xs font-bold">Question {i + 1}</span>
+              <span className={`text-[10px] font-bold ${hasAnswer ? 'text-emerald-400' : 'text-amber-400'}`}>{hasAnswer ? 'Answered · Edit' : 'Unanswered · Return'}</span>
+            </button>;
+          })}
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+          <label className="flex items-start gap-3 text-xs font-semibold text-slate-300 leading-relaxed">
+            <input type="checkbox" checked={honorCodeChecked} onChange={(event) => setHonorCodeChecked(event.target.checked)} className="mt-0.5 h-5 w-5 rounded border-slate-700 bg-slate-950 text-emerald-600" />
+            <span>I certify that this submission represents my own work and is in complete compliance with institutional academic honesty standards. I acknowledge that my session proctor transcript has been tracked and is ready to be processed by AURA Security Services.</span>
+          </label>
+        </div>
+        <div className="flex flex-col sm:flex-row justify-between gap-4 border-t border-slate-800 pt-4">
+          <button type="button" onClick={() => setShowSubmissionReview(false)} className="px-5 py-2.5 bg-slate-800 text-slate-300 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5"><ChevronLeft className="w-4 h-4"/> Return to Assessment</button>
+          <button type="button" disabled={!honorCodeChecked || busy} onClick={section === 'mcq' ? submitMcq : submitTheory} className="px-6 py-3 bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2"><CheckCircle className="w-4 h-4"/> {busy ? 'Submitting...' : section === 'mcq' ? 'Confirm MCQ Submission' : 'Confirm Final Submission'}</button>
+        </div>
+      </section> : <>
       <div className="flex flex-wrap gap-2">{list.map((q,i)=><button key={q.id} onClick={()=>setIndex(i)}
         className={`w-10 h-10 rounded-lg border font-bold ${i===index?'bg-emerald-600 border-emerald-500':'bg-slate-900 border-slate-800'}`}>{i+1}</button>)}</div>
       {current && <section className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-6">
@@ -418,9 +452,9 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
       <div className="flex justify-between gap-4">
         <button disabled={index===0} onClick={()=>setIndex(i=>Math.max(0,i-1))} className="px-4 py-2 rounded-lg bg-slate-800 disabled:opacity-30 flex gap-2"><ChevronLeft/> Previous</button>
         {index<list.length-1 ? <button onClick={()=>setIndex(i=>i+1)} className="px-4 py-2 rounded-lg bg-slate-800 flex gap-2">Next <ChevronRight/></button>
-        : section==='mcq' ? <button disabled={busy} onClick={submitMcq} className="px-6 py-3 rounded-lg bg-emerald-600 font-bold disabled:opacity-50">{busy?'Submitting...':'Submit MCQ & View Score'}</button>
-        : <button disabled={busy} onClick={submitTheory} className="px-6 py-3 rounded-lg bg-emerald-600 font-bold disabled:opacity-50">{busy?'Submitting...':'Submit Theory'}</button>}
+        : <button disabled={busy} onClick={()=>{setHonorCodeChecked(false);setShowSubmissionReview(true)}} className="px-6 py-3 rounded-lg bg-emerald-600 font-bold disabled:opacity-50">{section==='mcq'?'Review & Submit MCQ':'Review & Submit Theory'}</button>}
       </div>
+      </>}
     </main>
   </div>;
 }
