@@ -442,7 +442,7 @@ export async function recordLiveProctoringEvent(input: {
   message: string;
   metadata?: Record<string, unknown>;
   occurredAt?: string;
-}): Promise<{ accepted: boolean; riskScore: number; riskLevel: string; eventCount: number; qualifyingFlagCount: number; terminated: boolean; terminationReason?: string }> {
+}): Promise<{ accepted: boolean; riskScore: number; riskLevel: string; eventCount: number }> {
   const { data, error } = await supabase.rpc('record_my_agilecert_proctoring_event', {
     p_proctoring_session_id: input.proctoringSessionId,
     p_client_event_id: input.clientEventId,
@@ -453,7 +453,7 @@ export async function recordLiveProctoringEvent(input: {
     p_occurred_at: input.occurredAt || new Date().toISOString(),
   });
   if (error) throw new Error(error.message);
-  return asRecord(data) as unknown as { accepted: boolean; riskScore: number; riskLevel: string; eventCount: number; qualifyingFlagCount: number; terminated: boolean; terminationReason?: string };
+  return asRecord(data) as unknown as { accepted: boolean; riskScore: number; riskLevel: string; eventCount: number };
 }
 
 export async function submitIncidentExplanation(incidentId: string, explanation: string): Promise<void> {
