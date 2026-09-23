@@ -20,31 +20,7 @@ function browserFingerprint(): Record<string, unknown> {
 export async function getAvailableTests(): Promise<Test[]> {
   const { data, error } = await supabase.rpc('get_available_exams');
   if (error) throw new Error(`Unable to load examinations: ${error.message}`);
-  if (!Array.isArray(data)) return [];
-
-  return data.map((raw) => {
-    const test = raw as Test & { prices?: unknown };
-    const prices = test.prices;
-    const normalizedPrices = Array.isArray(prices)
-      ? prices.flatMap((entry) => {
-          if (!entry || typeof entry !== 'object') return [];
-          const value = entry as Record<string, unknown>;
-          const currency = typeof value.currency === 'string' ? value.currency.toUpperCase() : '';
-          const amountMinor = typeof value.amountMinor === 'number'
-            ? value.amountMinor
-            : typeof value.amount_minor === 'number'
-              ? value.amount_minor
-              : null;
-          return currency && amountMinor !== null ? [{ currency, amountMinor }] : [];
-        })
-      : prices && typeof prices === 'object'
-        ? Object.entries(prices as Record<string, unknown>)
-            .filter(([, amountMinor]) => typeof amountMinor === 'number')
-            .map(([currency, amountMinor]) => ({ currency: currency.toUpperCase(), amountMinor: amountMinor as number }))
-        : [];
-
-    return { ...test, prices: normalizedPrices } as unknown as Test;
-  });
+  return Array.isArray(data) ? (data as Test[]) : [];
 }
 
 export async function startSecureExam(examinationId: string): Promise<Test> {
@@ -150,46 +126,4 @@ export async function submitCipmnTheorySection(input: {
   }
 
   return gradingData as Attempt;
-}
-
-
-export interface ExamCartItem {
-  examinationId: string;
-  examinationTitle: string;
-  programmeCode: string;
-  position: number;
-  canLaunch: boolean;
-}
-
-export interface ExamCart {
-  cartId: string;
-  currency: string;
-  couponCode?: string | null;
-  itemCount: number;
-  items: ExamCartItem[];
-}
-
-export async function getMyExamCart(): Promise<ExamCart> {
-  const { data, error } = await supabase.rpc('get_my_exam_cart');
-  if (error) throw new Error(error.message);
-  return data as ExamCart;
-}
-
-export async function setExamCartItem(examinationId: string, selected: boolean): Promise<ExamCart> {
-  const { data, error } = await supabase.rpc('set_my_programme_exam_cart_item', {
-    p_examination_id: examinationId,
-    p_selected: selected,
-  });
-  if (error) throw new Error(error.message);
-  return data as ExamCart;
-}
-
-export async function checkoutExamCart(currency = 'NGN'): Promise<Record<string, unknown>> {
-  const { data, error } = await supabase.functions.invoke('initialize-exam-cart-payment', {
-    body: { currency, checkoutSource: 'agilecert_portal' },
-  });
-  if (error) throw new Error(error.message);
-  if (!data || typeof data !== 'object') throw new Error('Checkout could not be initialized.');
-  if ('error' in data && data.error) throw new Error(String(data.error));
-  return data as Record<string, unknown>;
 }
