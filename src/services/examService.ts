@@ -20,7 +20,24 @@ function browserFingerprint(): Record<string, unknown> {
 export async function getAvailableTests(): Promise<Test[]> {
   const { data, error } = await supabase.rpc('get_available_exams');
   if (error) throw new Error(`Unable to load examinations: ${error.message}`);
-  return Array.isArray(data) ? (data as Test[]) : [];
+  if (!Array.isArray(data)) return [];
+
+  // Keep the browser-facing catalogue shape backward compatible. Older
+  // commerce UI expects prices to be an array and iterates it during startup,
+  // while the secure catalogue may return a currency-keyed object.
+  return data.map((raw) => {
+    const test = raw as Test & { prices?: unknown };
+    const prices = test.prices;
+    const normalizedPrices = Array.isArray(prices)
+      ? prices
+      : prices && typeof prices === 'object'
+        ? Object.entries(prices as Record<string, unknown>)
+            .filter(([, amountMinor]) => typeof amountMinor === 'number')
+            .map(([currency, amountMinor]) => ({ currency, amountMinor }))
+        : [];
+
+    return { ...test, prices: normalizedPrices } as unknown as Test;
+  });
 }
 
 export async function startSecureExam(examinationId: string): Promise<Test> {
