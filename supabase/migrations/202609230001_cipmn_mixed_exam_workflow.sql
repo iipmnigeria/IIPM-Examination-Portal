@@ -119,7 +119,7 @@ begin
      from public.questions q where q.examination_id=e.id and q.is_active),'[]'::jsonb)
  ) into v_test from public.examinations e join public.programmes p on p.id=e.programme_id where e.id=p_examination_id;
  return v_test;
-end $;
+end $fn2$;
 
 create or replace function public.submit_cipmn_mcq_section(
   p_session_id uuid,
