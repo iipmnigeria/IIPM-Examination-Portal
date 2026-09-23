@@ -417,6 +417,7 @@ export default function App() {
                 <CipmnMixedExamScreen
                   test={selectedTest}
                   studentName={studentName}
+                  simType={simType}
                   onSubmitMcq={handleSubmitCipmnMcq}
                   onSubmitTheory={handleSubmitCipmnTheory}
                 />
