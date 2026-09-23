@@ -76,6 +76,7 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
   const [nextCheckIn, setNextCheckIn] = useState(12);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const autoSubmitStartedRef = useRef(false);
 
   const playAlertSound = () => {
     try {
@@ -329,6 +330,36 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
     }, 1000);
     return () => window.clearInterval(timer);
   }, [cameraRequired, cameraState]);
+
+  useEffect(() => {
+    if (timeLeft > 0 || busy || autoSubmitStartedRef.current || section === 'mcq_result') return;
+    autoSubmitStartedRef.current = true;
+
+    const submitExpiredSection = async () => {
+      alert('Security Notice: Time limit has expired. Your current assessment state is being packaged and submitted automatically.');
+      try {
+        if (section === 'mcq') {
+          const score = await onSubmitMcq(mcqAnswers, proctorLogs, tabAwayCount);
+          setMcqScore(score);
+          localStorage.removeItem(`aura_exam_answers_${test.id}`);
+          setMcqAnswers({});
+          setSection('mcq_result');
+          setShowSubmissionReview(false);
+          setHonorCodeChecked(false);
+          setIndex(0);
+        } else {
+          await onSubmitTheory(theoryAnswers, proctorLogs, tabAwayCount);
+          localStorage.removeItem(`aura_exam_theory_answers_${test.id}`);
+          localStorage.removeItem(`aura_exam_time_${test.id}`);
+        }
+      } catch (error) {
+        console.error('Automatic section submission failed:', error);
+        autoSubmitStartedRef.current = false;
+      }
+    };
+
+    void submitExpiredSection();
+  }, [timeLeft, busy, section, mcqAnswers, theoryAnswers, proctorLogs, tabAwayCount, onSubmitMcq, onSubmitTheory, test.id]);
 
   const current: Question | undefined = section === 'theory' ? theory[index] : mcqs[index];
   const list = section === 'theory' ? theory : mcqs;
