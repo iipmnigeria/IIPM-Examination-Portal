@@ -65,6 +65,21 @@ const formatMinor = (amountMinor: number, currency: string): string => {
 
 const moduleCode = (title: string): string => title.match(/CIPMN-MOD-\d{3}/i)?.[0] || 'CIPMN';
 
+const normaliseCataloguePrices = (prices: unknown): CataloguePrice[] => {
+  if (Array.isArray(prices)) return prices as CataloguePrice[];
+  if (!prices || typeof prices !== 'object') return [];
+
+  return Object.entries(prices as Record<string, unknown>).flatMap(([currency, amountMinor]) =>
+    typeof amountMinor === 'number'
+      ? [{
+          id: `legacy-${currency}`,
+          currency: currency.toUpperCase(),
+          amountMinor,
+        }]
+      : [],
+  );
+};
+
 const isUnlocked = (test: CartCatalogueTest): boolean =>
   Boolean(test.canLaunch || test.accessStatus === 'unlocked');
 
@@ -123,7 +138,7 @@ export default function CandidateCipmnModuleCart() {
     const source = selectedModules.length > 0 ? selectedModules : cipmnModules;
     const values = new Set<string>();
     source.forEach((test) => {
-      (test.prices || []).forEach((price) => values.add(price.currency));
+      normaliseCataloguePrices(test.prices).forEach((price) => values.add(price.currency));
       if (test.defaultPrice?.currency) values.add(test.defaultPrice.currency);
     });
     if (values.size === 0) values.add('NGN');
@@ -529,7 +544,7 @@ export default function CandidateCipmnModuleCart() {
                       {cipmnModules.map((test) => {
                         const selected = selectedIds.has(test.id);
                         const unlocked = isUnlocked(test);
-                        const price = (test.prices || []).find((item) => item.currency === currency) || test.defaultPrice;
+                        const price = normaliseCataloguePrices(test.prices).find((item) => item.currency === currency) || test.defaultPrice;
                         return (
                           <article
                             key={test.id}
