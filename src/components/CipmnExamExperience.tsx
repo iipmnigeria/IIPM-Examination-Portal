@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ProctorLogEvent, Test } from '../types';
+import type { ProctorLogEvent, ProctorEventType, Test } from '../types';
 import CipmnMixedExamScreen from './CipmnMixedExamScreen';
 import LiveProctoringEventBridge from './LiveProctoringEventBridge';
 import SecureExamIntegrityPreflight from './SecureExamIntegrityPreflight';
@@ -12,6 +12,25 @@ interface Props {
   onSubmitTheory: (answers: Record<string, string>, logs: ProctorLogEvent[], tabAwayCount: number) => Promise<void>;
   onExitExam: () => void;
 }
+
+const detectionType = (detections: unknown): ProctorEventType => {
+  const values = Array.isArray(detections) ? detections.map(String) : [];
+  if (values.includes('phone_detected')) return 'phone_detected';
+  if (values.includes('multiple_people')) return 'multiple_people';
+  if (values.includes('no_face')) return 'no_face';
+  if (values.includes('notes_detected')) return 'notes_detected';
+  return 'looking_away';
+};
+
+const requestSnapshot = (body: BodyInit | null | undefined): string | undefined => {
+  if (typeof body !== 'string') return undefined;
+  try {
+    const payload = JSON.parse(body) as Record<string, unknown>;
+    return typeof payload.image === 'string' && payload.image.startsWith('data:image/') ? payload.image : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 export default function CipmnExamExperience(props: Props) {
   const [activeTest, setActiveTest] = useState(props.test);
@@ -57,7 +76,25 @@ export default function CipmnExamExperience(props: Props) {
           }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
 
+        const capturedFrame = policy.retainWebcamImages ? requestSnapshot(init?.body) : undefined;
         const response = await originalFetch(input, init);
+        if (response.ok && policy.liveEventCaptureEnabled) {
+          void response.clone().json().then((payload: Record<string, unknown>) => {
+            if (!payload?.isSuspicious) return;
+            const confidence = Math.max(0, Math.min(1, Number(payload.confidence || 0)));
+            const detail = {
+              id: `ai-${Date.now()}-${crypto.randomUUID()}`,
+              timestamp: new Date().toISOString(),
+              type: detectionType(payload.detections),
+              severity: confidence >= 0.8 ? 'high' : 'medium',
+              message: String(payload.reason || 'AI visual-analysis risk indicator recorded.'),
+              aiGenerated: true,
+              confidence,
+              snapshotUrl: capturedFrame,
+            };
+            window.dispatchEvent(new CustomEvent('agilecert-proctor-event', { detail }));
+          }).catch(() => undefined);
+        }
         return response;
       };
 
@@ -75,16 +112,6 @@ export default function CipmnExamExperience(props: Props) {
       sessionStorage.removeItem('agilecert_active_proctoring_policy');
     };
   }, [activeTest.proctorPreflightRequired, activeTest.proctoringPolicy]);
-
-  useEffect(() => {
-    const terminate = (event: Event) => {
-      const detail = (event as CustomEvent<{ qualifyingFlagCount?: number; reason?: string }>).detail;
-      window.alert(detail?.reason || 'CIPMN preparation session terminated after four qualifying proctoring violations. Your integrity events have been recorded.');
-      props.onExitExam();
-    };
-    window.addEventListener('agilecert-proctor-terminated', terminate as EventListener);
-    return () => window.removeEventListener('agilecert-proctor-terminated', terminate as EventListener);
-  }, [props.onExitExam]);
 
   if (activeTest.proctorPreflightRequired) {
     return <SecureExamIntegrityPreflight test={activeTest} onReady={setActiveTest} onCancel={props.onExitExam} />;
