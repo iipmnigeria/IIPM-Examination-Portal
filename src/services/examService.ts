@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { fallbackExams } from '../fallbackData';
-import type { Attempt, ProctorLogEvent, Test } from '../types';
+import type { Attempt, ExamAnswer, ProctorLogEvent, Test } from '../types';
 
 function browserFingerprint(): Record<string, unknown> {
   if (typeof window === 'undefined') return {};
@@ -162,4 +162,41 @@ export async function assignExamToCandidate(input: {
 
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
+}
+
+
+export async function submitCipmnMcqSection(input: {
+  sessionId: string;
+  answers: Record<string, number>;
+  logs: ProctorLogEvent[];
+  tabAwayCount: number;
+}): Promise<{ sessionId: string; mcqScore: number; currentSection: 'theory'; locked: boolean }> {
+  const safeLogs = input.logs.map(({ snapshotUrl: _snapshotUrl, ...log }) => log);
+  const { data, error } = await supabase.rpc('submit_cipmn_mcq_section', {
+    p_session_id: input.sessionId,
+    p_answers: input.answers,
+    p_logs: safeLogs,
+    p_tab_away_count: input.tabAwayCount,
+  });
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== 'object') throw new Error('The MCQ result was not returned.');
+  return data as { sessionId: string; mcqScore: number; currentSection: 'theory'; locked: boolean };
+}
+
+export async function submitCipmnTheorySection(input: {
+  sessionId: string;
+  answers: Record<string, string>;
+  logs: ProctorLogEvent[];
+  tabAwayCount: number;
+}): Promise<Attempt> {
+  const safeLogs = input.logs.map(({ snapshotUrl: _snapshotUrl, ...log }) => log);
+  const { data, error } = await supabase.rpc('submit_cipmn_theory_section', {
+    p_session_id: input.sessionId,
+    p_answers: input.answers,
+    p_logs: safeLogs,
+    p_tab_away_count: input.tabAwayCount,
+  });
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== 'object') throw new Error('The theory submission receipt was not returned.');
+  return data as Attempt;
 }

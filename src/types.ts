@@ -1,8 +1,15 @@
+export type QuestionType = 'mcq' | 'theory';
+export type ExamSection = 'mcq' | 'theory';
+export type ExamAnswer = number | string;
+
 export interface Question {
   id: string;
   text: string;
   options: string[];
   correctOptionIndex?: number;
+  type?: QuestionType;
+  section?: ExamSection;
+  points?: number;
 }
 
 export interface Test {
@@ -16,6 +23,11 @@ export interface Test {
   sessionId?: string;
   assignmentId?: string;
   expiresAt?: string;
+  examFormat?: 'standard' | 'cipmn_mixed';
+  mcqCount?: number;
+  theoryCount?: number;
+  currentSection?: ExamSection;
+  mcqScore?: number;
 }
 
 export type ProctorEventType =
@@ -45,8 +57,11 @@ export interface Attempt {
   testTitle: string;
   startTime: string;
   endTime?: string;
-  answers: Record<string, number>;
+  answers: Record<string, ExamAnswer>;
   score?: number;
+  mcqScore?: number;
+  theoryScore?: number;
+  gradingStatus?: 'mcq_complete' | 'pending_theory_review' | 'final';
   logs: ProctorLogEvent[];
   status: 'ongoing' | 'submitted' | 'flagged' | 'terminated';
   suspiciousScore: number;
