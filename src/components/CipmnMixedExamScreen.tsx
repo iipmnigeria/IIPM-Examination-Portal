@@ -3,6 +3,21 @@ import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Lock, RefreshCw,
 import type { ProctorEventType, ProctorLogEvent, Question, Test } from '../types';
 import { clearSecuredCameraStream, takeSecuredCameraStream } from '../services/secureCameraSession';
 
+const API_BASE = (() => {
+  if (typeof window === 'undefined') return '';
+  const hostname = window.location.hostname;
+  if (
+    hostname.includes('localhost') ||
+    hostname.includes('run.app') ||
+    hostname.includes('0.0.0.0') ||
+    hostname.includes('127.0.0.1')
+  ) return '';
+  if (hostname.includes('github.io')) {
+    return 'https://ais-pre-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
+  }
+  return 'https://ais-dev-y7jivk2vjghx37l36lh74p-385275779151.europe-west2.run.app';
+})();
+
 interface Props {
   test: Test;
   studentName: string;
@@ -212,9 +227,51 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
     };
   }, []);
 
+  const captureAndAnalyzeProctorFrame = async () => {
+    if (!videoRef.current || !canvasRef.current || isAnalyzing) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx || video.readyState !== video.HAVE_ENOUGH_DATA) return;
+
+    setIsAnalyzing(true);
+    try {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const base64Image = canvas.toDataURL('image/jpeg', 0.6);
+      const response = await fetch(`${API_BASE}/api/proctor/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Image, testId: test.id, simType }),
+      });
+      if (!response.ok) throw new Error('Proctor server analysis request failed');
+      const result = await response.json();
+      if (result.isSuspicious) {
+        playAlertSound();
+        let type: ProctorEventType = 'looking_away';
+        if (result.detections.includes('phone_detected')) type = 'phone_detected';
+        else if (result.detections.includes('multiple_people')) type = 'multiple_people';
+        else if (result.detections.includes('no_face')) type = 'no_face';
+        else if (result.detections.includes('notes_detected')) type = 'notes_detected';
+        addProctorLog(type, 'high', `AI Alert: ${result.reason} (Confidence: ${Math.round(result.confidence * 100)}%)`, base64Image);
+      }
+    } catch (error) {
+      console.error('Proctor snapshot routine error:', error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   useEffect(() => {
     if (!cameraRequired || cameraState !== 'active') return;
-    const timer = window.setInterval(() => setNextCheckIn((previous) => previous <= 1 ? 12 : previous - 1), 1000);
+    const timer = window.setInterval(() => {
+      setNextCheckIn((previous) => {
+        if (previous <= 1) {
+          void captureAndAnalyzeProctorFrame();
+          return 12;
+        }
+        return previous - 1;
+      });
+    }, 1000);
     return () => window.clearInterval(timer);
   }, [cameraRequired, cameraState]);
 
