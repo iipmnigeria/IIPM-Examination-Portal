@@ -27,6 +27,7 @@ import {
 import { jsPDF } from 'jspdf';
 import { Test, Attempt } from '../types';
 import { clearSecuredCameraStream, holdSecuredCameraStream } from '../services/secureCameraSession';
+import { checkoutExamCart, getMyExamCart, setExamCartItem, type ExamCart } from '../services/examService';
 // @ts-ignore
 import iipmSeal from '../assets/images/iipm_seal_1784411386400.jpg';
 
@@ -59,6 +60,47 @@ export default function StudentDashboard({
   const [errorMessage, setErrorMessage] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const [examCart, setExamCart] = useState<ExamCart | null>(null);
+  const [commerceBusyId, setCommerceBusyId] = useState<string | null>(null);
+  const [commerceError, setCommerceError] = useState('');
+
+  useEffect(() => {
+    void getMyExamCart()
+      .then(setExamCart)
+      .catch((error) => setCommerceError(error instanceof Error ? error.message : 'Unable to load examination cart.'));
+  }, []);
+
+  const addToExamCart = async (examinationId: string) => {
+    try {
+      setCommerceBusyId(examinationId);
+      setCommerceError('');
+      const cart = await setExamCartItem(examinationId, true);
+      setExamCart(cart);
+    } catch (error) {
+      setCommerceError(error instanceof Error ? error.message : 'Unable to add this examination to the cart.');
+    } finally {
+      setCommerceBusyId(null);
+    }
+  };
+
+  const checkoutCart = async () => {
+    try {
+      setCommerceBusyId('checkout');
+      setCommerceError('');
+      const checkout = await checkoutExamCart('NGN');
+      if (checkout.canLaunch === true || checkout.status === 'already_unlocked' || checkout.status === 'fulfilled') {
+        window.location.reload();
+        return;
+      }
+      const authorizationUrl = typeof checkout.authorizationUrl === 'string' ? checkout.authorizationUrl : '';
+      if (!authorizationUrl) throw new Error('The payment gateway did not return a checkout link.');
+      window.location.assign(authorizationUrl);
+    } catch (error) {
+      setCommerceError(error instanceof Error ? error.message : 'Unable to initialize payment.');
+    } finally {
+      setCommerceBusyId(null);
+    }
+  };
 
   // Tab control
   const [activeTab, setActiveTab] = useState<'specialist' | 'cipmn' | 'gradebook'>('specialist');
@@ -673,6 +715,28 @@ export default function StudentDashboard({
               </div>
             </div>
 
+            {commerceError && (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">
+                {commerceError}
+              </div>
+            )}
+            {examCart && examCart.itemCount > 0 && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-bold text-emerald-900">Examination Cart</p>
+                  <p className="text-xs text-emerald-700">{examCart.itemCount} module{examCart.itemCount === 1 ? '' : 's'} selected for checkout.</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={commerceBusyId === 'checkout'}
+                  onClick={() => void checkoutCart()}
+                  className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {commerceBusyId === 'checkout' ? 'Preparing Checkout…' : 'Checkout Cart'}
+                </button>
+              </div>
+            )}
+
             <div className="space-y-4">
               {catalogueTests.length === 0 && (
                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
@@ -682,13 +746,15 @@ export default function StudentDashboard({
                 </div>
               )}
               {catalogueTests.map((test) => {
-                const commerceTest = test as Test & {
-                  canLaunch?: boolean;
-                  accessStatus?: string;
-                };
-                const canLaunch = Boolean(
-                  commerceTest.canLaunch || commerceTest.accessStatus === 'unlocked',
-                );
+                const canLaunch = Boolean(test.canLaunch || test.accessStatus === 'unlocked');
+                const isInCart = Boolean(examCart?.items?.some((item) => item.examinationId === test.id));
+                const ngnPrice = typeof test.prices?.NGN === 'number' ? test.prices.NGN / 100 : null;
+                const usdPrice = typeof test.prices?.USD === 'number' ? test.prices.USD / 100 : null;
+                const priceLabel = ngnPrice !== null
+                  ? `₦${ngnPrice.toLocaleString('en-NG')}`
+                  : usdPrice !== null
+                    ? `${usdPrice.toLocaleString('en-US')}`
+                    : null;
                 const pastAttempts = catalogueAttempts.filter(a => a.testId === test.id);
                 const isCompleted = pastAttempts.some(a => a.status === 'submitted' || a.status === 'flagged');
 
@@ -739,26 +805,44 @@ export default function StudentDashboard({
                       </div>
 
                       <div className="pt-2 self-center">
-                        <button
-                          key={`${test.id}-${canLaunch ? 'unlocked' : 'locked'}`}
-                          type="button"
-                          data-agilecert-access-status={canLaunch ? 'unlocked' : 'locked'}
-                          onClick={() => {
-                            // Candidate eligibility and profile completeness are
-                            // enforced by start_exam_secure. Do not block an
-                            // entitled candidate on stale browser-only name or
-                            // camera state before the secure session can start.
-                            void launchSecuredExam(test);
-                          }}
-                          className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
-                            isCompleted
-                              ? 'bg-slate-200 hover:bg-slate-300 text-slate-600'
-                              : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow'
-                          }`}
-                        >
-                          <Play className="w-4 h-4 fill-current" />
-                          {isCompleted ? 'Re-take Assessment' : 'Launch Secured Session'}
-                        </button>
+                        <div className="flex flex-col items-end gap-1.5">
+                          {!canLaunch && priceLabel && (
+                            <span className="text-xs font-extrabold text-slate-700">{priceLabel}</span>
+                          )}
+                          <button
+                            key={`${test.id}-${canLaunch ? 'unlocked' : 'locked'}`}
+                            type="button"
+                            disabled={!canLaunch && (!test.priceAvailable || isInCart || commerceBusyId === test.id)}
+                            data-agilecert-access-status={canLaunch ? 'unlocked' : 'locked'}
+                            onClick={() => {
+                              if (canLaunch) {
+                                void launchSecuredExam(test);
+                                return;
+                              }
+                              if (test.priceAvailable) void addToExamCart(test.id);
+                            }}
+                            className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
+                              canLaunch
+                                ? isCompleted
+                                  ? 'bg-slate-200 hover:bg-slate-300 text-slate-600'
+                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow'
+                                : test.priceAvailable
+                                  ? 'bg-slate-900 hover:bg-slate-800 text-white disabled:bg-slate-300 disabled:text-slate-600'
+                                  : 'bg-amber-100 text-amber-800 cursor-not-allowed'
+                            }`}
+                          >
+                            <Play className="w-4 h-4 fill-current" />
+                            {canLaunch
+                              ? isCompleted ? 'Re-take Assessment' : 'Unlocked · Launch'
+                              : !test.priceAvailable
+                                ? 'Fee unavailable'
+                                : isInCart
+                                  ? 'Added to Cart'
+                                  : commerceBusyId === test.id
+                                    ? 'Adding…'
+                                    : 'Add to Cart'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
