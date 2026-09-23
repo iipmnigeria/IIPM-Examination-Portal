@@ -117,24 +117,13 @@ export async function submitCipmnTheorySection(input: {
   const { data: gradingData, error: gradingError } = await supabase.functions.invoke('grade-cipmn-theory', {
     body: { sessionId: input.sessionId },
   });
-  if (gradingError) {
-    throw new Error('Your theory answers were saved, but automatic grading could not be completed. Please refresh your Gradebook or contact support.');
+
+  // The theory submission is already safely stored before AI grading begins.
+  // If the marker is temporarily unavailable, preserve the pending attempt for review.
+  if (gradingError || !gradingData || typeof gradingData !== 'object' || 'error' in gradingData) {
+    console.warn('Automatic CIPMN theory grading is pending:', gradingError || gradingData);
+    return data as Attempt;
   }
 
-  const grading = (gradingData || {}) as {
-    finalScore?: number;
-    mcqScore?: number;
-    theoryScore?: number;
-    attempt?: Record<string, unknown>;
-  };
-  const gradedAttempt = (grading.attempt || {}) as Record<string, unknown>;
-
-  return {
-    ...(data as Attempt),
-    id: String(gradedAttempt.id || (data as Attempt).id),
-    score: Number(grading.finalScore ?? gradedAttempt.percentage ?? (data as Attempt).score ?? 0),
-    mcqScore: Number(grading.mcqScore ?? gradedAttempt.mcq_percentage ?? 0),
-    theoryScore: Number(grading.theoryScore ?? gradedAttempt.theory_percentage ?? 0),
-    gradingStatus: 'final',
-  } as Attempt;
+  return gradingData as Attempt;
 }
