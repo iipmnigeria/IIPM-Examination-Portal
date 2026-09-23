@@ -688,6 +688,9 @@ export default function StudentDashboard({
                 const canLaunch = Boolean(
                   commerceTest.canLaunch || commerceTest.accessStatus === 'unlocked',
                 );
+                const pastAttempts = catalogueAttempts.filter(a => a.testId === test.id);
+                const isCompleted = pastAttempts.some(a => a.status === 'submitted' || a.status === 'flagged');
+
                 return (
                   <div 
                     key={test.id}
