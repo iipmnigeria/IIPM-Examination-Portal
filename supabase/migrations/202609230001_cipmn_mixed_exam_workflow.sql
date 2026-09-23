@@ -57,6 +57,28 @@ create policy "candidate_view_own_theory_grades" on public.theory_grades for sel
     where s.id = theory_grades.session_id and s.candidate_id = auth.uid()
   ));
 
+
+-- Candidate-facing catalogue/start functions expose section metadata only; answer keys remain isolated.
+create or replace function public.get_available_exams()
+returns jsonb language sql stable security definer set search_path=public as $
+  select coalesce(jsonb_agg(exam_payload order by title),'[]'::jsonb) from (
+    select e.title, jsonb_build_object(
+      'id',e.id,'title',e.title,'course',p.code,'durationMinutes',e.duration_minutes,
+      'questionCount',(select count(*) from public.questions q where q.examination_id=e.id and q.is_active),
+      'description',coalesce(p.description,e.instructions,''),'examFormat',e.exam_format,
+      'mcqCount',(select count(*) from public.questions q where q.examination_id=e.id and q.is_active and q.section='mcq'),
+      'theoryCount',(select count(*) from public.questions q where q.examination_id=e.id and q.is_active and q.section='theory'),
+      'questions',coalesce((select jsonb_agg(jsonb_build_object(
+        'id',q.id,'text',q.question_text,'type',case when q.question_type='theory' then 'theory' else 'mcq' end,'section',q.section,
+        'options',coalesce((select jsonb_agg(qo.option_text order by qo.position) from public.question_options qo where qo.question_id=q.id),'[]'::jsonb)
+      ) order by q.position) from public.questions q where q.examination_id=e.id and q.is_active),'[]'::jsonb)
+    ) exam_payload
+    from public.examinations e join public.programmes p on p.id=e.programme_id
+    where e.status='published' and (e.starts_at is null or e.starts_at<=now()) and (e.ends_at is null or e.ends_at>now())
+      and (public.is_exam_staff() or e.allow_self_enrollment or exists(select 1 from public.exam_assignments ea where ea.examination_id=e.id and ea.candidate_id=auth.uid() and ea.status='assigned' and (ea.available_from is null or ea.available_from<=now()) and (ea.expires_at is null or ea.expires_at>now())))
+  ) x;
+$;
+
 create or replace function public.submit_cipmn_mcq_section(
   p_session_id uuid,
   p_answers jsonb,
@@ -152,6 +174,9 @@ begin
     'mcqScore',v_session.mcq_percentage,'theoryScore',null,'gradingStatus','pending_theory_review','logs',coalesce(p_logs,'[]'::jsonb),
     'status','submitted','suspiciousScore',v_session.suspicious_score);
 end $$;
+
+revoke all on function public.get_available_exams() from public;
+grant execute on function public.get_available_exams() to authenticated;
 
 revoke all on function public.submit_cipmn_mcq_section(uuid,jsonb,jsonb,integer) from public;
 revoke all on function public.submit_cipmn_theory_section(uuid,jsonb,jsonb,integer) from public;
