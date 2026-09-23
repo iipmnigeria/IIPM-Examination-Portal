@@ -12,7 +12,8 @@ interface Props {
 export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, onSubmitTheory }: Props) {
   const mcqs = useMemo(() => test.questions.filter(q => (q.section || q.type) !== 'theory'), [test.questions]);
   const theory = useMemo(() => test.questions.filter(q => q.section === 'theory' || q.type === 'theory'), [test.questions]);
-  const [section, setSection] = useState<'mcq'|'mcq_result'|'theory'>('mcq');
+  const initialSection = test.currentSection === 'theory' ? 'theory' : 'mcq';
+  const [section, setSection] = useState<'mcq'|'mcq_result'|'theory'>(initialSection);
   const [index, setIndex] = useState(0);
   const [mcqAnswers, setMcqAnswers] = useState<Record<string, number>>({});
   const [theoryAnswers, setTheoryAnswers] = useState<Record<string, string>>({});
