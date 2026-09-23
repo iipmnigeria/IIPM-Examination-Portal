@@ -678,10 +678,10 @@ export default function ExamScreen({
       </header>
 
       {/* Main Container Layout */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-visible">
         
         {/* Left: Quick-Navigation Sidebar */}
-        <aside className="lg:col-span-3 xl:col-span-2 border-r border-slate-900 bg-slate-950/20 p-5 space-y-6 max-h-[calc(100vh-73px)] overflow-y-auto hidden lg:block">
+        <aside className="lg:col-span-2 border-r border-slate-900 bg-slate-950/20 p-5 space-y-6 hidden lg:block">
           <div className="space-y-1">
             <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-400 flex items-center gap-2">
               <ClipboardList className="w-4 h-4 text-emerald-500" /> Question Map
@@ -791,7 +791,7 @@ export default function ExamScreen({
         </aside>
 
         {/* Center: Dynamic Questions Sheet */}
-        <main className="lg:col-span-6 xl:col-span-7 p-6 md:p-8 space-y-8 overflow-y-auto max-h-[calc(100vh-73px)]">
+        <main className="lg:col-span-6 p-6 md:p-8 space-y-8">
           
           {showSummaryView ? (
             <div className="space-y-6">
@@ -1113,7 +1113,7 @@ export default function ExamScreen({
         </main>
 
         {/* Right Side: AI Proctoring Sidebar panel */}
-        <aside className="border-l border-slate-900 bg-slate-950/40 p-5 space-y-6 max-h-[calc(100vh-73px)] overflow-y-auto">
+        <aside className="lg:col-span-4 border-l border-slate-900 bg-slate-950/40 p-6 space-y-6 overflow-visible">
           
           {/* Section title */}
           <div className="space-y-1">
@@ -1181,7 +1181,7 @@ export default function ExamScreen({
           {/* 3. Dynamic Realtime log notifications */}
           <div className="space-y-3">
             <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Real-Time Integrity Logs</h4>
-            <div className="space-y-2 max-h-[190px] overflow-y-auto pr-1">
+            <div className="space-y-2 pr-1">
               {proctorLogs.length === 0 ? (
                 <div className="text-center py-6 text-slate-600 text-[11px] border border-dashed border-slate-900 rounded-lg bg-slate-950/20">
                   No integrity alerts logged. Compliance looks flawless.
