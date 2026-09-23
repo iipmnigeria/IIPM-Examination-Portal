@@ -22,18 +22,25 @@ export async function getAvailableTests(): Promise<Test[]> {
   if (error) throw new Error(`Unable to load examinations: ${error.message}`);
   if (!Array.isArray(data)) return [];
 
-  // Keep the browser-facing catalogue shape backward compatible. Older
-  // commerce UI expects prices to be an array and iterates it during startup,
-  // while the secure catalogue may return a currency-keyed object.
   return data.map((raw) => {
     const test = raw as Test & { prices?: unknown };
     const prices = test.prices;
     const normalizedPrices = Array.isArray(prices)
-      ? prices
+      ? prices.flatMap((entry) => {
+          if (!entry || typeof entry !== 'object') return [];
+          const value = entry as Record<string, unknown>;
+          const currency = typeof value.currency === 'string' ? value.currency.toUpperCase() : '';
+          const amountMinor = typeof value.amountMinor === 'number'
+            ? value.amountMinor
+            : typeof value.amount_minor === 'number'
+              ? value.amount_minor
+              : null;
+          return currency && amountMinor !== null ? [{ currency, amountMinor }] : [];
+        })
       : prices && typeof prices === 'object'
         ? Object.entries(prices as Record<string, unknown>)
             .filter(([, amountMinor]) => typeof amountMinor === 'number')
-            .map(([currency, amountMinor]) => ({ currency, amountMinor }))
+            .map(([currency, amountMinor]) => ({ currency: currency.toUpperCase(), amountMinor: amountMinor as number }))
         : [];
 
     return { ...test, prices: normalizedPrices } as unknown as Test;
