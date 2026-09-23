@@ -113,5 +113,28 @@ export async function submitCipmnTheorySection(input: {
   });
   if (error) throw new Error(error.message);
   if (!data || typeof data !== 'object') throw new Error('The theory submission receipt was not returned.');
-  return data as Attempt;
+
+  const { data: gradingData, error: gradingError } = await supabase.functions.invoke('grade-cipmn-theory', {
+    body: { sessionId: input.sessionId },
+  });
+  if (gradingError) {
+    throw new Error('Your theory answers were saved, but automatic grading could not be completed. Please refresh your Gradebook or contact support.');
+  }
+
+  const grading = (gradingData || {}) as {
+    finalScore?: number;
+    mcqScore?: number;
+    theoryScore?: number;
+    attempt?: Record<string, unknown>;
+  };
+  const gradedAttempt = (grading.attempt || {}) as Record<string, unknown>;
+
+  return {
+    ...(data as Attempt),
+    id: String(gradedAttempt.id || (data as Attempt).id),
+    score: Number(grading.finalScore ?? gradedAttempt.percentage ?? (data as Attempt).score ?? 0),
+    mcqScore: Number(grading.mcqScore ?? gradedAttempt.mcq_percentage ?? 0),
+    theoryScore: Number(grading.theoryScore ?? gradedAttempt.theory_percentage ?? 0),
+    gradingStatus: 'final',
+  } as Attempt;
 }
