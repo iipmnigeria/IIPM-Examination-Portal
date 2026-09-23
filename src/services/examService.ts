@@ -127,3 +127,45 @@ export async function submitCipmnTheorySection(input: {
 
   return gradingData as Attempt;
 }
+
+
+export interface ExamCartItem {
+  examinationId: string;
+  examinationTitle: string;
+  programmeCode: string;
+  position: number;
+  canLaunch: boolean;
+}
+
+export interface ExamCart {
+  cartId: string;
+  currency: string;
+  couponCode?: string | null;
+  itemCount: number;
+  items: ExamCartItem[];
+}
+
+export async function getMyExamCart(): Promise<ExamCart> {
+  const { data, error } = await supabase.rpc('get_my_exam_cart');
+  if (error) throw new Error(error.message);
+  return data as ExamCart;
+}
+
+export async function setExamCartItem(examinationId: string, selected: boolean): Promise<ExamCart> {
+  const { data, error } = await supabase.rpc('set_my_programme_exam_cart_item', {
+    p_examination_id: examinationId,
+    p_selected: selected,
+  });
+  if (error) throw new Error(error.message);
+  return data as ExamCart;
+}
+
+export async function checkoutExamCart(currency = 'NGN'): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.functions.invoke('initialize-exam-cart-payment', {
+    body: { currency, checkoutSource: 'agilecert_portal' },
+  });
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== 'object') throw new Error('Checkout could not be initialized.');
+  if ('error' in data && data.error) throw new Error(String(data.error));
+  return data as Record<string, unknown>;
+}
