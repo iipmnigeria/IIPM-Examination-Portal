@@ -60,7 +60,7 @@ create policy "candidate_view_own_theory_grades" on public.theory_grades for sel
 
 -- Candidate-facing catalogue/start functions expose section metadata only; answer keys remain isolated.
 create or replace function public.get_available_exams()
-returns jsonb language sql stable security definer set search_path=public as $
+returns jsonb language sql stable security definer set search_path=public as $fn1$
   select coalesce(jsonb_agg(exam_payload order by title),'[]'::jsonb) from (
     select e.title, jsonb_build_object(
       'id',e.id,'title',e.title,'course',p.code,'durationMinutes',e.duration_minutes,
@@ -77,13 +77,13 @@ returns jsonb language sql stable security definer set search_path=public as $
     where e.status='published' and (e.starts_at is null or e.starts_at<=now()) and (e.ends_at is null or e.ends_at>now())
       and (public.is_exam_staff() or e.allow_self_enrollment or exists(select 1 from public.exam_assignments ea where ea.examination_id=e.id and ea.candidate_id=auth.uid() and ea.status='assigned' and (ea.available_from is null or ea.available_from<=now()) and (ea.expires_at is null or ea.expires_at>now())))
   ) x;
-$;
+$fn1$;
 
 
 create or replace function public.start_exam_secure(
   p_examination_id uuid,
   p_client_fingerprint jsonb default '{}'::jsonb
-) returns jsonb language plpgsql security definer set search_path=public as $
+) returns jsonb language plpgsql security definer set search_path=public as $fn2$
 declare
  v_uid uuid:=auth.uid(); v_exam public.examinations%rowtype; v_assignment public.exam_assignments%rowtype;
  v_session public.exam_sessions%rowtype; v_count integer; v_max integer; v_exp timestamptz; v_test jsonb;
