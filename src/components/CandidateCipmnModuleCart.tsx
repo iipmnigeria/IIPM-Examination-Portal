@@ -51,17 +51,19 @@ type CardPortalRoot = {
 };
 
 const formatMinor = (amountMinor: number, currency: string): string => {
-  const normalisedCurrency = (currency || 'NGN').toUpperCase();
-  return new Intl.NumberFormat(normalisedCurrency === 'NGN' ? 'en-NG' : 'en-US', {
-    style: 'currency',
-    currency: normalisedCurrency,
-    minimumFractionDigits: normalisedCurrency === 'NGN' ? 0 : 2,
-    maximumFractionDigits: normalisedCurrency === 'NGN' ? 0 : 2,
-  }).format(amountMinor / 100);
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(amountMinor / 100);
+  } catch {
+    return `${currency} ${(amountMinor / 100).toLocaleString()}`;
+  }
 };
 
-const examinationCode = (test: CartCatalogueTest): string =>
-  test.course?.trim() || test.title.match(/[A-Z][A-Z0-9-]{2,}/)?.[0] || 'EXAM';
+const moduleCode = (title: string): string => title.match(/CIPMN-MOD-\d{3}/i)?.[0] || 'CIPMN';
 
 const isUnlocked = (test: CartCatalogueTest): boolean =>
   Boolean(test.canLaunch || test.accessStatus === 'unlocked');
@@ -87,16 +89,16 @@ export default function CandidateCipmnModuleCart() {
   const loadRequestRef = useRef(0);
   const quoteRequestRef = useRef(0);
 
-  const availableExaminations = useMemo(
+  const cipmnModules = useMemo(
     () => catalogue
-      .filter((test) => test.requiresPayment !== false)
+      .filter((test) => test.course === 'CIPMN-MOCK')
       .sort((a, b) => a.title.localeCompare(b.title)),
     [catalogue],
   );
 
-  const examinationById = useMemo(
-    () => new Map(availableExaminations.map((test) => [test.id, test])),
-    [availableExaminations],
+  const moduleById = useMemo(
+    () => new Map(cipmnModules.map((test) => [test.id, test])),
+    [cipmnModules],
   );
 
   const selectedIds = useMemo(
@@ -104,9 +106,9 @@ export default function CandidateCipmnModuleCart() {
     [cart],
   );
 
-  const selectedExaminations = useMemo(
-    () => availableExaminations.filter((test) => selectedIds.has(test.id)),
-    [availableExaminations, selectedIds],
+  const selectedModules = useMemo(
+    () => cipmnModules.filter((test) => selectedIds.has(test.id)),
+    [cipmnModules, selectedIds],
   );
 
   const cartItemKey = useMemo(
@@ -118,7 +120,7 @@ export default function CandidateCipmnModuleCart() {
   );
 
   const currencies = useMemo(() => {
-    const source = selectedExaminations.length > 0 ? selectedExaminations : availableExaminations;
+    const source = selectedModules.length > 0 ? selectedModules : cipmnModules;
     const values = new Set<string>();
     source.forEach((test) => {
       (test.prices || []).forEach((price) => values.add(price.currency));
@@ -128,7 +130,7 @@ export default function CandidateCipmnModuleCart() {
     return Array.from(values).sort((a, b) => (
       a === 'NGN' ? -1 : b === 'NGN' ? 1 : a.localeCompare(b)
     ));
-  }, [availableExaminations, selectedExaminations]);
+  }, [cipmnModules, selectedModules]);
 
   const refreshAuthorisation = useCallback(async () => {
     try {
@@ -173,7 +175,7 @@ export default function CandidateCipmnModuleCart() {
       setWorkspaceReady(true);
     } catch (loadError) {
       if (requestId !== loadRequestRef.current) return;
-      setError(loadError instanceof Error ? loadError.message : 'Unable to load the examination cart.');
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load the CIPMN module cart.');
     } finally {
       if (requestId === loadRequestRef.current) setLoading(false);
     }
@@ -223,8 +225,8 @@ export default function CandidateCipmnModuleCart() {
       setMessage('');
       const updated = await setMyExamCartItem({ examinationId: test.id, selected });
       setCart(updated);
-      setMessage(`${examinationCode(test)} ${selected ? 'added to' : 'removed from'} the cart.`);
-      window.dispatchEvent(new CustomEvent('agilecert-exam-cart-updated', {
+      setMessage(`${moduleCode(test.title)} ${selected ? 'added to' : 'removed from'} the cart.`);
+      window.dispatchEvent(new CustomEvent('agilecert-cipmn-cart-updated', {
         detail: {
           examinationId: test.id,
           selected,
@@ -253,7 +255,7 @@ export default function CandidateCipmnModuleCart() {
       }
 
       if (order.status === 'fulfilled') {
-        setMessage('All selected examinations have been unlocked successfully.');
+        setMessage('All selected modules have been unlocked successfully.');
         setQuote(null);
         await loadWorkspace(false);
         window.dispatchEvent(new Event('iipm-commerce-refresh'));
@@ -312,7 +314,7 @@ export default function CandidateCipmnModuleCart() {
       }
 
       const nextRoots: CardPortalRoot[] = [];
-      availableExaminations.forEach((test) => {
+      cipmnModules.forEach((test) => {
         const card = document.getElementById(`exam-card-${test.id}`);
         const launchButton = Array.from(card?.querySelectorAll<HTMLButtonElement>('button') || []).find(
           (button) => !button.closest('[data-agilecert-cipmn-card-cart-mount]'),
@@ -328,13 +330,8 @@ export default function CandidateCipmnModuleCart() {
           cardMount = document.createElement('div');
           cardMount.dataset.agilecertCipmnCardCartMount = test.id;
           cardMount.className = 'w-full';
-          // Keep the real launch/payment action first in DOM order. The card
-          // repair layer relies on this invariant to distinguish it from the
-          // portal-mounted cart action and to avoid a remove/recreate loop.
-          actionArea.insertBefore(cardMount, launchButton.nextSibling);
+          actionArea.insertBefore(cardMount, launchButton);
         }
-        cardMount.style.order = '1';
-        launchButton.style.order = '2';
         nextRoots.push({ examinationId: test.id, element: cardMount });
       });
 
@@ -356,7 +353,7 @@ export default function CandidateCipmnModuleCart() {
     const observer = new MutationObserver(attach);
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [availableExaminations, isCandidate]);
+  }, [cipmnModules, isCandidate]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -395,7 +392,7 @@ export default function CandidateCipmnModuleCart() {
           type="button"
           onClick={openCart}
           className="relative flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold text-slate-400 transition hover:bg-slate-800 hover:text-white"
-          aria-label="Open examination cart"
+          aria-label="Open CIPMN multi-module cart"
         >
           <ShoppingCart className="h-3.5 w-3.5 text-emerald-300" />
           <span className="hidden xl:inline">Cart</span>
@@ -415,7 +412,7 @@ export default function CandidateCipmnModuleCart() {
     : null;
 
   const examinationCardButtons = cardRoots.map(({ examinationId, element }) => {
-    const test = examinationById.get(examinationId);
+    const test = moduleById.get(examinationId);
     if (!test) return null;
     const selected = selectedIds.has(test.id);
     const unlocked = isUnlocked(test);
@@ -474,10 +471,10 @@ export default function CandidateCipmnModuleCart() {
                   <ShoppingCart className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-300">Systemwide examination checkout</p>
-                  <h2 className="text-xl font-black md:text-2xl">Select and pay for examinations</h2>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-300">CIPMN bulk checkout</p>
+                  <h2 className="text-xl font-black md:text-2xl">Select and pay for multiple modules</h2>
                   <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-300">
-                    Add any IIPM, AgileCert or CIPMN examination directly from its card. Your secure total updates automatically.
+                    Add modules directly from each examination card. Your secure total and coupon discount update automatically.
                   </p>
                 </div>
               </div>
@@ -486,7 +483,7 @@ export default function CandidateCipmnModuleCart() {
                 onClick={() => setIsOpen(false)}
                 disabled={checkingOut}
                 className="rounded-xl border border-slate-700 p-2 text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-50"
-                aria-label="Close examination cart"
+                aria-label="Close CIPMN module cart"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -506,16 +503,16 @@ export default function CandidateCipmnModuleCart() {
 
               {loading && !workspaceReady ? (
                 <div className="flex min-h-64 items-center justify-center text-slate-500">
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading the secure examination cart…
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading the secure module cart…
                 </div>
               ) : (
                 <div className="grid gap-6 lg:grid-cols-[minmax(0,1.55fr)_minmax(330px,0.85fr)]">
                   <div className="space-y-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                       <div>
-                        <h3 className="text-lg font-black text-slate-900">Available examinations</h3>
+                        <h3 className="text-lg font-black text-slate-900">Available CIPMN modules</h3>
                         <p className="mt-1 text-sm text-slate-600">
-                          Every locked examination shows Payment Required and can be added once. Already unlocked examinations remain protected from duplicate purchase.
+                          Use the Add to Cart button beside each examination or manage all modules here. Already unlocked modules remain protected from duplicate purchase.
                         </p>
                       </div>
                       <button
@@ -529,7 +526,7 @@ export default function CandidateCipmnModuleCart() {
                     </div>
 
                     <div className="grid gap-3 md:grid-cols-2">
-                      {availableExaminations.map((test) => {
+                      {cipmnModules.map((test) => {
                         const selected = selectedIds.has(test.id);
                         const unlocked = isUnlocked(test);
                         const price = (test.prices || []).find((item) => item.currency === currency) || test.defaultPrice;
@@ -547,7 +544,7 @@ export default function CandidateCipmnModuleCart() {
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <span className="rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-white">
-                                  {examinationCode(test)}
+                                  {moduleCode(test.title)}
                                 </span>
                                 <h4 className="mt-3 text-sm font-black leading-6 text-slate-900">{test.title}</h4>
                               </div>
@@ -580,7 +577,7 @@ export default function CandidateCipmnModuleCart() {
                             <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-3 text-xs">
                               <span className="text-slate-500">{test.questionCount} questions · {test.durationMinutes} mins</span>
                               <span className="font-black text-slate-900">
-                                {unlocked ? 'Unlocked' : price ? `Payment Required · ${formatMinor(price.amountMinor, price.currency)}` : 'Payment Required · Price unavailable'}
+                                {unlocked ? 'Unlocked' : price ? formatMinor(price.amountMinor, price.currency) : 'Price unavailable'}
                               </span>
                             </div>
                           </article>
@@ -595,7 +592,7 @@ export default function CandidateCipmnModuleCart() {
                         <div>
                           <p className="text-xs font-black uppercase tracking-wider text-slate-500">Your cart</p>
                           <h3 className="mt-1 text-xl font-black text-slate-950">
-                            {cart?.itemCount || 0} examination{cart?.itemCount === 1 ? '' : 's'}
+                            {cart?.itemCount || 0} module{cart?.itemCount === 1 ? '' : 's'}
                           </h3>
                         </div>
                         <div className="rounded-2xl bg-slate-950 p-3 text-emerald-300">
@@ -604,15 +601,15 @@ export default function CandidateCipmnModuleCart() {
                       </div>
 
                       <div className="mt-4 max-h-56 space-y-2 overflow-y-auto pr-1">
-                        {selectedExaminations.length === 0 ? (
+                        {selectedModules.length === 0 ? (
                           <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-500">
-                            Select one or more examinations from the catalogue cards.
+                            Select one or more modules from the examination cards.
                           </div>
                         ) : (
-                          selectedExaminations.map((test) => (
+                          selectedModules.map((test) => (
                             <div key={test.id} className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
                               <div>
-                                <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">{examinationCode(test)}</p>
+                                <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">{moduleCode(test.title)}</p>
                                 <p className="mt-1 text-xs font-bold leading-5 text-slate-800">{test.title}</p>
                               </div>
                               <button
@@ -677,7 +674,7 @@ export default function CandidateCipmnModuleCart() {
                       <div className={`rounded-3xl border border-emerald-200 bg-emerald-50 p-5 transition ${quoting ? 'opacity-70' : ''}`}>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between gap-4 text-slate-700">
-                            <span>Examination total</span>
+                            <span>Module total</span>
                             <strong>{formatMinor(quote.listAmountMinor, quote.currency)}</strong>
                           </div>
                           <div className="flex justify-between gap-4 text-emerald-800">
@@ -709,7 +706,7 @@ export default function CandidateCipmnModuleCart() {
 
                         <div className="mt-4 flex items-start gap-2 text-xs leading-5 text-emerald-900">
                           <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
-                          One Paystack reference covers the complete cart. Each examination still receives its own authoritative access and audit record.
+                          One Paystack reference covers the complete cart. Each module still receives its own authoritative access and audit record.
                         </div>
                       </div>
                     )}
@@ -736,7 +733,7 @@ export default function CandidateCipmnModuleCart() {
                                 </span>
                               </div>
                               <p className="mt-2 text-xs font-bold text-slate-800">
-                                {order.itemCount} examinations · {formatMinor(order.payableAmountMinor, order.currency)}
+                                {order.itemCount} modules · {formatMinor(order.payableAmountMinor, order.currency)}
                               </p>
                             </div>
                           ))}
