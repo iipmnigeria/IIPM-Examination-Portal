@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Lock, RefreshCw, ShieldAlert, Video } from 'lucide-react';
 import type { ProctorEventType, ProctorLogEvent, Question, Test } from '../types';
 import { clearSecuredCameraStream, takeSecuredCameraStream } from '../services/secureCameraSession';
+import CountdownTimer from './CountdownTimer';
 
 const API_BASE = (() => {
   if (typeof window === 'undefined') return '';
@@ -36,6 +37,14 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
   const [theoryAnswers, setTheoryAnswers] = useState<Record<string, string>>({});
   const [mcqScore, setMcqScore] = useState<number | null>(test.mcqScore ?? null);
   const [busy, setBusy] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`aura_exam_time_${test.id}`);
+      return saved ? parseInt(saved, 10) : test.durationMinutes * 60;
+    } catch {
+      return test.durationMinutes * 60;
+    }
+  });
 
   // Original secured-exam proctoring/integrity state.
   const cameraRequired = Boolean(test.proctoringPolicy?.requireCamera);
@@ -276,6 +285,24 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
   }, [cameraRequired, cameraState]);
 
 
+  useEffect(() => {
+    localStorage.setItem(`aura_exam_time_${test.id}`, timeLeft.toString());
+  }, [timeLeft, test.id]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTimeLeft((previous) => {
+        if (cameraRequired && cameraState !== 'active') return previous;
+        if (previous <= 1) {
+          window.clearInterval(timer);
+          return 0;
+        }
+        return previous - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [cameraRequired, cameraState]);
+
   const current: Question | undefined = section === 'theory' ? theory[index] : mcqs[index];
   const list = section === 'theory' ? theory : mcqs;
   const answered = section === 'theory'
@@ -337,8 +364,11 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
       <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400"><span className={`h-2 w-2 rounded-full ${proctorStatus === 'healthy' ? 'bg-emerald-500' : proctorStatus === 'warning' ? 'bg-amber-500' : 'bg-rose-500'}`}></span> Secure Proctor Mode Active · {tabAwayCount} security event{tabAwayCount === 1 ? '' : 's'}</div>
       <div><p className="text-xs text-emerald-400 font-bold uppercase">{section==='mcq'?'Section A — MCQ':'Section B — Theory'}</p>
       <h1 className="font-bold">{test.title}</h1><p className="text-xs text-slate-400">Candidate: {studentName}</p></div>
-      <div className="text-right"><p className="font-bold">{answered} / {list.length} answered</p>
+      <div className="flex items-center gap-5">
+        <CountdownTimer timeLeft={timeLeft} durationMinutes={test.durationMinutes} />
+        <div className="text-right"><p className="font-bold">{answered} / {list.length} answered</p>
       {section==='theory' && mcqScore!==null && <p className="text-xs text-slate-400 flex gap-1 items-center justify-end"><Lock className="w-3 h-3"/> MCQ locked: {mcqScore}%</p>}</div>
+      </div>
     </header>
     <main className="max-w-4xl mx-auto p-6 md:p-10 space-y-6">
       <div className="flex flex-wrap gap-2">{list.map((q,i)=><button key={q.id} onClick={()=>setIndex(i)}
