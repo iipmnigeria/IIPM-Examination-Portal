@@ -748,8 +748,10 @@ export default function StudentDashboard({
               {catalogueTests.map((test) => {
                 const canLaunch = Boolean(test.canLaunch || test.accessStatus === 'unlocked');
                 const isInCart = Boolean(examCart?.items?.some((item) => item.examinationId === test.id));
-                const ngnPrice = typeof test.prices?.NGN === 'number' ? test.prices.NGN / 100 : null;
-                const usdPrice = typeof test.prices?.USD === 'number' ? test.prices.USD / 100 : null;
+                const ngnAmount = test.prices?.find((price) => price.currency === 'NGN')?.amountMinor;
+                const usdAmount = test.prices?.find((price) => price.currency === 'USD')?.amountMinor;
+                const ngnPrice = typeof ngnAmount === 'number' ? ngnAmount / 100 : null;
+                const usdPrice = typeof usdAmount === 'number' ? usdAmount / 100 : null;
                 const priceLabel = ngnPrice !== null
                   ? `₦${ngnPrice.toLocaleString('en-NG')}`
                   : usdPrice !== null
