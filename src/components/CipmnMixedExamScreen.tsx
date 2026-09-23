@@ -71,7 +71,6 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
   const [proctorLogs, setProctorLogs] = useState<ProctorLogEvent[]>([]);
   const [tabAwayCount, setTabAwayCount] = useState(0);
   const [showBlurModal, setShowBlurModal] = useState(false);
-  const lastTabAwayAtRef = useRef(0);
   const [proctorStatus, setProctorStatus] = useState<'healthy' | 'warning' | 'critical'>('healthy');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [nextCheckIn, setNextCheckIn] = useState(12);
@@ -190,9 +189,6 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
 
   useEffect(() => {
     const handleWindowBlur = () => {
-      const now = Date.now();
-      if (now - lastTabAwayAtRef.current < 1200) return;
-      lastTabAwayAtRef.current = now;
       setTabAwayCount((previous) => {
         const next = previous + 1;
         addProctorLog('tab_away', 'high', `Security Alert: Student blurred or exited the exam viewport (${next} time). Logged onto credentials.`);
@@ -203,9 +199,6 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        const now = Date.now();
-        if (now - lastTabAwayAtRef.current < 1200) return;
-        lastTabAwayAtRef.current = now;
         setTabAwayCount((previous) => {
           const next = previous + 1;
           addProctorLog('tab_away', 'high', `Security Alert: Student minimized or switched browser tab (${next} time).`);
