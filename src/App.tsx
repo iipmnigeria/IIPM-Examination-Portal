@@ -36,14 +36,19 @@ interface MaterialsDestination {
   examinationId: string | null;
 }
 
+const EXAMINATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function normaliseExaminationId(candidateId: unknown): string | null {
+  if (typeof candidateId !== 'string') return null;
+  const value = candidateId.trim();
+  return EXAMINATION_ID_PATTERN.test(value) ? value : null;
+}
+
 function readMaterialsDestination(): MaterialsDestination {
   if (typeof window === 'undefined') return { requested: false, examinationId: null };
   const parameters = new URLSearchParams(window.location.search);
   const requested = parameters.get('view') === 'materials';
-  const candidateId = parameters.get('examinationId')?.trim() || '';
-  const examinationId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidateId)
-    ? candidateId
-    : null;
+  const examinationId = normaliseExaminationId(parameters.get('examinationId'));
   return { requested, examinationId };
 }
 
@@ -82,6 +87,22 @@ export default function App() {
     if (studentName) localStorage.setItem('aura_student_name', studentName);
     else localStorage.removeItem('aura_student_name');
   }, [studentName]);
+
+  useEffect(() => {
+    if (userRole !== 'student') return;
+
+    const openContextualMaterials = (event: Event) => {
+      const customEvent = event as CustomEvent<{ examinationId?: unknown }>;
+      const examinationId = normaliseExaminationId(customEvent.detail?.examinationId);
+      if (!examinationId) return;
+
+      setMaterialsExaminationId(examinationId);
+      setView('materials');
+    };
+
+    window.addEventListener('agilecert-materials-open', openContextualMaterials as EventListener);
+    return () => window.removeEventListener('agilecert-materials-open', openContextualMaterials as EventListener);
+  }, [userRole]);
 
   const fetchPortalData = async () => {
     if (!userRole) {
@@ -453,8 +474,17 @@ export default function App() {
       </div>
 
       {view !== 'exam' && (
-        <footer className="bg-slate-100 border-t border-slate-200 py-6 text-center text-xs text-slate-500">
-          AgileCert Global — Powered by the Integrated Institute of Professional Management
+        <footer className="bg-slate-950 border-t border-slate-900 text-slate-500 py-8 mt-12">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <GraduationCap className="w-4 h-4 text-emerald-600" />
+              <span className="text-xs font-bold text-slate-400">AgileCert Global</span>
+            </div>
+            <div className="text-[10px] text-center md:text-right">
+              <p>Professional Examination Infrastructure · Integrated Institute of Professional Management</p>
+              <p className="mt-1">All examination activity is securely logged for audit and credential verification.</p>
+            </div>
+          </div>
         </footer>
       )}
     </div>
