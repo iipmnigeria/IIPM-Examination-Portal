@@ -22,6 +22,7 @@ function attachCipmnModuleEnhancements() {
 
     const accessStatus = examAction.dataset.agilecertAccessStatus?.trim().toLowerCase();
     const locked = accessStatus !== 'unlocked';
+    const examUnlocked = !locked && !examAction.disabled;
 
     if (!card.querySelector('[data-agilecert-cipmn-open-materials="true"]')) {
       const materialsMount = document.createElement('div') as MountElement;
@@ -46,7 +47,8 @@ function attachCipmnModuleEnhancements() {
         <CipmnModuleHubContext
           moduleTitle={moduleTitle}
           materialsUnlocked={!locked}
-          examUnlocked={!locked}
+          examUnlocked={examUnlocked}
+          onAttemptMcq={examUnlocked ? () => examAction.click() : undefined}
         />,
       );
     }
