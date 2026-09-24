@@ -33,6 +33,7 @@ import CandidatePrimaryToolsMenu from './components/CandidatePrimaryToolsMenu';
 import CandidateSponsoredAccessWorkspace from './components/CandidateSponsoredAccessWorkspace';
 import CandidateVideoLearningProgressLauncher from './components/CandidateVideoLearningProgressLauncher';
 import CertificatePaymentReturnHandler from './components/CertificatePaymentReturnHandler';
+import CipmnModuleMaterialsMount from './components/CipmnModuleMaterialsMount';
 import LegacyCertificateSecurityGate from './components/LegacyCertificateSecurityGate';
 import PaymentReturnHandler from './components/PaymentReturnHandler';
 import PublicCertificateVerification from './components/PublicCertificateVerification';
@@ -173,6 +174,7 @@ createRoot(rootElement).render(
         <App />
         <CandidatePrimaryToolsMenu />
         <CandidateCipmnModuleCart />
+        <CipmnModuleMaterialsMount />
         <AdminPrimaryToolsMenu />
         <AgileCertPolicyExperience />
         <CandidateCommerceOverlay />
