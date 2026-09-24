@@ -236,6 +236,20 @@ export interface OpenProctoringResult {
   policy: ProctoringPolicyPayload;
 }
 
+export interface LiveProctoringEventResult {
+  accepted: boolean;
+  riskScore: number;
+  riskLevel: string;
+  eventCount: number;
+  deduplicated?: boolean;
+  qualifyingFlag?: boolean;
+  flagFamily?: string | null;
+  qualifyingFlagCount?: number;
+  flagLimit?: number | null;
+  terminated?: boolean;
+  terminationReason?: string | null;
+}
+
 const emptyWorkspace: CandidateIntegrityWorkspace = {
   policies: [],
   identityDocuments: [],
@@ -442,7 +456,7 @@ export async function recordLiveProctoringEvent(input: {
   message: string;
   metadata?: Record<string, unknown>;
   occurredAt?: string;
-}): Promise<{ accepted: boolean; riskScore: number; riskLevel: string; eventCount: number }> {
+}): Promise<LiveProctoringEventResult> {
   const { data, error } = await supabase.rpc('record_my_agilecert_proctoring_event', {
     p_proctoring_session_id: input.proctoringSessionId,
     p_client_event_id: input.clientEventId,
@@ -453,7 +467,7 @@ export async function recordLiveProctoringEvent(input: {
     p_occurred_at: input.occurredAt || new Date().toISOString(),
   });
   if (error) throw new Error(error.message);
-  return asRecord(data) as unknown as { accepted: boolean; riskScore: number; riskLevel: string; eventCount: number };
+  return asRecord(data) as unknown as LiveProctoringEventResult;
 }
 
 export async function submitIncidentExplanation(incidentId: string, explanation: string): Promise<void> {
@@ -508,9 +522,9 @@ export async function updateIdentityProctoringPolicy(policy: AdminIntegrityPolic
     p_require_fullscreen: policy.requireFullscreen,
     p_live_event_capture_enabled: policy.liveEventCaptureEnabled,
     p_ai_visual_analysis_enabled: policy.aiVisualAnalysisEnabled,
-    p_external_kyc_enabled: false,
-    p_automated_face_match_enabled: false,
-    p_liveness_check_enabled: false,
+    p_external_kyc_enabled: policy.externalKycEnabled,
+    p_automated_face_match_enabled: policy.automatedFaceMatchEnabled,
+    p_liveness_enabled: policy.livenessEnabled,
     p_retain_webcam_images: policy.retainWebcamImages,
     p_incident_threshold: policy.incidentThreshold,
     p_critical_threshold: policy.criticalThreshold,
@@ -523,31 +537,40 @@ export async function updateIdentityProctoringPolicy(policy: AdminIntegrityPolic
   if (error) throw new Error(error.message);
 }
 
+export async function getAdminSensitiveIdentitySignedUrl(path: string, expiresIn = 180): Promise<string> {
+  const { data, error } = await supabase.rpc('get_agilecert_sensitive_identity_signed_url', {
+    p_object_path: path,
+    p_expires_in_seconds: expiresIn,
+  });
+  if (error) throw new Error(error.message);
+  const url = typeof data === 'string' ? data : String(asRecord(data).signedUrl || '');
+  if (!url) throw new Error('The private evidence URL was not returned.');
+  return url;
+}
+
 export async function reviewSensitiveIdentity(input: {
-  documentId: string;
-  decision: 'under_review' | 'changes_requested' | 'approved' | 'rejected' | 'expired';
+  recordId: string;
+  decision: 'approved' | 'rejected' | 'changes_requested';
   note: string;
-  approvalMonths?: number;
+  approvedUntil?: string | null;
 }): Promise<void> {
   const { error } = await supabase.rpc('review_agilecert_sensitive_identity', {
-    p_document_id: input.documentId,
+    p_record_id: input.recordId,
     p_decision: input.decision,
     p_review_note: input.note.trim(),
-    p_approval_months: input.approvalMonths || 24,
+    p_approved_until: input.approvedUntil || null,
   });
   if (error) throw new Error(error.message);
 }
 
 export async function reviewExamIdentityCheck(input: {
   checkId: string;
-  decision: 'under_review' | 'approved' | 'changes_requested' | 'rejected' | 'expired';
-  documentMatch: 'match' | 'mismatch' | 'inconclusive';
-  faceMatch: 'match' | 'mismatch' | 'inconclusive' | 'not_required';
+  documentMatch: 'matched' | 'not_matched' | 'inconclusive';
+  faceMatch: 'matched' | 'not_matched' | 'inconclusive';
   note: string;
 }): Promise<void> {
   const { error } = await supabase.rpc('review_agilecert_exam_identity_check', {
     p_check_id: input.checkId,
-    p_decision: input.decision,
     p_document_match: input.documentMatch,
     p_face_match: input.faceMatch,
     p_review_note: input.note.trim(),
@@ -555,9 +578,26 @@ export async function reviewExamIdentityCheck(input: {
   if (error) throw new Error(error.message);
 }
 
+export async function updateIntegrityIncident(input: {
+  incidentId: string;
+  status: string;
+  assignedTo?: string | null;
+  investigationNotes?: string | null;
+  resolutionSummary?: string | null;
+}): Promise<void> {
+  const { error } = await supabase.rpc('update_agilecert_integrity_incident', {
+    p_incident_id: input.incidentId,
+    p_status: input.status,
+    p_assigned_to: input.assignedTo || null,
+    p_investigation_notes: input.investigationNotes?.trim() || null,
+    p_resolution_summary: input.resolutionSummary?.trim() || null,
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function decideMisconductCase(input: {
   caseId: string;
-  decision: 'no_violation' | 'warning' | 'flag_attempt' | 'invalidate_attempt' | 'suspend_candidate';
+  decision: string;
   reason: string;
   suspensionUntil?: string | null;
 }): Promise<void> {
@@ -572,13 +612,13 @@ export async function decideMisconductCase(input: {
 
 export async function decideMisconductAppeal(input: {
   appealId: string;
-  outcome: 'upheld' | 'partially_upheld' | 'rejected';
+  decision: 'upheld' | 'partially_upheld' | 'dismissed';
   reason: string;
-  replacementDecision?: 'no_violation' | 'warning' | 'flag_attempt' | 'invalidate_attempt' | 'suspend_candidate' | null;
+  replacementDecision?: string | null;
 }): Promise<void> {
   const { error } = await supabase.rpc('decide_agilecert_misconduct_appeal', {
     p_appeal_id: input.appealId,
-    p_outcome: input.outcome,
+    p_decision: input.decision,
     p_reason: input.reason.trim(),
     p_replacement_decision: input.replacementDecision || null,
   });
@@ -586,14 +626,16 @@ export async function decideMisconductAppeal(input: {
 }
 
 export function browserFingerprint(): Record<string, unknown> {
-  if (typeof window === 'undefined') return {};
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return {};
   return {
     userAgent: navigator.userAgent,
     language: navigator.language,
     platform: navigator.platform,
-    screen: { width: window.screen.width, height: window.screen.height, pixelRatio: window.devicePixelRatio },
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    screen: {
+      width: window.screen?.width || 0,
+      height: window.screen?.height || 0,
+      pixelRatio: window.devicePixelRatio || 1,
+    },
   };
 }
-
-export { emptyWorkspace as emptyIdentityProctoringWorkspace };
