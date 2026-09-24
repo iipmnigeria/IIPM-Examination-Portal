@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getCurrentPortalUser } from '../services/authService';
+import CipmnCandidateHub from './CipmnCandidateHub';
 
 const launcherSelectors = {
   aiCv: 'button[aria-label="Open AI CV Studio"]',
@@ -61,6 +62,7 @@ export default function CandidatePrimaryToolsMenu() {
   const [isCandidate, setIsCandidate] = useState(false);
   const [menuRoot, setMenuRoot] = useState<HTMLElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [isCipmnHubOpen, setIsCipmnHubOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,10 +71,14 @@ export default function CandidatePrimaryToolsMenu() {
         const current = await getCurrentPortalUser();
         const candidate = current?.profile.role === 'candidate';
         setIsCandidate(candidate);
-        if (!candidate) setIsOpen(false);
+        if (!candidate) {
+          setIsOpen(false);
+          setIsCipmnHubOpen(false);
+        }
       } catch {
         setIsCandidate(false);
         setIsOpen(false);
+        setIsCipmnHubOpen(false);
       }
     };
 
@@ -140,6 +146,11 @@ export default function CandidatePrimaryToolsMenu() {
     setIsOpen(false);
   };
 
+  const openCipmnHub = () => {
+    setIsCipmnHubOpen(true);
+    setIsOpen(false);
+  };
+
   const openCipmnRemediation = () => {
     window.dispatchEvent(new CustomEvent('agilecert-cipmn-remediation-open'));
     setIsOpen(false);
@@ -153,83 +164,47 @@ export default function CandidatePrimaryToolsMenu() {
   if (!isCandidate || !menuRoot) return null;
 
   return createPortal(
-    <div ref={menuRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setIsOpen((current) => !current)}
-        className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold transition ${
-          isOpen ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-        }`}
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        aria-label="Open candidate tools menu"
-      >
-        <Wrench className="h-3.5 w-3.5 text-violet-300" />
-        <span className="hidden xl:inline">Tools</span>
-        <ChevronDown className={`h-3.5 w-3.5 transition ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      {isOpen && (
-        <div
-          role="menu"
-          className="absolute right-0 top-[calc(100%+0.6rem)] z-[120] max-h-[min(76vh,36rem)] w-72 overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-2 text-white shadow-2xl"
+    <>
+      <div ref={menuRef} className="relative">
+        <button
+          type="button"
+          onClick={() => setIsOpen((current) => !current)}
+          className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold transition ${
+            isOpen ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+          }`}
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+          aria-label="Open candidate tools menu"
         >
-          <p className="px-3 pb-2 pt-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
-            Candidate tools and services
-          </p>
+          <Wrench className="h-3.5 w-3.5 text-violet-300" />
+          <span className="hidden xl:inline">Tools</span>
+          <ChevronDown className={`h-3.5 w-3.5 transition ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
 
-          <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.verifyCredential)} className="flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800">
-            <span className="rounded-lg bg-blue-400/10 p-2 text-blue-300"><SearchCheck className="h-4 w-4" /></span>
-            <span><span className="block text-xs font-black">Verify Credential</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Verify certificates, credentials, badges, transcripts and share codes</span></span>
-          </button>
+        {isOpen && (
+          <div role="menu" className="absolute right-0 top-[calc(100%+0.6rem)] z-[120] max-h-[min(76vh,36rem)] w-72 overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-2 text-white shadow-2xl">
+            <p className="px-3 pb-2 pt-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Candidate tools and services</p>
 
-          <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.identityIntegrity)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800">
-            <span className="rounded-lg bg-emerald-400/10 p-2 text-emerald-300"><Fingerprint className="h-4 w-4" /></span>
-            <span><span className="block text-xs font-black">Identity & Integrity</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Identity evidence, examination consent, integrity incidents and appeals</span></span>
-          </button>
+            <button type="button" role="menuitem" onClick={openCipmnHub} className="flex w-full items-start gap-3 rounded-xl border border-emerald-400/20 bg-emerald-400/5 px-3 py-3 text-left transition hover:bg-emerald-400/10">
+              <span className="rounded-lg bg-emerald-400/10 p-2 text-emerald-300"><BookOpenCheck className="h-4 w-4" /></span>
+              <span><span className="block text-xs font-black">CIPMN Candidate Hub</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Preparation, examinations, results, credentials and answer review</span></span>
+            </button>
 
-          <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.sponsoredAccess)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800">
-            <span className="rounded-lg bg-emerald-400/10 p-2 text-emerald-300"><Gift className="h-4 w-4" /></span>
-            <span><span className="block text-xs font-black">Sponsored Access & Refunds</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Review nominations, sponsored access and refund requests</span></span>
-          </button>
-
-          <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.credentialWallet)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800">
-            <span className="rounded-lg bg-cyan-400/10 p-2 text-cyan-300"><WalletCards className="h-4 w-4" /></span>
-            <span><span className="block text-xs font-black">Credential Wallet</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Credentials, transcript, CPD, renewals and verified sharing</span></span>
-          </button>
-
-          <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.credentialStore)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800">
-            <span className="rounded-lg bg-emerald-400/10 p-2 text-emerald-300"><ShoppingBag className="h-4 w-4" /></span>
-            <span><span className="block text-xs font-black">Credential Store</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Certificate offers, payments and issued credentials</span></span>
-          </button>
-
-          <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.identityAssurance)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800">
-            <span className="rounded-lg bg-blue-400/10 p-2 text-blue-300"><UserCheck className="h-4 w-4" /></span>
-            <span><span className="block text-xs font-black">Identity Assurance</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Submit approved professional evidence for confidential review</span></span>
-          </button>
-
-          <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.learningProgress)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800">
-            <span className="rounded-lg bg-teal-400/10 p-2 text-teal-300"><History className="h-4 w-4" /></span>
-            <span><span className="block text-xs font-black">Video Learning Progress</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Continue lessons, review viewing history and record completion</span></span>
-          </button>
-
-          <button type="button" role="menuitem" onClick={openCipmnRemediation} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800">
-            <span className="rounded-lg bg-teal-400/10 p-2 text-teal-300"><BookOpenCheck className="h-4 w-4" /></span>
-            <span><span className="block text-xs font-black">CIPMN Answer Review</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Review failed answers and explanations after the third attempt</span></span>
-          </button>
-
-          <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.communication)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800">
-            <span className="rounded-lg bg-amber-400/10 p-2 text-amber-300"><BellRing className="h-4 w-4" /></span>
-            <span><span className="block text-xs font-black">Communication Centre</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Manage optional certificate reminders and recommendations</span></span>
-          </button>
-
-          <button type="button" role="menuitem" onClick={openAiCvStudio} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800">
-            <span className="rounded-lg bg-violet-400/10 p-2 text-violet-300"><Sparkles className="h-4 w-4" /></span>
-            <span><span className="block text-xs font-black">AI CV Studio</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Review private, fact-grounded CV suggestions</span></span>
-          </button>
-        </div>
-      )}
-    </div>,
+            <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.verifyCredential)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"><span className="rounded-lg bg-blue-400/10 p-2 text-blue-300"><SearchCheck className="h-4 w-4" /></span><span><span className="block text-xs font-black">Verify Credential</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Verify certificates, credentials, badges, transcripts and share codes</span></span></button>
+            <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.identityIntegrity)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"><span className="rounded-lg bg-emerald-400/10 p-2 text-emerald-300"><Fingerprint className="h-4 w-4" /></span><span><span className="block text-xs font-black">Identity & Integrity</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Identity evidence, examination consent, integrity incidents and appeals</span></span></button>
+            <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.sponsoredAccess)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"><span className="rounded-lg bg-emerald-400/10 p-2 text-emerald-300"><Gift className="h-4 w-4" /></span><span><span className="block text-xs font-black">Sponsored Access & Refunds</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Review nominations, sponsored access and refund requests</span></span></button>
+            <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.credentialWallet)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"><span className="rounded-lg bg-cyan-400/10 p-2 text-cyan-300"><WalletCards className="h-4 w-4" /></span><span><span className="block text-xs font-black">Credential Wallet</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Credentials, transcript, CPD, renewals and verified sharing</span></span></button>
+            <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.credentialStore)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"><span className="rounded-lg bg-emerald-400/10 p-2 text-emerald-300"><ShoppingBag className="h-4 w-4" /></span><span><span className="block text-xs font-black">Credential Store</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Certificate offers, payments and issued credentials</span></span></button>
+            <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.identityAssurance)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"><span className="rounded-lg bg-blue-400/10 p-2 text-blue-300"><UserCheck className="h-4 w-4" /></span><span><span className="block text-xs font-black">Identity Assurance</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Submit approved professional evidence for confidential review</span></span></button>
+            <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.learningProgress)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"><span className="rounded-lg bg-teal-400/10 p-2 text-teal-300"><History className="h-4 w-4" /></span><span><span className="block text-xs font-black">Video Learning Progress</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Continue lessons, review viewing history and record completion</span></span></button>
+            <button type="button" role="menuitem" onClick={openCipmnRemediation} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"><span className="rounded-lg bg-teal-400/10 p-2 text-teal-300"><BookOpenCheck className="h-4 w-4" /></span><span><span className="block text-xs font-black">CIPMN Answer Review</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Review failed answers and explanations after the third attempt</span></span></button>
+            <button type="button" role="menuitem" onClick={() => openTool(launcherSelectors.communication)} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"><span className="rounded-lg bg-amber-400/10 p-2 text-amber-300"><BellRing className="h-4 w-4" /></span><span><span className="block text-xs font-black">Communication Centre</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Manage optional certificate reminders and recommendations</span></span></button>
+            <button type="button" role="menuitem" onClick={openAiCvStudio} className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-800"><span className="rounded-lg bg-violet-400/10 p-2 text-violet-300"><Sparkles className="h-4 w-4" /></span><span><span className="block text-xs font-black">AI CV Studio</span><span className="mt-1 block text-[11px] leading-5 text-slate-400">Review private, fact-grounded CV suggestions</span></span></button>
+          </div>
+        )}
+      </div>
+      {isCipmnHubOpen && <CipmnCandidateHub onClose={() => setIsCipmnHubOpen(false)} />}
+    </>,
     menuRoot,
   );
 }
