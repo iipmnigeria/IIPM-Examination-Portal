@@ -50,6 +50,7 @@ const dataUrlToBlob = (dataUrl: string): Blob => {
 export default function LiveProctoringEventBridge({ examSessionId, proctoringSessionId, policy }: LiveProctoringEventBridgeProps) {
   const sequence = useRef(0);
   const lastDirectEvent = useRef<Record<string, number>>({});
+  const terminationNotified = useRef(false);
 
   useEffect(() => {
     if (!proctoringSessionId || !policy?.liveEventCaptureEnabled) return;
@@ -78,6 +79,18 @@ export default function LiveProctoringEventBridge({ examSessionId, proctoringSes
         message,
         metadata: safeMetadata,
         occurredAt: occurredAt || new Date().toISOString(),
+      }).then((result) => {
+        if (result.terminated && !terminationNotified.current) {
+          terminationNotified.current = true;
+          active = false;
+          window.dispatchEvent(new CustomEvent('agilecert-proctor-session-terminated', {
+            detail: {
+              reason: result.terminationReason || 'four_qualifying_proctor_flags',
+              qualifyingFlagCount: result.qualifyingFlagCount || 4,
+              flagLimit: result.flagLimit || 4,
+            },
+          }));
+        }
       }).catch((error) => {
         console.warn('Live proctor event could not be persisted:', error);
       });
