@@ -36,6 +36,13 @@ export default function CipmnExamExperience(props: Props) {
   const [activeTest, setActiveTest] = useState(props.test);
   const [runtimeReady, setRuntimeReady] = useState(!props.test.proctoringPolicy);
   const [runtimeError, setRuntimeError] = useState('');
+  const [proctorTerminated, setProctorTerminated] = useState(false);
+
+  useEffect(() => {
+    const onProctorTerminated = () => setProctorTerminated(true);
+    window.addEventListener('agilecert-proctor-session-terminated', onProctorTerminated);
+    return () => window.removeEventListener('agilecert-proctor-session-terminated', onProctorTerminated);
+  }, []);
 
   useEffect(() => {
     const policy = activeTest.proctoringPolicy;
@@ -112,6 +119,22 @@ export default function CipmnExamExperience(props: Props) {
       sessionStorage.removeItem('agilecert_active_proctoring_policy');
     };
   }, [activeTest.proctorPreflightRequired, activeTest.proctoringPolicy]);
+
+  if (proctorTerminated) {
+    return (
+      <div className="min-h-screen bg-slate-950 p-6 text-white flex items-center justify-center">
+        <div className="w-full max-w-xl rounded-3xl border border-rose-800 bg-slate-900 p-8 text-center shadow-2xl">
+          <h1 className="text-xl font-black text-rose-200">Examination session terminated</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-300">
+            This CIPMN preparation examination has been ended after four qualifying proctoring flags. Your recorded examination and integrity evidence have been preserved.
+          </p>
+          <button type="button" onClick={props.onExitExam} className="mt-6 rounded-xl border border-slate-700 px-5 py-3 text-sm font-black text-slate-200 hover:bg-slate-800">
+            Return to dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (activeTest.proctorPreflightRequired) {
     return <SecureExamIntegrityPreflight test={activeTest} onReady={setActiveTest} onCancel={props.onExitExam} />;
