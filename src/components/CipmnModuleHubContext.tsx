@@ -4,13 +4,17 @@ interface CipmnModuleHubContextProps {
   moduleTitle: string;
   materialsUnlocked: boolean;
   examUnlocked: boolean;
+  onAttemptMcq?: () => void;
 }
 
 export default function CipmnModuleHubContext({
   moduleTitle,
   materialsUnlocked,
   examUnlocked,
+  onAttemptMcq,
 }: CipmnModuleHubContextProps) {
+  const canAttemptMcq = examUnlocked && typeof onAttemptMcq === 'function';
+
   return (
     <section
       className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
@@ -41,7 +45,15 @@ export default function CipmnModuleHubContext({
           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
             {examUnlocked ? <FileText className="h-3.5 w-3.5" /> : <LockKeyhole className="h-3.5 w-3.5" />} MCQs
           </div>
-          <p className="mt-1 text-[10px] text-slate-500">Assessment control remains unchanged</p>
+          <button
+            type="button"
+            disabled={!canAttemptMcq}
+            onClick={canAttemptMcq ? onAttemptMcq : undefined}
+            className="mt-2 w-full rounded-md border border-slate-200 bg-slate-900 px-2 py-1.5 text-[10px] font-bold text-white transition enabled:hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+            data-agilecert-cipmn-attempt-mcq="true"
+          >
+            {examUnlocked ? 'Attempt MCQs Now' : 'MCQs Locked'}
+          </button>
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white p-2.5">
