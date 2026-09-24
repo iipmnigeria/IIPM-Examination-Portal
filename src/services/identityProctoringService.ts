@@ -639,3 +639,5 @@ export function browserFingerprint(): Record<string, unknown> {
     },
   };
 }
+
+export { emptyWorkspace as emptyIdentityProctoringWorkspace };
