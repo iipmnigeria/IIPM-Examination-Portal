@@ -17,6 +17,9 @@ function attachOpenMaterialsActions() {
     const actionContainer = examAction?.parentElement;
     if (!examAction || !actionContainer) return;
 
+    const accessStatus = examAction.dataset.agilecertAccessStatus?.trim().toLowerCase();
+    const locked = accessStatus !== 'unlocked';
+
     const mount = document.createElement('div') as MountElement;
     mount.dataset.agilecertCipmnOpenMaterials = 'true';
     mount.className = 'mt-2 flex justify-end';
@@ -24,7 +27,7 @@ function attachOpenMaterialsActions() {
 
     const root = createRoot(mount);
     mount[ROOT_KEY] = root;
-    root.render(<CipmnOpenMaterialsAction examinationId={examinationId} />);
+    root.render(<CipmnOpenMaterialsAction examinationId={examinationId} locked={locked} />);
   });
 }
 
