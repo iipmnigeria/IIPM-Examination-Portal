@@ -1,0 +1,45 @@
+name: Validate D5-E3 Strict
+
+on:
+  push:
+    branches:
+      - safe/cipmn-section-aware-secure-launch
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/validate-d5e3-strict.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  strict-validation:
+    name: Strict TypeScript and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact safety branch commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Strict TypeScript check
+        run: npm run typecheck
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify compiled portal artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
+          test "$(wc -c < dist/index.html)" -gt 1000
