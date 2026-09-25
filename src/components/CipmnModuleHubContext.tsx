@@ -1,6 +1,10 @@
-import { BookOpenCheck, CheckCircle2, FileText, LockKeyhole } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { BookOpenCheck, CheckCircle2, FileText, LockKeyhole, Play } from 'lucide-react';
+import { getAvailableTests } from '../services/examService';
+import type { CipmnSectionProgress } from '../types';
 
 interface CipmnModuleHubContextProps {
+  examinationId: string;
   moduleTitle: string;
   materialsUnlocked: boolean;
   examUnlocked: boolean;
@@ -8,12 +12,43 @@ interface CipmnModuleHubContextProps {
 }
 
 export default function CipmnModuleHubContext({
+  examinationId,
   moduleTitle,
   materialsUnlocked,
   examUnlocked,
   onAttemptMcq,
 }: CipmnModuleHubContextProps) {
+  const [progress, setProgress] = useState<CipmnSectionProgress | null>(null);
   const canAttemptMcq = examUnlocked && typeof onAttemptMcq === 'function';
+  const theoryReady = Boolean(
+    progress?.theoryReady
+    && progress.currentSection === 'theory'
+    && progress.sessionStatus === 'active',
+  );
+  const canStartTheory = theoryReady && typeof onAttemptMcq === 'function';
+
+  useEffect(() => {
+    let disposed = false;
+    const refreshProgress = async () => {
+      try {
+        const tests = await getAvailableTests();
+        if (disposed) return;
+        setProgress(tests.find((test) => test.id === examinationId)?.sectionProgress || null);
+      } catch (error) {
+        console.error('Unable to refresh CIPMN module section progress.', error);
+      }
+    };
+
+    void refreshProgress();
+    const refresh = () => void refreshProgress();
+    window.addEventListener('iipm-commerce-refresh', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      disposed = true;
+      window.removeEventListener('iipm-commerce-refresh', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [examinationId]);
 
   return (
     <section
@@ -52,15 +87,30 @@ export default function CipmnModuleHubContext({
             className="mt-2 w-full rounded-md border border-slate-200 bg-slate-900 px-2 py-1.5 text-[10px] font-bold text-white transition enabled:hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
             data-agilecert-cipmn-attempt-mcq="true"
           >
-            {examUnlocked ? 'Attempt MCQs Now' : 'MCQs Locked'}
+            {examUnlocked ? (progress?.mcqCompleted ? 'Retake MCQs' : 'Attempt MCQs Now') : 'MCQs Locked'}
           </button>
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-white p-2.5">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-            <LockKeyhole className="h-3.5 w-3.5" /> Theory
+        <div className={`rounded-lg border p-2.5 ${theoryReady ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200 bg-white'}`}>
+          <div className={`flex items-center gap-1.5 text-xs font-bold ${theoryReady ? 'text-emerald-800' : 'text-slate-700'}`}>
+            {theoryReady ? <FileText className="h-3.5 w-3.5" /> : <LockKeyhole className="h-3.5 w-3.5" />} Theory
           </div>
-          <p className="mt-1 text-[10px] text-slate-500">Unlock rule added in Phase 5A</p>
+          {theoryReady ? (
+            <>
+              <p className="mt-1 text-[10px] font-semibold text-emerald-700">MCQs completed — Theory ready</p>
+              <button
+                type="button"
+                disabled={!canStartTheory}
+                onClick={canStartTheory ? onAttemptMcq : undefined}
+                className="mt-2 flex w-full items-center justify-center gap-1 rounded-md bg-emerald-600 px-2 py-1.5 text-[10px] font-bold text-white transition enabled:hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                data-agilecert-cipmn-start-theory="true"
+              >
+                <Play className="h-3 w-3 fill-current" /> Start Theory Now
+              </button>
+            </>
+          ) : (
+            <p className="mt-1 text-[10px] text-slate-500">Complete MCQs to unlock</p>
+          )}
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white p-2.5">
