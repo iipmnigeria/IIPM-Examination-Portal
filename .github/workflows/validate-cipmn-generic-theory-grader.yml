@@ -46,7 +46,7 @@ jobs:
           deno-version: v2.x
 
       - name: Type-check Edge Function
-        run: deno check supabase/functions/grade-cipmn-theory/index.ts
+        run: deno check --node-modules-dir=auto supabase/functions/grade-cipmn-theory/index.ts
 
       - name: Install application dependencies
         run: npm install --no-audit --no-fund
