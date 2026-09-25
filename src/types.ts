@@ -23,6 +23,16 @@ export interface SecureProctoringPolicy {
   retainWebcamImages: boolean;
 }
 
+export interface CipmnSectionProgress {
+  sessionId?: string | null;
+  sessionStatus?: string | null;
+  currentSection?: ExamSection;
+  mcqCompleted?: boolean;
+  mcqScore?: number | null;
+  theoryReady?: boolean;
+  updatedAt?: string | null;
+}
+
 export interface Test {
   id: string;
   title: string;
@@ -45,6 +55,7 @@ export interface Test {
   theoryCount?: number;
   currentSection?: ExamSection;
   mcqScore?: number;
+  sectionProgress?: CipmnSectionProgress | null;
 }
 
 export type ProctorEventType =
