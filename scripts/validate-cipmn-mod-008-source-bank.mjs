@@ -65,7 +65,7 @@ const joined=[
 ].join(' ').toLowerCase();
 
 for(const required of [
-  'quality from grade','precision','accuracy','prevention','inspection',
+  'quality vs grade','precision','accuracy','prevention','inspection',
   'quality planning','quality management plan','quality metrics','acceptance criteria',
   'quality assurance','quality control','quality audit','kaizen','lean','six sigma','dmaic','pdsa',
   'statistical sampling','control chart','pareto chart','histogram','scatter diagram','flowchart',
