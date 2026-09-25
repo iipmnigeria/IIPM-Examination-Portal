@@ -63,7 +63,11 @@ for (let i=0;i<mcqs.length;i++) {
   }
 }
 
-const joined=allQuestions.map(item=>item.question).join(' ') + ' ' + theory.flatMap(item=>item.criteria.map(c=>c.expected)).join(' ');
+const joined=[
+  ...allQuestions.map(item=>item.question),
+  ...mcqs.flatMap(item=>item.options),
+  ...theory.flatMap(item=>item.criteria.map(c=>c.expected))
+].join(' ');
 for (const required of [
   'Elicitation','Analysis','Documentation','Management','Verification','Validation',
   'functional','non-functional','interviews','focus groups','brainstorming','observation','prototyping',
