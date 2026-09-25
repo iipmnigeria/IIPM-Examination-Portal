@@ -1,6 +1,5 @@
 import { supabase } from '../lib/supabase';
 import type { Attempt, ProctorLogEvent, Test } from '../types';
-import { getProctoredExamPayload } from './identityProctoringService';
 
 function browserFingerprint(): Record<string, unknown> {
   if (typeof window === 'undefined') return {};
@@ -17,8 +16,10 @@ export async function startCipmnTheoryRetake(examinationId:string): Promise<{ses
 
 export async function startSecureExam(examinationId:string):Promise<Test>{
  const catalogue=await getAvailableTests(); const catalogueTest=catalogue.find(t=>t.id===examinationId); const progress=catalogueTest?.examFormat==='cipmn_mixed'?catalogueTest.sectionProgress:null;
- if(progress?.theoryReady&&progress.currentSection==='theory'&&progress.sessionStatus==='active'&&progress.sessionId){ const resumed=await getProctoredExamPayload(progress.sessionId); return {...resumed,examFormat:resumed.examFormat??catalogueTest?.examFormat,mcqCount:resumed.mcqCount??catalogueTest?.mcqCount,theoryCount:resumed.theoryCount??catalogueTest?.theoryCount,currentSection:'theory',mcqScore:typeof progress.mcqScore==='number'?progress.mcqScore:resumed.mcqScore,sectionProgress:progress}; }
- const {data,error}=await supabase.rpc('start_exam_secure',{p_examination_id:examinationId,p_client_fingerprint:browserFingerprint()}); if(error) throw new Error(error.message); if(!data||typeof data!=='object') throw new Error('The examination session could not be created.'); return data as Test;
+ const {data,error}=await supabase.rpc('start_exam_secure',{p_examination_id:examinationId,p_client_fingerprint:browserFingerprint()}); if(error) throw new Error(error.message); if(!data||typeof data!=='object') throw new Error('The examination session could not be created.');
+ const live=data as Test;
+ if(progress?.theoryReady&&progress.currentSection==='theory'&&progress.sessionStatus==='active'&&progress.sessionId){ return {...live,examFormat:live.examFormat??catalogueTest?.examFormat,mcqCount:live.mcqCount??catalogueTest?.mcqCount,theoryCount:live.theoryCount??catalogueTest?.theoryCount,currentSection:'theory',mcqScore:typeof progress.mcqScore==='number'?progress.mcqScore:live.mcqScore,sectionProgress:progress}; }
+ return live;
 }
 
 export async function getPortalAttempts():Promise<Attempt[]>{const {data,error}=await supabase.rpc('get_portal_attempts');if(error)throw new Error(`Unable to load examination attempts: ${error.message}`);return Array.isArray(data)?data as Attempt[]:[];}
