@@ -1,0 +1,65 @@
+name: Validate CIPMN Section-Aware Launch Regression
+
+on:
+  push:
+    branches:
+      - test/cipmn-section-launch-regression
+    paths:
+      - 'src/App.tsx'
+      - 'src/components/StudentDashboard.tsx'
+      - 'src/components/CipmnModuleMaterialsMount.tsx'
+      - 'src/components/CipmnModuleHubContext.tsx'
+      - 'src/services/examService.ts'
+      - 'scripts/validate-cipmn-section-aware-launch.mjs'
+      - '.github/workflows/validate-cipmn-section-aware-launch.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'src/App.tsx'
+      - 'src/components/StudentDashboard.tsx'
+      - 'src/components/CipmnModuleMaterialsMount.tsx'
+      - 'src/components/CipmnModuleHubContext.tsx'
+      - 'src/services/examService.ts'
+      - 'scripts/validate-cipmn-section-aware-launch.mjs'
+      - '.github/workflows/validate-cipmn-section-aware-launch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-cipmn-section-launch-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: Validate MCQ and Theory launch separation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout candidate changes
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate section-aware launch contracts
+        run: node scripts/validate-cipmn-section-aware-launch.mjs
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Existing TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify production artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
