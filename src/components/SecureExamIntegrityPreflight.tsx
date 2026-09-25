@@ -130,7 +130,17 @@ export default function SecureExamIntegrityPreflight({ test, onReady, onCancel }
       const hydrated = await getProctoredExamPayload(test.sessionId);
       detachPreview();
       onReady({
+        ...test,
         ...hydrated,
+        // The protected payload is authoritative for questions, but legacy
+        // payloads may omit CIPMN routing metadata. Preserve the preflight
+        // values in that case so a theory payload cannot be misrouted as MCQ.
+        examFormat: hydrated.examFormat ?? test.examFormat,
+        mcqCount: hydrated.mcqCount ?? test.mcqCount,
+        theoryCount: hydrated.theoryCount ?? test.theoryCount,
+        currentSection: hydrated.currentSection ?? test.currentSection,
+        mcqScore: hydrated.mcqScore ?? test.mcqScore,
+        sectionProgress: hydrated.sectionProgress ?? test.sectionProgress,
         proctoringSessionId: proctoring.id,
         proctoringPolicy: policy,
         proctorPreflightRequired: false,
