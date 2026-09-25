@@ -14,6 +14,12 @@ export async function startCipmnTheoryRetake(examinationId:string): Promise<{ses
   return data as {sessionId:string;currentSection:'theory';retake:boolean;resumed:boolean};
 }
 
+export async function startCipmnMcqAttempt(examinationId:string):Promise<Test>{
+ const {data,error}=await supabase.rpc('start_cipmn_mcq_attempt',{p_examination_id:examinationId,p_client_fingerprint:browserFingerprint()});
+ if(error) throw new Error(error.message); if(!data||typeof data!=='object') throw new Error('The MCQ examination session could not be created.');
+ return data as Test;
+}
+
 export async function startSecureExam(examinationId:string):Promise<Test>{
  const catalogue=await getAvailableTests(); const catalogueTest=catalogue.find(t=>t.id===examinationId); const progress=catalogueTest?.examFormat==='cipmn_mixed'?catalogueTest.sectionProgress:null;
  const {data,error}=await supabase.rpc('start_exam_secure',{p_examination_id:examinationId,p_client_fingerprint:browserFingerprint()}); if(error) throw new Error(error.message); if(!data||typeof data!=='object') throw new Error('The examination session could not be created.');
