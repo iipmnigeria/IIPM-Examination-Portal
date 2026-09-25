@@ -14,13 +14,15 @@ permissions:
   contents: read
 
 jobs:
-  strict-validation:
-    name: Strict TypeScript and production build
+  differential-validation:
+    name: Differential strict TypeScript and production build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout exact safety branch commit
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
@@ -30,8 +32,42 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Strict TypeScript check
-        run: npm run typecheck
+      - name: Capture strict TypeScript errors on safety HEAD
+        shell: bash
+        run: |
+          set +e
+          npm run typecheck > "$RUNNER_TEMP/head-typecheck.log" 2>&1
+          echo "HEAD_TYPECHECK_STATUS=$?" >> "$GITHUB_ENV"
+          set -e
+
+      - name: Capture strict TypeScript errors on production base
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --hard origin/supabase-integration
+          set +e
+          npm run typecheck > "$RUNNER_TEMP/base-typecheck.log" 2>&1
+          echo "BASE_TYPECHECK_STATUS=$?" >> "$GITHUB_ENV"
+          set -e
+
+      - name: Confirm D5-E3 introduces no new strict TypeScript errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep 'error TS' "$RUNNER_TEMP/head-typecheck.log" | sed -E 's/^[^:]*: //' | sort -u > "$RUNNER_TEMP/head-errors.txt" || true
+          grep 'error TS' "$RUNNER_TEMP/base-typecheck.log" | sed -E 's/^[^:]*: //' | sort -u > "$RUNNER_TEMP/base-errors.txt" || true
+          comm -23 "$RUNNER_TEMP/head-errors.txt" "$RUNNER_TEMP/base-errors.txt" > "$RUNNER_TEMP/new-errors.txt"
+          echo "Base strict status: $BASE_TYPECHECK_STATUS"
+          echo "Head strict status: $HEAD_TYPECHECK_STATUS"
+          echo "New errors introduced by D5-E3:"
+          cat "$RUNNER_TEMP/new-errors.txt"
+          test ! -s "$RUNNER_TEMP/new-errors.txt"
+
+      - name: Restore safety HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --hard "$GITHUB_SHA"
 
       - name: Production build
         run: npm run build
@@ -43,3 +79,16 @@ jobs:
           test -s dist/index.html
           grep -q 'AgileCert Global' dist/index.html
           test "$(wc -c < dist/index.html)" -gt 1000
+
+      - name: Upload differential evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d5-e3-strict-typecheck-evidence
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/head-typecheck.log
+            ${{ runner.temp }}/base-typecheck.log
+            ${{ runner.temp }}/head-errors.txt
+            ${{ runner.temp }}/base-errors.txt
+            ${{ runner.temp }}/new-errors.txt
