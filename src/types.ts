@@ -1,5 +1,5 @@
 export type QuestionType = 'mcq' | 'theory';
-export type ExamSection = 'mcq' | 'theory';
+export type ExamSection = 'mcq' | 'theory' | 'complete';
 export type ExamAnswer = number | string;
 
 export interface Question {
@@ -30,6 +30,7 @@ export interface CipmnSectionProgress {
   mcqCompleted?: boolean;
   mcqScore?: number | null;
   theoryReady?: boolean;
+  theoryCompleted?: boolean;
   updatedAt?: string | null;
 }
 
