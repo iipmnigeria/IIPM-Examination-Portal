@@ -36,6 +36,8 @@ interface StudentDashboardProps {
   tests: Test[];
   attempts: Attempt[];
   onStartExam: (testId: string) => void;
+  onStartCipmnMcq: (testId: string) => void;
+  onStartTheory: (testId: string) => void;
   onViewAttemptDetails: (attempt: Attempt) => void;
   simType: string;
   setSimType: (type: string) => void;
@@ -49,6 +51,8 @@ export default function StudentDashboard({
   tests,
   attempts,
   onStartExam,
+  onStartCipmnMcq,
+  onStartTheory,
   onViewAttemptDetails,
   simType,
   setSimType,
@@ -341,7 +345,7 @@ export default function StudentDashboard({
     }
   };
 
-  const launchSecuredExam = async (test: Test) => {
+  const launchSecuredExam = async (test: Test, section: 'default' | 'mcq' | 'theory' = 'default') => {
     if (test.course === 'CIPMN-MOCK') {
       setCameraState('checking');
       setErrorMessage('');
@@ -366,6 +370,14 @@ export default function StudentDashboard({
         setErrorMessage(error instanceof Error ? error.message : 'Camera permission was not granted.');
         return;
       }
+    }
+    if (test.course === 'CIPMN-MOCK' && section === 'mcq') {
+      onStartCipmnMcq(test.id);
+      return;
+    }
+    if (test.course === 'CIPMN-MOCK' && section === 'theory') {
+      onStartTheory(test.id);
+      return;
     }
     onStartExam(test.id);
   };
@@ -418,6 +430,21 @@ export default function StudentDashboard({
     const examinationTitle = test.title.trim().toUpperCase();
     return programmeCode === 'CIPMN-MOCK' || examinationTitle.startsWith('CIPMN-MOD-');
   };
+
+  useEffect(() => {
+    const handleCipmnSectionLaunch = (event: Event) => {
+      const detail = (event as CustomEvent<{ examinationId?: unknown; section?: unknown }>).detail;
+      if (typeof detail?.examinationId !== 'string') return;
+      if (detail.section !== 'mcq' && detail.section !== 'theory') return;
+
+      const test = tests.find((candidate) => candidate.id === detail.examinationId);
+      if (!test || !isCipmnMockExam(test)) return;
+      void launchSecuredExam(test, detail.section);
+    };
+
+    window.addEventListener('agilecert-cipmn-launch-section', handleCipmnSectionLaunch as EventListener);
+    return () => window.removeEventListener('agilecert-cipmn-launch-section', handleCipmnSectionLaunch as EventListener);
+  }, [tests, onStartCipmnMcq, onStartTheory, onStartExam]);
 
   const specialistCertificationTests = tests.filter((test) => !isCipmnMockExam(test));
   const cipmnMockTests = tests.filter(isCipmnMockExam);

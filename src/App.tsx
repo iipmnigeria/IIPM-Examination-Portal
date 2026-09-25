@@ -23,6 +23,7 @@ import {
   getAvailableTests,
   getPortalAttempts,
   startSecureExam,
+  startCipmnMcqAttempt,
   submitSecureExam,
   submitCipmnMcqSection,
   submitCipmnTheorySection,
@@ -190,6 +191,26 @@ export default function App() {
     }
   };
 
+  const handleStartCipmnMcq = async (testId: string) => {
+    if (userRole !== 'student') {
+      setPortalError('Staff accounts may review the catalogue but cannot begin candidate examinations.');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setPortalError('');
+      const liveTest = await startCipmnMcqAttempt(testId);
+      setSelectedTest(liveTest);
+      setView('exam');
+    } catch (error: any) {
+      console.error('Unable to start CIPMN MCQ section:', error);
+      setPortalError(error?.message || 'The CIPMN MCQ session could not be started.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSubmitExam = async (
     answers: Record<string, number>,
     logs: ProctorLogEvent[],
@@ -343,7 +364,7 @@ export default function App() {
         <AnimatePresence mode="wait">
           {view === 'dashboard' && (
             <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <StudentDashboard studentName={studentName} setStudentName={setStudentName} tests={tests} attempts={attempts} onStartExam={(testId) => void handleStartExam(testId)} onViewAttemptDetails={handleViewAttemptDetails} simType={simType} setSimType={setSimType} justCompletedAttempt={justCompletedAttempt} onClearJustCompleted={() => setJustCompletedAttempt(null)} />
+              <StudentDashboard studentName={studentName} setStudentName={setStudentName} tests={tests} attempts={attempts} onStartExam={(testId) => void handleStartExam(testId)} onStartCipmnMcq={(testId) => void handleStartCipmnMcq(testId)} onStartTheory={(testId) => void handleStartExam(testId)} onViewAttemptDetails={handleViewAttemptDetails} simType={simType} setSimType={setSimType} justCompletedAttempt={justCompletedAttempt} onClearJustCompleted={() => setJustCompletedAttempt(null)} />
             </motion.div>
           )}
 

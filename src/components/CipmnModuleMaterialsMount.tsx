@@ -11,6 +11,12 @@ type MountElement = HTMLDivElement & {
   [HUB_ROOT_KEY]?: Root;
 };
 
+function dispatchCipmnSectionLaunch(examinationId: string, section: 'mcq' | 'theory') {
+  window.dispatchEvent(new CustomEvent('agilecert-cipmn-launch-section', {
+    detail: { examinationId, section },
+  }));
+}
+
 function attachCipmnModuleEnhancements() {
   document.querySelectorAll<HTMLElement>('[id^="exam-card-"]').forEach((card) => {
     const examinationId = card.id.replace(/^exam-card-/, '').trim();
@@ -49,7 +55,8 @@ function attachCipmnModuleEnhancements() {
           moduleTitle={moduleTitle}
           materialsUnlocked={!locked}
           examUnlocked={examUnlocked}
-          onAttemptMcq={examUnlocked ? () => examAction.click() : undefined}
+          onAttemptMcq={examUnlocked ? () => dispatchCipmnSectionLaunch(examinationId, 'mcq') : undefined}
+          onStartTheory={examUnlocked ? () => dispatchCipmnSectionLaunch(examinationId, 'theory') : undefined}
         />,
       );
     }
