@@ -1,0 +1,65 @@
+name: Validate CIPMN Generic Theory Grader
+
+on:
+  push:
+    branches:
+      - safe/cipmn-generic-theory-grader
+    paths:
+      - 'supabase/functions/grade-cipmn-theory/index.ts'
+      - 'scripts/validate-cipmn-generic-theory-grader.mjs'
+      - '.github/workflows/validate-cipmn-generic-theory-grader.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/functions/grade-cipmn-theory/index.ts'
+      - 'scripts/validate-cipmn-generic-theory-grader.mjs'
+      - '.github/workflows/validate-cipmn-generic-theory-grader.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-cipmn-generic-theory-grader-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  grader:
+    name: Validate generic CIPMN theory grader
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout candidate changes
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate grader source contracts
+        run: node scripts/validate-cipmn-generic-theory-grader.mjs
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check Edge Function
+        run: deno check supabase/functions/grade-cipmn-theory/index.ts
+
+      - name: Install application dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Existing TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify production artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
