@@ -1,44 +1,102 @@
 import React, { useEffect, useState } from 'react';
-import { GraduationCap, LayoutDashboard, ShieldCheck } from 'lucide-react';
-import { Attempt, ProctorLogEvent, Test } from './types';
-import { getAvailableTests, getPortalAttempts, signOutPortalUser, startSecureExam, submitCipmnMcqSection, submitCipmnTheorySection, submitSecureExam } from './services/examService';
-import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
+import { AnimatePresence, motion } from 'motion/react';
+import {
+  BookOpenCheck,
+  FileText,
+  GraduationCap,
+  LayoutDashboard,
+  ShieldCheck,
+  UserRound,
+} from 'lucide-react';
 import StudentDashboard from './components/StudentDashboard';
-import AdminPortal from './components/AdminPortal';
 import ExamExperience from './components/ExamExperience';
 import CipmnExamExperience from './components/CipmnExamExperience';
-import LearningMaterialsHub from './components/LearningMaterialsHub';
+import AdminPortal from './components/AdminPortal';
+import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
+import AiCvProfileBuilder from './components/AiCvProfileBuilder';
+import CandidateAvatar from './components/CandidateAvatar';
+import CandidatePreparationMaterialsPanel from './components/CandidatePreparationMaterialsPanel';
+import CandidateProfilePanel from './components/CandidateProfilePanel';
+import CandidateProfilePhotoEditor from './components/CandidateProfilePhotoEditor';
+import { signOut as signOutPortalUser } from './services/authService';
+import {
+  getAvailableTests,
+  getPortalAttempts,
+  startSecureExam,
+  submitSecureExam,
+  submitCipmnMcqSection,
+  submitCipmnTheorySection,
+} from './services/examService';
+import type { Attempt, ProctorLogEvent, Test } from './types';
 
-const readMaterialsDestination = () => {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    requested: params.get('view') === 'materials',
-    examinationId: params.get('examinationId') || undefined,
-  };
-};
+type PortalView = 'dashboard' | 'materials' | 'profile' | 'cv' | 'exam' | 'admin';
 
-const App: React.FC = () => {
+interface MaterialsDestination {
+  requested: boolean;
+  examinationId: string | null;
+}
+
+const EXAMINATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function normaliseExaminationId(candidateId: unknown): string | null {
+  if (typeof candidateId !== 'string') return null;
+  const value = candidateId.trim();
+  return EXAMINATION_ID_PATTERN.test(value) ? value : null;
+}
+
+function readMaterialsDestination(): MaterialsDestination {
+  if (typeof window === 'undefined') return { requested: false, examinationId: null };
+  const parameters = new URLSearchParams(window.location.search);
+  const requested = parameters.get('view') === 'materials';
+  const examinationId = normaliseExaminationId(parameters.get('examinationId'));
+  return { requested, examinationId };
+}
+
+function clearMaterialsDestinationUrl(): void {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('view');
+  url.searchParams.delete('examinationId');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+export default function App() {
   const [userRole, setUserRole] = useState<'student' | 'admin' | null>(() => {
-    const stored = localStorage.getItem('aura_logged_role');
-    return stored === 'student' || stored === 'admin' ? stored : null;
+    return (localStorage.getItem('aura_logged_role') as 'student' | 'admin') || null;
   });
-  const [studentName, setStudentName] = useState(() => localStorage.getItem('aura_student_name') || '');
-  const [view, setView] = useState<'dashboard' | 'admin' | 'exam' | 'materials'>(() => {
-    const materialsDestination = readMaterialsDestination();
-    return materialsDestination.requested ? 'materials' : 'dashboard';
+  const [studentName, setStudentName] = useState(() => {
+    return localStorage.getItem('aura_student_name') || '';
   });
-  const [materialsExaminationId, setMaterialsExaminationId] = useState<string | undefined>(() => readMaterialsDestination().examinationId);
+  const [view, setView] = useState<PortalView>(() => {
+    if (localStorage.getItem('aura_logged_role') === 'admin') return 'admin';
+    return readMaterialsDestination().requested ? 'materials' : 'dashboard';
+  });
+  const [materialsExaminationId, setMaterialsExaminationId] = useState<string | null>(() => {
+    return readMaterialsDestination().examinationId;
+  });
+
   const [tests, setTests] = useState<Test[]>([]);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [selectedTest, setSelectedTest] = useState<Test | null>(null);
-  const [justCompletedAttempt, setJustCompletedAttempt] = useState<Attempt | null>(null);
+  const [simType, setSimType] = useState('none');
   const [isLoading, setIsLoading] = useState(true);
   const [portalError, setPortalError] = useState('');
+  const [justCompletedAttempt, setJustCompletedAttempt] = useState<Attempt | null>(null);
 
   useEffect(() => {
+    if (studentName) localStorage.setItem('aura_student_name', studentName);
+    else localStorage.removeItem('aura_student_name');
+  }, [studentName]);
+
+  useEffect(() => {
+    if (userRole !== 'student') return;
+
     const openContextualMaterials = (event: Event) => {
-      const customEvent = event as CustomEvent<{ examinationId?: string }>;
-      setMaterialsExaminationId(customEvent.detail?.examinationId);
+      const customEvent = event as CustomEvent<{ examinationId?: unknown }>;
+      const examinationId = normaliseExaminationId(customEvent.detail?.examinationId);
+      if (!examinationId) return;
+
+      setMaterialsExaminationId(examinationId);
       setView('materials');
     };
 
@@ -112,9 +170,9 @@ const App: React.FC = () => {
       const catalogueTest = tests.find((test) => test.id === testId);
       const liveTest = await startSecureExam(testId);
 
-      // D2: preserve only authoritative catalogue routing metadata that older
-      // secure-start functions do not echo. Questions/session/security data remain
-      // exclusively sourced from the secure-start payload.
+      // D2: preserve only catalogue routing metadata that legacy secure-start
+      // payloads may omit. Secure questions, session and proctoring data remain
+      // exclusively sourced from the server-authoritative secure-start payload.
       const routedTest: Test = {
         ...liveTest,
         examFormat: liveTest.examFormat ?? catalogueTest?.examFormat,
@@ -132,17 +190,29 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSubmitExam = async (answers: Record<string, number>, logs: ProctorLogEvent[], tabAwayCount: number) => {
+  const handleSubmitExam = async (
+    answers: Record<string, number>,
+    logs: ProctorLogEvent[],
+    tabAwayCount: number,
+  ) => {
     if (!selectedTest?.sessionId) {
       setPortalError('The secure examination session identifier is missing.');
       return;
     }
+
     try {
       setPortalError('');
-      const newAttempt = await submitSecureExam({ sessionId: selectedTest.sessionId, answers, logs, tabAwayCount });
+      const newAttempt = await submitSecureExam({
+        sessionId: selectedTest.sessionId,
+        answers,
+        logs,
+        tabAwayCount,
+      });
+
       localStorage.removeItem(`aura_exam_answers_${selectedTest.id}`);
       localStorage.removeItem(`aura_exam_flags_${selectedTest.id}`);
       localStorage.removeItem(`aura_exam_time_${selectedTest.id}`);
+
       setAttempts((previous) => [newAttempt, ...previous]);
       setJustCompletedAttempt(newAttempt);
       setSelectedTest(null);
@@ -150,18 +220,28 @@ const App: React.FC = () => {
       void fetchPortalData();
     } catch (error: any) {
       console.error('Secure assessment submission failed:', error);
-      setPortalError(error?.message || 'The assessment could not be submitted. Your local answer cache remains available.');
+      setPortalError(
+        error?.message || 'The assessment could not be submitted. Your local answer cache remains available.',
+      );
     }
   };
 
-  const handleSubmitCipmnMcq = async (answers: Record<string, number>, logs: ProctorLogEvent[], tabAwayCount: number): Promise<number> => {
+  const handleSubmitCipmnMcq = async (
+    answers: Record<string, number>,
+    logs: ProctorLogEvent[],
+    tabAwayCount: number,
+  ): Promise<number> => {
     if (!selectedTest?.sessionId) throw new Error('The secure examination session identifier is missing.');
     const result = await submitCipmnMcqSection({ sessionId: selectedTest.sessionId, answers, logs, tabAwayCount });
     setSelectedTest((previous) => previous ? { ...previous, currentSection: 'theory', mcqScore: result.mcqScore } : previous);
     return result.mcqScore;
   };
 
-  const handleSubmitCipmnTheory = async (answers: Record<string, string>, logs: ProctorLogEvent[], tabAwayCount: number) => {
+  const handleSubmitCipmnTheory = async (
+    answers: Record<string, string>,
+    logs: ProctorLogEvent[],
+    tabAwayCount: number,
+  ) => {
     if (!selectedTest?.sessionId) throw new Error('The secure examination session identifier is missing.');
     const newAttempt = await submitCipmnTheorySection({ sessionId: selectedTest.sessionId, answers, logs, tabAwayCount });
     setAttempts((previous) => [newAttempt, ...previous]);
@@ -175,13 +255,17 @@ const App: React.FC = () => {
     if (userRole === 'admin') setView('admin');
   };
 
-  if (!userRole) return <AgileCertPhaseOneLandingPage onLoginSuccess={handleLoginSuccess} />;
+  if (!userRole) {
+    return <AgileCertPhaseOneLandingPage onLoginSuccess={handleLoginSuccess} />;
+  }
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4 text-slate-100">
         <div className="w-12 h-12 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm font-bold uppercase tracking-widest text-slate-400">Synchronising secure examination records...</p>
+        <p className="text-sm font-bold uppercase tracking-widest text-slate-400">
+          Synchronising secure examination records...
+        </p>
       </div>
     );
   }
@@ -192,43 +276,125 @@ const App: React.FC = () => {
         <header className="bg-slate-950 text-white border-b border-slate-900 sticky top-0 z-40">
           <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center shadow-inner"><GraduationCap className="w-5.5 h-5.5 text-white" /></div>
-              <div><span className="font-extrabold text-sm tracking-tight uppercase">AgileCert Global</span><p className="text-[10px] text-slate-400">Powered by IIPM · Secure Examination Runtime</p></div>
+              <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center shadow-inner">
+                <GraduationCap className="w-5.5 h-5.5 text-white" />
+              </div>
+              <div>
+                <span className="font-extrabold text-sm tracking-tight uppercase">AgileCert Global</span>
+                <p className="text-[10px] text-slate-400">Powered by IIPM · Secure Examination Runtime</p>
+              </div>
             </div>
+
             <div className="flex items-center gap-3 md:gap-4">
               {userRole === 'admin' ? (
                 <nav className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl">
-                  <button onClick={() => setView('dashboard')} className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${view === 'dashboard' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}><LayoutDashboard className="w-3.5 h-3.5" /> Catalogue</button>
-                  <button onClick={() => setView('admin')} className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${view === 'admin' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}><ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Control Hub</button>
+                  <button onClick={() => setView('dashboard')} className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${view === 'dashboard' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>
+                    <LayoutDashboard className="w-3.5 h-3.5" /> Catalogue
+                  </button>
+                  <button onClick={() => setView('admin')} className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${view === 'admin' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Control Hub
+                  </button>
                 </nav>
               ) : (
                 <nav className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl">
-                  <button onClick={() => setView('dashboard')} className={`px-4 py-2 text-xs font-bold rounded-lg ${view === 'dashboard' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>Dashboard</button>
-                  <button onClick={() => setView('materials')} className={`px-4 py-2 text-xs font-bold rounded-lg ${view === 'materials' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>Materials</button>
+                  <button onClick={() => setView('dashboard')} className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${view === 'dashboard' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>
+                    <LayoutDashboard className="w-3.5 h-3.5" /><span className="hidden lg:inline">Examinations</span>
+                  </button>
+                  <button onClick={() => { setMaterialsExaminationId(null); clearMaterialsDestinationUrl(); setView('materials'); }} className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${view === 'materials' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>
+                    <BookOpenCheck className="w-3.5 h-3.5 text-emerald-400" /><span className="hidden lg:inline">Materials</span>
+                  </button>
+                  <button onClick={() => setView('profile')} className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${view === 'profile' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>
+                    <UserRound className="w-3.5 h-3.5 text-emerald-400" /><span className="hidden lg:inline">Profile</span>
+                  </button>
+                  <button onClick={() => setView('cv')} className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 ${view === 'cv' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>
+                    <FileText className="w-3.5 h-3.5 text-emerald-400" /><span className="hidden xl:inline">CV Builder</span>
+                  </button>
                 </nav>
               )}
-              <button onClick={handleLogout} className="text-xs font-bold text-slate-400 hover:text-white">Sign out</button>
+
+              {userRole === 'student' ? (
+                <button type="button" onClick={() => setView('profile')} className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/70 p-1.5 pr-2 transition hover:border-emerald-500 hover:bg-slate-900" aria-label="Open candidate profile">
+                  <CandidateAvatar candidateName={studentName} size="sm" />
+                  <span className="hidden sm:flex flex-col items-start">
+                    <span className="max-w-40 truncate text-xs font-bold text-slate-200">{studentName}</span>
+                    <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider">Candidate Session</span>
+                  </span>
+                </button>
+              ) : (
+                <div className="hidden sm:flex flex-col items-end">
+                  <span className="text-xs font-bold text-slate-200">{studentName}</span>
+                  <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider">Staff Session</span>
+                </div>
+              )}
+
+              <button onClick={() => void handleLogout()} className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/30 text-xs font-bold rounded-lg">Logout</button>
             </div>
           </div>
         </header>
       )}
 
-      {portalError && view !== 'exam' && <div className="max-w-7xl w-full mx-auto px-4 pt-4"><div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{portalError}</div></div>}
+      {portalError && view !== 'exam' && (
+        <div className="max-w-7xl w-full mx-auto px-4 pt-4">
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{portalError}</div>
+        </div>
+      )}
 
-      <main className="flex-1">
-        {view === 'dashboard' && <StudentDashboard studentName={studentName} tests={tests} attempts={attempts} onStartExam={handleStartExam} justCompletedAttempt={justCompletedAttempt} onDismissCompletedAttempt={() => setJustCompletedAttempt(null)} />}
-        {view === 'admin' && <AdminPortal attempts={attempts} onBackToDashboard={() => setView('dashboard')} onRefresh={fetchPortalData} />}
-        {view === 'materials' && <LearningMaterialsHub initialExaminationId={materialsExaminationId} onBack={() => setView('dashboard')} />}
-        {view === 'exam' && selectedTest && (
-          selectedTest.examFormat === 'cipmn_mixed' ? (
-            <CipmnExamExperience test={selectedTest} studentName={studentName} onSubmitMcq={handleSubmitCipmnMcq} onSubmitTheory={handleSubmitCipmnTheory} onExit={() => { setSelectedTest(null); setView('dashboard'); void fetchPortalData(); }} />
-          ) : (
-            <ExamExperience test={selectedTest} studentName={studentName} onSubmit={handleSubmitExam} onExit={() => { setSelectedTest(null); setView('dashboard'); void fetchPortalData(); }} />
-          )
-        )}
-      </main>
+      <div className="flex-1">
+        <AnimatePresence mode="wait">
+          {view === 'dashboard' && (
+            <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <StudentDashboard studentName={studentName} setStudentName={setStudentName} tests={tests} attempts={attempts} onStartExam={(testId) => void handleStartExam(testId)} onViewAttemptDetails={handleViewAttemptDetails} simType={simType} setSimType={setSimType} justCompletedAttempt={justCompletedAttempt} onClearJustCompleted={() => setJustCompletedAttempt(null)} />
+            </motion.div>
+          )}
+
+          {view === 'materials' && userRole === 'student' && (
+            <motion.div key="materials" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <CandidatePreparationMaterialsPanel focusedExaminationId={materialsExaminationId} onClearFocus={() => { setMaterialsExaminationId(null); clearMaterialsDestinationUrl(); }} />
+            </motion.div>
+          )}
+
+          {view === 'profile' && userRole === 'student' && (
+            <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div className="mx-auto w-full max-w-6xl px-4 pt-8 md:pt-10"><CandidateProfilePhotoEditor candidateName={studentName} /></div>
+              <CandidateProfilePanel candidateName={studentName} onCandidateNameChange={setStudentName} onBack={() => setView('dashboard')} />
+            </motion.div>
+          )}
+
+          {view === 'cv' && userRole === 'student' && (
+            <motion.div key="cv" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <AiCvProfileBuilder candidateName={studentName} onBack={() => setView('dashboard')} />
+            </motion.div>
+          )}
+
+          {view === 'exam' && selectedTest && (
+            <motion.div key="exam" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              {selectedTest.examFormat === 'cipmn_mixed' ? (
+                <CipmnExamExperience test={selectedTest} studentName={studentName} simType={simType} onSubmitMcq={handleSubmitCipmnMcq} onSubmitTheory={handleSubmitCipmnTheory} onExitExam={() => { setSelectedTest(null); setView('dashboard'); }} />
+              ) : (
+                <ExamExperience test={selectedTest} studentName={studentName} simType={simType} onSubmitExam={handleSubmitExam} onExitExam={() => { setSelectedTest(null); setView('dashboard'); }} />
+              )}
+            </motion.div>
+          )}
+
+          {view === 'admin' && (
+            <motion.div key="admin" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <AdminPortal attempts={attempts} onBackToDashboard={() => setView('dashboard')} onRefresh={fetchPortalData} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {view !== 'exam' && (
+        <footer className="bg-slate-950 border-t border-slate-900 text-slate-500 py-8 mt-12">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2"><GraduationCap className="w-4 h-4 text-emerald-600" /><span className="text-xs font-bold text-slate-400">AgileCert Global</span></div>
+            <div className="text-[10px] text-center md:text-right">
+              <p>Professional Examination Infrastructure · Integrated Institute of Professional Management</p>
+              <p className="mt-1">All examination activity is securely logged for audit and credential verification.</p>
+            </div>
+          </div>
+        </footer>
+      )}
     </div>
   );
-};
-
-export default App;
+}
