@@ -20,7 +20,12 @@ export default function CipmnModuleHubContext({
 }: CipmnModuleHubContextProps) {
   const [progress, setProgress] = useState<CipmnSectionProgress | null>(null);
   const canAttemptMcq = examUnlocked && typeof onAttemptMcq === 'function';
-  const theoryReady = Boolean(
+  const theoryCompleted = Boolean(
+    progress?.theoryCompleted
+    && progress.currentSection === 'complete'
+    && progress.sessionStatus === 'submitted',
+  );
+  const theoryReady = !theoryCompleted && Boolean(
     progress?.theoryReady
     && progress.currentSection === 'theory'
     && progress.sessionStatus === 'active',
@@ -91,11 +96,13 @@ export default function CipmnModuleHubContext({
           </button>
         </div>
 
-        <div className={`rounded-lg border p-2.5 ${theoryReady ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200 bg-white'}`}>
-          <div className={`flex items-center gap-1.5 text-xs font-bold ${theoryReady ? 'text-emerald-800' : 'text-slate-700'}`}>
-            {theoryReady ? <FileText className="h-3.5 w-3.5" /> : <LockKeyhole className="h-3.5 w-3.5" />} Theory
+        <div className={`rounded-lg border p-2.5 ${theoryReady || theoryCompleted ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200 bg-white'}`}>
+          <div className={`flex items-center gap-1.5 text-xs font-bold ${theoryReady || theoryCompleted ? 'text-emerald-800' : 'text-slate-700'}`}>
+            {theoryCompleted ? <CheckCircle2 className="h-3.5 w-3.5" /> : theoryReady ? <FileText className="h-3.5 w-3.5" /> : <LockKeyhole className="h-3.5 w-3.5" />} Theory
           </div>
-          {theoryReady ? (
+          {theoryCompleted ? (
+            <p className="mt-1 text-[10px] font-semibold text-emerald-700">Theory section completed</p>
+          ) : theoryReady ? (
             <>
               <p className="mt-1 text-[10px] font-semibold text-emerald-700">MCQs completed — Theory ready</p>
               <button
