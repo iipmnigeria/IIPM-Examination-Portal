@@ -45,6 +45,7 @@ function attachCipmnModuleEnhancements() {
       hubMount[HUB_ROOT_KEY] = hubRoot;
       hubRoot.render(
         <CipmnModuleHubContext
+          examinationId={examinationId}
           moduleTitle={moduleTitle}
           materialsUnlocked={!locked}
           examUnlocked={examUnlocked}
