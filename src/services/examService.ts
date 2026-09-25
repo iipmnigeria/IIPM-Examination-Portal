@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { Attempt, ProctorLogEvent, Test } from '../types';
+import { getProctoredExamPayload } from './identityProctoringService';
 
 function browserFingerprint(): Record<string, unknown> {
   if (typeof window === 'undefined') return {};
@@ -24,6 +25,34 @@ export async function getAvailableTests(): Promise<Test[]> {
 }
 
 export async function startSecureExam(examinationId: string): Promise<Test> {
+  // D5-C: when the catalogue says the server already advanced this CIPMN
+  // session to Theory, resume that exact protected session rather than create
+  // another MCQ attempt. The server remains authoritative for both the state
+  // decision and the Theory payload.
+  const catalogue = await getAvailableTests();
+  const catalogueTest = catalogue.find((test) => test.id === examinationId);
+  const progress = catalogueTest?.examFormat === 'cipmn_mixed'
+    ? catalogueTest.sectionProgress
+    : null;
+
+  if (
+    progress?.theoryReady
+    && progress.currentSection === 'theory'
+    && progress.sessionStatus === 'active'
+    && progress.sessionId
+  ) {
+    const resumed = await getProctoredExamPayload(progress.sessionId);
+    return {
+      ...resumed,
+      examFormat: resumed.examFormat ?? catalogueTest?.examFormat,
+      mcqCount: resumed.mcqCount ?? catalogueTest?.mcqCount,
+      theoryCount: resumed.theoryCount ?? catalogueTest?.theoryCount,
+      currentSection: 'theory',
+      mcqScore: typeof progress.mcqScore === 'number' ? progress.mcqScore : resumed.mcqScore,
+      sectionProgress: progress,
+    };
+  }
+
   const { data, error } = await supabase.rpc('start_exam_secure', {
     p_examination_id: examinationId,
     p_client_fingerprint: browserFingerprint(),
@@ -79,7 +108,6 @@ export async function assignExamToCandidate(input: {
   return (data || {}) as Record<string, unknown>;
 }
 
-
 export async function submitCipmnMcqSection(input: {
   sessionId: string;
   answers: Record<string, number>;
@@ -118,8 +146,6 @@ export async function submitCipmnTheorySection(input: {
     body: { sessionId: input.sessionId },
   });
 
-  // The theory submission is already safely stored before AI grading begins.
-  // If the marker is temporarily unavailable, preserve the pending attempt for review.
   if (gradingError || !gradingData || typeof gradingData !== 'object' || 'error' in gradingData) {
     console.warn('Automatic CIPMN theory grading is pending:', gradingError || gradingData);
     return data as Attempt;
