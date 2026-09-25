@@ -1,6 +1,7 @@
 -- Phase C1: CIPMN mock examinations are repeatable practice assessments.
--- This migration changes only the secure-start attempt-cap decision.
+-- This migration changes only the secure-start eligibility/attempt-cap decision.
 -- Existing payment/access, expiry, camera/proctoring, scoring and non-CIPMN limits remain authoritative.
+-- Historical assignment status and attempt records are preserved.
 
 CREATE OR REPLACE FUNCTION public.start_exam_secure_phase5_base(
   p_examination_id uuid,
@@ -40,12 +41,13 @@ begin
     raise exception 'You have not been granted access to this examination.';
   end if;
 
-  -- Historical attempt-cap completion must not permanently block paid CIPMN practice.
-  if v_programme_code='CIPMN-MOCK' and v_assignment.status='completed' then
-    update public.exam_assignments set status='assigned' where id=v_assignment.id returning * into v_assignment;
+  -- CIPMN-MOCK is repeatable practice. A historical `completed` assignment may
+  -- launch another practice session without rewriting its status or attempt history.
+  -- Revoked/expired assignments remain blocked, as do inactive assignments elsewhere.
+  if not (v_programme_code='CIPMN-MOCK' and v_assignment.status='completed')
+     and v_assignment.status<>'assigned' then
+    raise exception 'This examination access is not active.';
   end if;
-
-  if v_assignment.status<>'assigned' then raise exception 'This examination access is not active.'; end if;
   if v_assignment.available_from is not null and v_assignment.available_from>now() then raise exception 'This examination access is not yet available.'; end if;
   if v_assignment.expires_at is not null and v_assignment.expires_at<=now() then
     update public.exam_assignments set status='expired' where id=v_assignment.id;
@@ -58,7 +60,7 @@ begin
   where assignment_id=v_assignment.id and status='active' order by started_at desc limit 1;
 
   if not found then
-    -- All non-CIPMN examinations retain their existing attempt ceiling unchanged.
+    -- Preserve the normal attempt ceiling for every programme except CIPMN-MOCK.
     if v_programme_code<>'CIPMN-MOCK' then
       select count(*) into v_attempt_count from public.attempts
       where examination_id=p_examination_id and candidate_id=v_candidate_id;
