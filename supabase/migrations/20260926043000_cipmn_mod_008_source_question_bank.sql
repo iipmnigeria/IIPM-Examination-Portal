@@ -219,7 +219,7 @@ declare
     "options": [
       "Benchmarking.",
       "Process Audit.",
-      "Quality Function Deployment.",
+      "Inspection.",
       "Statistical Sampling."
     ],
     "correct": 4
