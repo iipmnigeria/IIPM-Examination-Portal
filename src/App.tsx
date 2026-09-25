@@ -254,7 +254,9 @@ export default function App() {
   ): Promise<number> => {
     if (!selectedTest?.sessionId) throw new Error('The secure examination session identifier is missing.');
     const result = await submitCipmnMcqSection({ sessionId: selectedTest.sessionId, answers, logs, tabAwayCount });
-    setSelectedTest((previous) => previous ? { ...previous, currentSection: 'theory', mcqScore: result.mcqScore } : previous);
+    setSelectedTest(null);
+    setView('dashboard');
+    void fetchPortalData();
     return result.mcqScore;
   };
 
