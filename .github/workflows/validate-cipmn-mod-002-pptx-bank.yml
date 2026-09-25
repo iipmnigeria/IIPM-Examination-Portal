@@ -1,0 +1,57 @@
+name: Validate CIPMN Module 2 PPTX Question Bank
+
+on:
+  push:
+    branches:
+      - safe/cipmn-mod-002-pptx-question-bank
+    paths:
+      - 'supabase/migrations/20260925230000_cipmn_mod_002_pptx_question_bank.sql'
+      - 'scripts/validate-cipmn-mod-002-pptx-bank.mjs'
+      - '.github/workflows/validate-cipmn-mod-002-pptx-bank.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/20260925230000_cipmn_mod_002_pptx_question_bank.sql'
+      - 'scripts/validate-cipmn-mod-002-pptx-bank.mjs'
+      - '.github/workflows/validate-cipmn-mod-002-pptx-bank.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-cipmn-mod-002-pptx-bank-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate Module 2 source-strict question bank
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout candidate changes
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate source scope, uniqueness and migration safety
+        run: node scripts/validate-cipmn-mod-002-pptx-bank.mjs
+
+      - name: Install application dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Existing TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify production artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
