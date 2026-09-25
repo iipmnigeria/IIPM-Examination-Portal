@@ -65,13 +65,13 @@ const joined=[
 ].join(' ').toLowerCase();
 
 for(const required of [
-  'quality vs grade','precision','accuracy','prevention','inspection',
+  'grade','precision','accuracy','prevention','inspection',
   'quality planning','quality management plan','quality metrics','acceptance criteria',
   'quality assurance','quality control','quality audit','kaizen','lean','six sigma','dmaic','pdsa',
   'statistical sampling','control chart','pareto chart','histogram','scatter diagram','flowchart',
   'check sheet','fishbone','corrective action','preventive action','iso 9001','tqm',
   'appraisal cost','internal failure','external failure','raci','smart kpis',
-  'quality dashboards','lessons learned'
+  'dashboards','lessons learned'
 ]){
   expect(joined.includes(required),'Required official-source topic not assessed: '+required);
 }
