@@ -24,6 +24,10 @@ begin
     raise exception 'Unexpected CIPMN-MOD-002 exam format: %',v_format;
   end if;
 
+  if v_format='cipmn_mixed' then
+    raise exception 'CIPMN-MOD-002 is already configured as a mixed examination; conversion aborted.';
+  end if;
+
   update public.exam_sessions
   set status='expired',updated_at=now()
   where examination_id=v_exam_id
