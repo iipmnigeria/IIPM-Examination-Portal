@@ -40,14 +40,6 @@ jobs:
       - name: Validate grader source contracts
         run: node scripts/validate-cipmn-generic-theory-grader.mjs
 
-      - name: Set up Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-
-      - name: Type-check Edge Function
-        run: deno check --node-modules-dir=auto supabase/functions/grade-cipmn-theory/index.ts
-
       - name: Install application dependencies
         run: npm install --no-audit --no-fund
 
@@ -63,3 +55,11 @@ jobs:
           set -euo pipefail
           test -s dist/index.html
           grep -q 'AgileCert Global' dist/index.html
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check Edge Function
+        run: deno check --node-modules-dir=auto supabase/functions/grade-cipmn-theory/index.ts
