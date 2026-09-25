@@ -71,279 +71,279 @@ declare
   v_mcqs jsonb := $mcq$
 [
   {
-    "position":1,
-    "question":"A low-cost housing project uses modest materials but fully meets agreed safety, durability and functional requirements. How should its quality be judged according to Module 8?",
-    "options":[
+    "position": 1,
+    "question": "A low-cost housing project uses modest materials but fully meets agreed safety, durability and functional requirements. How should its quality be judged according to Module 8?",
+    "options": [
       "Low quality because high grade is required for quality.",
       "High quality if the deliverable meets requirements and is fit for use.",
       "High grade automatically means high quality.",
       "Quality cannot be judged until the project closes."
     ],
-    "correct":2
+    "correct": 2
   },
   {
-    "position":2,
-    "question":"Which statement correctly distinguishes quality from grade in the official materials?",
-    "options":[
-      "Quality measures conformity to requirements; grade is a category or rank among products with the same functional use but different technical characteristics.",
+    "position": 2,
+    "question": "Which statement correctly distinguishes quality from grade in the official materials?",
+    "options": [
       "Quality and grade are interchangeable terms.",
       "Grade measures stakeholder satisfaction while quality measures price.",
-      "Grade is always more important than quality."
+      "Grade is always more important than quality.",
+      "Quality measures conformity to requirements; grade is a category or rank among products with the same functional use but different technical characteristics."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":3,
-    "question":"Repeated measurements are tightly clustered but all are far from the true value. Which interpretation is correct?",
-    "options":[
-      "Accurate but not precise.",
-      "Neither accurate nor precise.",
+    "position": 3,
+    "question": "Repeated measurements are tightly clustered but all are far from the true value. Which interpretation is correct?",
+    "options": [
       "Precise but not accurate.",
-      "Both accurate and precise."
+      "Both accurate and precise.",
+      "Accurate but not precise.",
+      "Neither accurate nor precise."
     ],
-    "correct":3
+    "correct": 1
   },
   {
-    "position":4,
-    "question":"Which principle is emphasized by the module when choosing between defect prevention and later inspection?",
-    "options":[
+    "position": 4,
+    "question": "Which principle is emphasized by the module when choosing between defect prevention and later inspection?",
+    "options": [
+      "Defects should be accepted if the product grade is high.",
       "Inspection should replace prevention.",
       "Prevention is generally more cost-effective than finding and fixing defects after they occur.",
-      "Inspection is always cheaper than process improvement.",
-      "Defects should be accepted if the product grade is high."
+      "Inspection is always cheaper than process improvement."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":5,
-    "question":"Which statement best describes Project Quality Management?",
-    "options":[
+    "position": 5,
+    "question": "Which statement best describes Project Quality Management?",
+    "options": [
       "It covers only final product testing.",
       "It focuses only on organizational policy, not project execution.",
       "It integrates planning, managing and controlling project and product quality requirements so stakeholder expectations are met.",
       "It is limited to quality audits performed after delivery."
     ],
-    "correct":3
+    "correct": 3
   },
   {
-    "position":6,
-    "question":"A project manager wants to identify applicable standards and document how compliance will be demonstrated. Which process is being performed?",
-    "options":[
-      "Quality Planning.",
+    "position": 6,
+    "question": "A project manager wants to identify applicable standards and document how compliance will be demonstrated. Which process is being performed?",
+    "options": [
       "Quality Control.",
       "Issue Escalation.",
-      "Scope Validation."
+      "Scope Validation.",
+      "Quality Planning."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":7,
-    "question":"Which item is listed as an output of Plan Quality Management in the official deck?",
-    "options":[
-      "Risk Register only.",
-      "Quality Management Plan.",
+    "position": 7,
+    "question": "Which item is listed as an output of Plan Quality Management in the official deck?",
+    "options": [
       "Project Charter.",
-      "Stakeholder Register only."
+      "Stakeholder Register only.",
+      "Risk Register only.",
+      "Quality Management Plan."
     ],
-    "correct":2
+    "correct": 4
   },
   {
-    "position":8,
-    "question":"Which set contains only source-listed tools and techniques for quality planning?",
-    "options":[
+    "position": 8,
+    "question": "Which set contains only source-listed tools and techniques for quality planning?",
+    "options": [
+      "Issue logs, escalation paths and risk audits.",
       "Expert judgment, brainstorming/interviews/checklists, cost-benefit analysis, SWOT, multicriteria decision analysis, benchmarking, DOE and meetings.",
       "PERT, CPM, crashing and fast-tracking.",
-      "Monte Carlo, EMV and decision trees only.",
-      "Issue logs, escalation paths and risk audits."
+      "Monte Carlo, EMV and decision trees only."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":9,
-    "question":"Which statement best distinguishes Quality Assurance from Quality Control?",
-    "options":[
+    "position": 9,
+    "question": "Which statement best distinguishes Quality Assurance from Quality Control?",
+    "options": [
       "QA is proactive and process-focused; QC measures and inspects outputs for conformance.",
       "QA and QC are identical.",
       "QA focuses on product inspection while QC improves processes.",
       "QC is performed only by external auditors."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":10,
-    "question":"A quality team reviews welding procedures, material procurement processes and safety protocols to determine whether project processes comply with standards. What is this activity?",
-    "options":[
-      "Statistical Sampling.",
+    "position": 10,
+    "question": "A quality team reviews welding procedures, material procurement processes and safety protocols to determine whether project processes comply with standards. What is this activity?",
+    "options": [
       "Quality Audit.",
       "Product Validation.",
-      "Acceptance Testing."
+      "Acceptance Testing.",
+      "Statistical Sampling."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":11,
-    "question":"Which continuous-improvement method is described as maximizing customer value while minimizing waste?",
-    "options":[
-      "Six Sigma.",
-      "TQM.",
+    "position": 11,
+    "question": "Which continuous-improvement method is described as maximizing customer value while minimizing waste?",
+    "options": [
       "Lean.",
-      "PDSA."
+      "PDSA.",
+      "Six Sigma.",
+      "TQM."
     ],
-    "correct":3
+    "correct": 1
   },
   {
-    "position":12,
-    "question":"Which methodology is explicitly described as data-driven and focused on reducing defects and variability, often using DMAIC?",
-    "options":[
+    "position": 12,
+    "question": "Which methodology is explicitly described as data-driven and focused on reducing defects and variability, often using DMAIC?",
+    "options": [
+      "Benchmarking.",
       "Kaizen.",
       "Six Sigma.",
-      "Lean.",
-      "Benchmarking."
+      "Lean."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":13,
-    "question":"What does the PDSA cycle represent in the source materials?",
-    "options":[
+    "position": 13,
+    "question": "What does the PDSA cycle represent in the source materials?",
+    "options": [
       "An iterative Plan–Do–Study–Act method for continuous improvement and control of processes/products.",
       "A budgeting method for Cost of Quality.",
       "A schedule compression technique.",
       "A stakeholder prioritization tool."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":14,
-    "question":"Which Quality Control technique selects a representative portion of a population for inspection when checking every item is impractical or too costly?",
-    "options":[
-      "Statistical Sampling.",
+    "position": 14,
+    "question": "Which Quality Control technique selects a representative portion of a population for inspection when checking every item is impractical or too costly?",
+    "options": [
       "Benchmarking.",
       "Process Audit.",
-      "Quality Function Deployment."
+      "Quality Function Deployment.",
+      "Statistical Sampling."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":15,
-    "question":"Which basic quality tool is best used to prioritize the most frequent or significant causes of problems using the 80/20 principle?",
-    "options":[
-      "Histogram.",
-      "Control Chart.",
+    "position": 15,
+    "question": "Which basic quality tool is best used to prioritize the most frequent or significant causes of problems using the 80/20 principle?",
+    "options": [
       "Pareto Chart.",
-      "Scatter Diagram."
+      "Scatter Diagram.",
+      "Histogram.",
+      "Control Chart."
     ],
-    "correct":3
+    "correct": 1
   },
   {
-    "position":16,
-    "question":"Which quality tool helps determine whether a process remains within established control limits over time?",
-    "options":[
+    "position": 16,
+    "question": "Which quality tool helps determine whether a process remains within established control limits over time?",
+    "options": [
+      "Fishbone Diagram.",
       "Check Sheet.",
       "Control Chart.",
-      "Flowchart.",
-      "Fishbone Diagram."
+      "Flowchart."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":17,
-    "question":"A team wants to investigate possible root causes of repeated defects by grouping causes such as Man, Machine, Material, Method, Measurement and Environment. Which tool fits?",
-    "options":[
+    "position": 17,
+    "question": "A team wants to investigate possible root causes of repeated defects by grouping causes such as Man, Machine, Material, Method, Measurement and Environment. Which tool fits?",
+    "options": [
       "Cause-and-Effect (Fishbone/Ishikawa) Diagram.",
       "Scatter Diagram.",
       "Histogram.",
       "Check Sheet."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":18,
-    "question":"A defect has already been detected and the team acts to eliminate its cause and realign performance with the project plan. What type of action is this?",
-    "options":[
-      "Preventive Action.",
+    "position": 18,
+    "question": "A defect has already been detected and the team acts to eliminate its cause and realign performance with the project plan. What type of action is this?",
+    "options": [
       "Corrective Action.",
       "Appraisal Cost.",
-      "External Failure."
+      "External Failure.",
+      "Preventive Action."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":19,
-    "question":"Which framework is presented as an internationally recognized Quality Management System standard that supports consistent customer and regulatory compliance?",
-    "options":[
-      "ISO 9001.",
-      "PERT.",
+    "position": 19,
+    "question": "Which framework is presented as an internationally recognized Quality Management System standard that supports consistent customer and regulatory compliance?",
+    "options": [
       "MoSCoW.",
-      "COBIT."
+      "COBIT.",
+      "ISO 9001.",
+      "PERT."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":20,
-    "question":"Which Nigerian regulator is identified in the module as responsible for standardizing and regulating the quality of products and services in Nigeria?",
-    "options":[
+    "position": 20,
+    "question": "Which Nigerian regulator is identified in the module as responsible for standardizing and regulating the quality of products and services in Nigeria?",
+    "options": [
+      "COREN.",
       "NCC.",
       "CBN.",
-      "SON.",
-      "COREN."
+      "SON."
     ],
-    "correct":3
+    "correct": 4
   },
   {
-    "position":21,
-    "question":"Which Cost of Quality category covers costs incurred to assess or measure whether products and services conform to requirements?",
-    "options":[
+    "position": 21,
+    "question": "Which Cost of Quality category covers costs incurred to assess or measure whether products and services conform to requirements?",
+    "options": [
       "Prevention Cost.",
       "Appraisal Cost.",
       "Internal Failure Cost.",
       "External Failure Cost."
     ],
-    "correct":2
+    "correct": 2
   },
   {
-    "position":22,
-    "question":"A defect is discovered after a product has already been delivered to the customer. Which Cost of Quality category applies?",
-    "options":[
-      "External Failure Cost.",
+    "position": 22,
+    "question": "A defect is discovered after a product has already been delivered to the customer. Which Cost of Quality category applies?",
+    "options": [
       "Internal Failure Cost.",
       "Prevention Cost.",
-      "Appraisal Cost."
+      "Appraisal Cost.",
+      "External Failure Cost."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":23,
-    "question":"Which statement best reflects the module's view of responsibility for project quality?",
-    "options":[
-      "Quality belongs only to the Quality Manager.",
-      "Quality is a shared responsibility supported by role clarity, leadership commitment, stakeholder engagement, communication and training.",
+    "position": 23,
+    "question": "Which statement best reflects the module's view of responsibility for project quality?",
+    "options": [
       "Quality belongs only to the Project Manager.",
-      "Team members should report defects only after project closure."
+      "Team members should report defects only after project closure.",
+      "Quality belongs only to the Quality Manager.",
+      "Quality is a shared responsibility supported by role clarity, leadership commitment, stakeholder engagement, communication and training."
     ],
-    "correct":2
+    "correct": 4
   },
   {
-    "position":24,
-    "question":"Which Quality KPI characteristic is required by the module?",
-    "options":[
+    "position": 24,
+    "question": "Which Quality KPI characteristic is required by the module?",
+    "options": [
+      "Simple, Market-driven, Annual, Risk-free and Transferable.",
       "SMART: Specific, Measurable, Achievable, Relevant and Time-bound.",
       "Subjective, Manual, Approximate, Repetitive and Temporary.",
-      "Strategic, Monetary, Audited, Reactive and Technical.",
-      "Simple, Market-driven, Annual, Risk-free and Transferable."
+      "Strategic, Monetary, Audited, Reactive and Technical."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":25,
-    "question":"Which statement best describes how quality is integrated into Agile and Hybrid project environments in the source materials?",
-    "options":[
+    "position": 25,
+    "question": "Which statement best describes how quality is integrated into Agile and Hybrid project environments in the source materials?",
+    "options": [
       "Agile builds quality through continuous testing, frequent feedback and iterative development; Hybrid requires flexibility and adaptation while retaining quality controls.",
       "Agile removes the need for quality planning and QC.",
       "Hybrid projects should defer quality checks until final delivery.",
       "Agile and Hybrid methods are incompatible with formal quality management."
     ],
-    "correct":1
+    "correct": 1
   }
 ]
 $mcq$::jsonb;
