@@ -1,2 +1,3 @@
 D5-D deployment trigger: completed CIPMN theory state UI.
 No application, examination, scoring, access, proctoring, or database logic is changed by this file.
+Retriggered after deployment-pipeline diagnosis; application logic remains untouched.
