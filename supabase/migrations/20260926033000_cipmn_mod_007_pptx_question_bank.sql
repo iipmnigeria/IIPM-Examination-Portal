@@ -69,279 +69,279 @@ declare
   v_mcqs jsonb := $mcq$
 [
   {
-    "position":1,
-    "question":"Which statement best defines Project Scope Management in Module 7?",
-    "options":[
+    "position": 1,
+    "question": "Which statement best defines Project Scope Management in Module 7?",
+    "options": [
       "Ensuring the project includes all the work required, and only the work required, to complete the project successfully.",
       "Managing only the final product features after delivery.",
       "Controlling schedule without reference to scope.",
       "Approving every stakeholder request to maximize satisfaction."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":2,
-    "question":"Which distinction between project scope and product scope is supported by the deck?",
-    "options":[
-      "Project scope is the work needed to deliver the result; product scope is the features and functions of that result.",
+    "position": 2,
+    "question": "Which distinction between project scope and product scope is supported by the deck?",
+    "options": [
       "Project scope concerns only cost; product scope concerns only schedule.",
       "Project scope is validated by customers while product scope is managed only by the PM.",
-      "They are identical concepts documented in the same way."
+      "They are identical concepts documented in the same way.",
+      "Project scope is the work needed to deliver the result; product scope is the features and functions of that result."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":3,
-    "question":"Which three elements together make up the Scope Baseline in Module 7?",
-    "options":[
-      "Approved scope statement, WBS, and WBS dictionary.",
-      "Project charter, issue log, and stakeholder register.",
+    "position": 3,
+    "question": "Which three elements together make up the Scope Baseline in Module 7?",
+    "options": [
       "Requirements plan, change request form, and lessons learned log.",
-      "Budget, schedule, and quality plan."
+      "Budget, schedule, and quality plan.",
+      "Approved scope statement, WBS, and WBS dictionary.",
+      "Project charter, issue log, and stakeholder register."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":4,
-    "question":"A project manager is helping stakeholders define requirements, balancing competing interests, and leading structured workshops. Which PM role is being demonstrated?",
-    "options":[
+    "position": 4,
+    "question": "A project manager is helping stakeholders define requirements, balancing competing interests, and leading structured workshops. Which PM role is being demonstrated?",
+    "options": [
+      "Auditor.",
       "Facilitator.",
       "Guardian.",
-      "Integrator.",
-      "Auditor."
+      "Integrator."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":5,
-    "question":"A project manager refuses an unapproved feature request because it would undermine the approved scope baseline. Which PM role best fits this behavior?",
-    "options":[
+    "position": 5,
+    "question": "A project manager refuses an unapproved feature request because it would undermine the approved scope baseline. Which PM role best fits this behavior?",
+    "options": [
       "Guardian.",
       "Communicator.",
       "Facilitator.",
       "Sponsor."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":6,
-    "question":"A project manager updates schedule and cost baselines after an approved scope change. Which PM role is most directly being performed?",
-    "options":[
-      "Integrator.",
+    "position": 6,
+    "question": "A project manager updates schedule and cost baselines after an approved scope change. Which PM role is most directly being performed?",
+    "options": [
       "Facilitator.",
       "Guardian.",
-      "Customer."
+      "Customer.",
+      "Integrator."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":7,
-    "question":"Which situation is the clearest example of scope creep as defined in Module 7?",
-    "options":[
-      "Additional functionality is added without corresponding adjustments to time, cost, or resources.",
-      "A formally approved change is evaluated and re-baselined.",
+    "position": 7,
+    "question": "Which situation is the clearest example of scope creep as defined in Module 7?",
+    "options": [
       "A requirement is clarified before approval.",
-      "A stakeholder signs off the scope statement."
+      "A stakeholder signs off the scope statement.",
+      "Additional functionality is added without corresponding adjustments to time, cost, or resources.",
+      "A formally approved change is evaluated and re-baselined."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":8,
-    "question":"Which pair is identified in the deck as common scope threats in Nigerian projects?",
-    "options":[
+    "position": 8,
+    "question": "Which pair is identified in the deck as common scope threats in Nigerian projects?",
+    "options": [
+      "Cash flow and inflation indexing.",
       "Feature creep and requirement volatility.",
       "Cost variance and earned value.",
-      "Procurement fraud and tax exposure.",
-      "Cash flow and inflation indexing."
+      "Procurement fraud and tax exposure."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":9,
-    "question":"Which proactive measure helps prevent scope creep by separating essential from optional requirements?",
-    "options":[
+    "position": 9,
+    "question": "Which proactive measure helps prevent scope creep by separating essential from optional requirements?",
+    "options": [
       "MoSCoW prioritization.",
       "Critical Path Method.",
       "Monte Carlo Simulation.",
       "Earned Value Analysis."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":10,
-    "question":"A legitimate change must be accommodated after the baseline has been approved. Which reactive scope-control action is specifically supported by the deck?",
-    "options":[
-      "Perform impact analysis and formally re-baseline if the change is approved.",
+    "position": 10,
+    "question": "A legitimate change must be accommodated after the baseline has been approved. Which reactive scope-control action is specifically supported by the deck?",
+    "options": [
       "Implement immediately and update documentation later.",
       "Reject all changes once the baseline exists.",
-      "Ignore resource implications if the sponsor supports the change."
+      "Ignore resource implications if the sponsor supports the change.",
+      "Perform impact analysis and formally re-baseline if the change is approved."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":11,
-    "question":"Which requirements-gathering technique is best described as one-on-one discussion to elicit detailed requirements?",
-    "options":[
-      "Interviews.",
-      "Brainstorming.",
+    "position": 11,
+    "question": "Which requirements-gathering technique is best described as one-on-one discussion to elicit detailed requirements?",
+    "options": [
       "Observation.",
-      "Prototyping."
+      "Prototyping.",
+      "Interviews.",
+      "Brainstorming."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":12,
-    "question":"Which technique is most appropriate when the team needs to observe users in their natural working environment?",
-    "options":[
+    "position": 12,
+    "question": "Which technique is most appropriate when the team needs to observe users in their natural working environment?",
+    "options": [
+      "Document Analysis.",
       "Observation.",
       "Focus Group.",
-      "Questionnaire.",
-      "Document Analysis."
+      "Questionnaire."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":13,
-    "question":"Which statement best describes the role of a Scope Statement in Module 7?",
-    "options":[
+    "position": 13,
+    "question": "Which statement best describes the role of a Scope Statement in Module 7?",
+    "options": [
       "It details project boundaries and creates shared understanding of what will and will not be delivered.",
       "It replaces the WBS and requirements documentation.",
       "It is used only after project closure.",
       "It documents only product features."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":14,
-    "question":"How does the deck define a Work Breakdown Structure?",
-    "options":[
-      "A hierarchical decomposition of the total project scope into smaller manageable components.",
+    "position": 14,
+    "question": "How does the deck define a Work Breakdown Structure?",
+    "options": [
       "A list of approved changes only.",
       "A stakeholder influence matrix.",
-      "A schedule compression tool."
+      "A schedule compression tool.",
+      "A hierarchical decomposition of the total project scope into smaller manageable components."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":15,
-    "question":"What is the purpose of the WBS Dictionary according to Module 7?",
-    "options":[
-      "To provide detailed descriptions of each WBS component.",
-      "To approve project changes.",
+    "position": 15,
+    "question": "What is the purpose of the WBS Dictionary according to Module 7?",
+    "options": [
       "To classify stakeholder resistance.",
-      "To replace the Scope Statement."
+      "To replace the Scope Statement.",
+      "To provide detailed descriptions of each WBS component.",
+      "To approve project changes."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":16,
-    "question":"Which monitoring technique helps determine the cause and degree of difference between the baseline and actual performance?",
-    "options":[
+    "position": 16,
+    "question": "Which monitoring technique helps determine the cause and degree of difference between the baseline and actual performance?",
+    "options": [
+      "Prototyping.",
       "Variance Analysis.",
       "PESTLE Analysis.",
-      "Brainstorming.",
-      "Prototyping."
+      "Brainstorming."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":17,
-    "question":"What is the primary function of performance reporting in scope monitoring?",
-    "options":[
+    "position": 17,
+    "question": "What is the primary function of performance reporting in scope monitoring?",
+    "options": [
       "To identify deviations early through regular status and progress reporting.",
       "To replace formal change control.",
       "To eliminate stakeholder communication.",
       "To approve changes automatically."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":18,
-    "question":"Which item belongs in the impact-analysis section of a formal change request form?",
-    "options":[
-      "Impact on scope, schedule, cost, quality, other constraints, and risk.",
+    "position": 18,
+    "question": "Which item belongs in the impact-analysis section of a formal change request form?",
+    "options": [
       "Only the requester’s personal opinion.",
       "Only the final implementation date.",
-      "Only the sponsor’s signature."
+      "Only the sponsor’s signature.",
+      "Impact on scope, schedule, cost, quality, other constraints, and risk."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":19,
-    "question":"Which statement best describes the Change Control Board (CCB)?",
-    "options":[
-      "A formal stakeholder group that reviews, evaluates, approves, delays, or rejects proposed changes.",
-      "A team that implements every change request automatically.",
+    "position": 19,
+    "question": "Which statement best describes the Change Control Board (CCB)?",
+    "options": [
       "A project team subgroup responsible only for documentation.",
-      "A committee used only after project closure."
+      "A committee used only after project closure.",
+      "A formal stakeholder group that reviews, evaluates, approves, delays, or rejects proposed changes.",
+      "A team that implements every change request automatically."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":20,
-    "question":"Which principle is emphasized when controlling approved scope changes?",
-    "options":[
+    "position": 20,
+    "question": "Which principle is emphasized when controlling approved scope changes?",
+    "options": [
+      "Schedule and cost impacts can be ignored if the change adds value.",
       "Changes must be integrated across scope, schedule, cost, and other relevant constraints.",
       "Only scope documentation should change.",
-      "Approved changes should not affect baselines.",
-      "Schedule and cost impacts can be ignored if the change adds value."
+      "Approved changes should not affect baselines."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":21,
-    "question":"According to Module 7, what does Change Management primarily address?",
-    "options":[
+    "position": 21,
+    "question": "According to Module 7, what does Change Management primarily address?",
+    "options": [
       "The human element of change by preparing, equipping, and supporting people to adopt change.",
       "Only technical configuration control.",
       "Only financial approval of scope changes.",
       "Only the project schedule."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":22,
-    "question":"Which four aspects are highlighted as key dimensions of change management in the deck?",
-    "options":[
-      "People, Process, Technology, and Culture.",
+    "position": 22,
+    "question": "Which four aspects are highlighted as key dimensions of change management in the deck?",
+    "options": [
       "Scope, Cost, Time, and Procurement.",
       "Risk, Quality, Audit, and Compliance.",
-      "Governance, Finance, Logistics, and Security."
+      "Governance, Finance, Logistics, and Security.",
+      "People, Process, Technology, and Culture."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":23,
-    "question":"Which framework in Module 7 is used to consider Political, Economic, Social, Technological, Legal, and Environmental factors?",
-    "options":[
-      "PESTLE Analysis.",
-      "WBS.",
+    "position": 23,
+    "question": "Which framework in Module 7 is used to consider Political, Economic, Social, Technological, Legal, and Environmental factors?",
+    "options": [
       "MoSCoW.",
-      "Variance Analysis."
+      "Variance Analysis.",
+      "PESTLE Analysis.",
+      "WBS."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":24,
-    "question":"Which set of actions is directly supported by the deck for managing resistance to change?",
-    "options":[
+    "position": 24,
+    "question": "Which set of actions is directly supported by the deck for managing resistance to change?",
+    "options": [
+      "Exploit, enhance, share, and accept.",
       "Education, participation, facilitation, and negotiation.",
       "Crashing, fast-tracking, leveling, and smoothing.",
-      "Avoid, mitigate, transfer, and accept.",
-      "Exploit, enhance, share, and accept."
+      "Avoid, mitigate, transfer, and accept."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":25,
-    "question":"In the Community Borehole case, a new government directive requires a solar-powered purification system that was not in the original scope. What is the most source-consistent response?",
-    "options":[
+    "position": 25,
+    "question": "In the Community Borehole case, a new government directive requires a solar-powered purification system that was not in the original scope. What is the most source-consistent response?",
+    "options": [
       "Treat it as a formal change, analyze its impacts, route it through change control, and update baselines if approved.",
       "Ignore it because the original scope was already approved.",
       "Implement it immediately without documenting cost or schedule impact.",
       "Reject it automatically because changes are prohibited after baselining."
     ],
-    "correct":1
+    "correct": 1
   }
 ]
 $mcq$::jsonb;
