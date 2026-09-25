@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import CipmnOpenMaterialsAction from './CipmnOpenMaterialsAction';
 import CipmnModuleHubContext from './CipmnModuleHubContext';
@@ -11,7 +11,23 @@ type MountElement = HTMLDivElement & {
   [HUB_ROOT_KEY]?: Root;
 };
 
-function attachCipmnModuleEnhancements() {
+function disposeMount(mount: MountElement) {
+  // The dashboard may be unmounting inside a React commit. Dispose the nested
+  // root afterwards, including hosts already detached with their exam card.
+  queueMicrotask(() => {
+    mount[MATERIALS_ROOT_KEY]?.unmount();
+    mount[HUB_ROOT_KEY]?.unmount();
+    mount.remove();
+  });
+}
+
+function attachCipmnModuleEnhancements(onAttemptMcq: (examinationId: string) => void, mounts: Set<MountElement>) {
+  mounts.forEach((mount) => {
+    if (!mount.isConnected) {
+      mounts.delete(mount);
+      disposeMount(mount);
+    }
+  });
   document.querySelectorAll<HTMLElement>('[id^="exam-card-"]').forEach((card) => {
     const examinationId = card.id.replace(/^exam-card-/, '').trim();
     if (!examinationId) return;
@@ -29,6 +45,7 @@ function attachCipmnModuleEnhancements() {
       materialsMount.dataset.agilecertCipmnOpenMaterials = 'true';
       materialsMount.className = 'mt-2 flex justify-end';
       actionContainer.appendChild(materialsMount);
+      mounts.add(materialsMount);
 
       const materialsRoot = createRoot(materialsMount);
       materialsMount[MATERIALS_ROOT_KEY] = materialsRoot;
@@ -40,6 +57,7 @@ function attachCipmnModuleEnhancements() {
       const hubMount = document.createElement('div') as MountElement;
       hubMount.dataset.agilecertCipmnModuleHubMount = 'true';
       card.appendChild(hubMount);
+      mounts.add(hubMount);
 
       const hubRoot = createRoot(hubMount);
       hubMount[HUB_ROOT_KEY] = hubRoot;
@@ -49,30 +67,42 @@ function attachCipmnModuleEnhancements() {
           moduleTitle={moduleTitle}
           materialsUnlocked={!locked}
           examUnlocked={examUnlocked}
-          onAttemptMcq={examUnlocked ? () => examAction.click() : undefined}
+          onAttemptMcq={examUnlocked ? () => {
+            const currentAction = card.querySelector<HTMLButtonElement>('button[data-agilecert-access-status]');
+            if (currentAction?.dataset.agilecertAccessStatus === 'unlocked' && !currentAction.disabled) {
+              onAttemptMcq(examinationId);
+            }
+          } : undefined}
+          onStartTheory={examUnlocked ? () => {
+            const currentAction = card.querySelector<HTMLButtonElement>('button[data-agilecert-access-status]');
+            if (currentAction?.dataset.agilecertAccessStatus === 'unlocked' && !currentAction.disabled) {
+              currentAction.click();
+            }
+          } : undefined}
         />,
       );
     }
   });
 }
 
-export default function CipmnModuleMaterialsMount() {
+export default function CipmnModuleMaterialsMount({ onAttemptMcq }: { onAttemptMcq: (examinationId: string) => void }) {
+  const onAttemptMcqRef = useRef(onAttemptMcq);
+  onAttemptMcqRef.current = onAttemptMcq;
   useEffect(() => {
-    attachCipmnModuleEnhancements();
+    const mounts = new Set<MountElement>();
+    const attach = () => attachCipmnModuleEnhancements((examinationId) => onAttemptMcqRef.current(examinationId), mounts);
+    attach();
 
-    const observer = new MutationObserver(() => attachCipmnModuleEnhancements());
+    const observer = new MutationObserver(attach);
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
       observer.disconnect();
-      document.querySelectorAll<MountElement>('[data-agilecert-cipmn-open-materials="true"]').forEach((mount) => {
-        mount[MATERIALS_ROOT_KEY]?.unmount();
+      mounts.forEach((mount) => {
         mount.remove();
+        disposeMount(mount);
       });
-      document.querySelectorAll<MountElement>('[data-agilecert-cipmn-module-hub-mount="true"]').forEach((mount) => {
-        mount[HUB_ROOT_KEY]?.unmount();
-        mount.remove();
-      });
+      mounts.clear();
     };
   }, []);
 

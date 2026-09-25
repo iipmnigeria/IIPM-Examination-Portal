@@ -25,6 +25,7 @@ import {
   Download
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import CipmnModuleMaterialsMount from './CipmnModuleMaterialsMount';
 import { Test, Attempt } from '../types';
 import { clearSecuredCameraStream, holdSecuredCameraStream } from '../services/secureCameraSession';
 // @ts-ignore
@@ -36,6 +37,7 @@ interface StudentDashboardProps {
   tests: Test[];
   attempts: Attempt[];
   onStartExam: (testId: string) => void;
+  onStartCipmnMcq: (testId: string) => void;
   onViewAttemptDetails: (attempt: Attempt) => void;
   simType: string;
   setSimType: (type: string) => void;
@@ -49,6 +51,7 @@ export default function StudentDashboard({
   tests,
   attempts,
   onStartExam,
+  onStartCipmnMcq,
   onViewAttemptDetails,
   simType,
   setSimType,
@@ -341,7 +344,7 @@ export default function StudentDashboard({
     }
   };
 
-  const launchSecuredExam = async (test: Test) => {
+  const launchSecuredExam = async (test: Test, section?: 'mcq') => {
     if (test.course === 'CIPMN-MOCK') {
       setCameraState('checking');
       setErrorMessage('');
@@ -367,7 +370,8 @@ export default function StudentDashboard({
         return;
       }
     }
-    onStartExam(test.id);
+    if (section === 'mcq') onStartCipmnMcq(test.id);
+    else onStartExam(test.id);
   };
 
   // Cleanup camera stream on unmount
@@ -429,6 +433,10 @@ export default function StudentDashboard({
 
   return (
     <div id="student-dashboard" className="space-y-8 max-w-7xl mx-auto px-4 py-6">
+      <CipmnModuleMaterialsMount onAttemptMcq={(examinationId) => {
+        const test = tests.find((candidate) => candidate.id === examinationId);
+        if (test) void launchSecuredExam(test, test.examFormat === 'cipmn_mixed' ? 'mcq' : undefined);
+      }} />
       {/* Welcome & Profile Panel */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 text-white relative overflow-hidden shadow-xl">
         <div className="absolute right-0 top-0 -mt-6 -mr-6 w-36 h-36 bg-emerald-500/10 rounded-full blur-3xl"></div>
