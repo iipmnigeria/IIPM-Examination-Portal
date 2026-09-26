@@ -433,7 +433,9 @@ async function sendWithResend(
     body: JSON.stringify({
       from: `${settings.from_name} <${fromEmail}>`,
       to: [row.recipient_email],
-      cc: settings.monitor_copy_email?.trim() ? [settings.monitor_copy_email.trim()] : undefined,
+      cc: row.event_key.startsWith('cipmn-oct-2026:') && settings.monitor_copy_email?.trim()
+        ? [settings.monitor_copy_email.trim()]
+        : undefined,
       reply_to: settings.reply_to_email || undefined,
       subject: rendered.subject,
       html: rendered.html,
@@ -464,9 +466,17 @@ async function scanAndSend(): Promise<Record<string, unknown>> {
   if (settingsError) throw new Error(settingsError.message);
   const settings = settingsData as CommunicationSettings;
 
+  const refreshNow = new Date().toISOString();
+
+  const { data: cipmnRefresh, error: cipmnRefreshError } = await admin.rpc(
+    'refresh_cipmn_oct_2026_email_outbox',
+    { p_now: refreshNow },
+  );
+  if (cipmnRefreshError) throw new Error(cipmnRefreshError.message);
+
   const { data: refresh, error: refreshError } = await admin.rpc(
     'refresh_agilecert_communication_outbox',
-    { p_now: new Date().toISOString() },
+    { p_now: refreshNow },
   );
   if (refreshError) throw new Error(refreshError.message);
 
@@ -474,6 +484,7 @@ async function scanAndSend(): Promise<Record<string, unknown>> {
     return {
       providerEnabled: false,
       refresh,
+    cipmnRefresh,
       claimed: 0,
       sent: 0,
       failed: 0,
