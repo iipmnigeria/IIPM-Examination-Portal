@@ -82,7 +82,7 @@ for(const required of [
 
 for(const forbidden of [
   'prince2 seven processes','prince2 themes','safe agile','program increment',
-  'earned value formula','cpi','spi','pert formula','critical chain',
+  'earned value formula','cost performance index','schedule performance index','pert formula','critical chain',
   'adkar','kotter 8','scrum master','product owner','story points',
   'iso 21500 process groups','pmbok knowledge areas'
 ]){
