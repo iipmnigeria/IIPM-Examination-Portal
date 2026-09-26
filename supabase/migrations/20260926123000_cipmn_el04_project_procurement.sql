@@ -244,7 +244,7 @@ declare
   },
   {
     "position": 18,
-    "question": "According to the EL04 threshold table, what is the Request for Quotations threshold for Works?",
+    "question": "A procuring entity is considering Request for Quotations for a works requirement. Under the threshold table shown in EL04, which value range fits that method?",
     "options": [
       "Less than ₦30 million.",
       "At least ₦1 billion.",
@@ -407,7 +407,7 @@ declare
     "criteria":[
       {"name":"Purpose of methods","marks":2,"expected":"Explains competition, transparency, value for money, standardization and accountability."},
       {"name":"Selection factors","marks":2,"expected":"Explains value/complexity, urgency, market conditions and nature of requirement."},
-      {"name":"Methods comparison","marks":2,"expected":"Compares OCB/NCB/ICB, RFQ, Restricted, Direct and Emergency Procurement using source conditions/examples only."},
+      {"name":"Methods comparison","marks":2,"expected":"Compares Open Competitive Bidding (OCB), National Competitive Bidding (NCB), International Competitive Bidding (ICB), Request for Quotations (RFQ), Restricted, Direct and Emergency Procurement using source conditions/examples only."},
       {"name":"Improper-selection consequences","marks":2,"expected":"Explains PPA violation, sanctions/debarment/prosecution, poor VFM, reduced competition, corruption risk and public distrust."},
       {"name":"Cases/thresholds","marks":2,"expected":"Applies MRI, stationery and Lagos–Ibadan scenarios and source threshold examples, including RFQ goods/non-consultant <₦30m and works <₦50m, without importing outside thresholds."}
     ]
@@ -418,7 +418,7 @@ declare
     "criteria":[
       {"name":"Vendor management","marks":2,"expected":"Explains strategic relationships, communication, performance monitoring, risk mitigation and timely/quality delivery."},
       {"name":"Lifecycle activities","marks":2,"expected":"Explains prequalification/selection, award/mobilization, collaboration and onboarding/orientation."},
-      {"name":"Performance/risk","marks":2,"expected":"Explains monitoring schedules, quality, SLAs, equipment/labour/service performance and proactive contingencies, alternatives and escalation."},
+      {"name":"Performance/risk","marks":2,"expected":"Explains monitoring schedules, quality, Service Level Agreements (SLAs), equipment/labour/service performance and proactive contingencies, alternatives and escalation."},
       {"name":"Case application","marks":2,"expected":"Uses road-vendor quality/equipment/labour checks, e-Governance SLA/security/support monitoring and Lagos Blue Line capability/stability/performance lessons."},
       {"name":"Tools/frameworks","marks":2,"expected":"Explains VRM software, SPM dashboards, communication plans, stakeholder analysis, risk assessment, negotiation, performance reviews, PMBOK procurement area and ISO 44001 at the level taught."}
     ]
