@@ -516,24 +516,27 @@ async function validateCipmnCampaignRow(
   const examinationIds = moduleEntries.map((entry) => entry.examinationId);
   const admin = adminClient();
 
-  const [{ data: orders, error: orderError }, { data: attempts, error: attemptError }, { data: sessions, error: sessionError }] =
-    await Promise.all([
-      admin
-        .from('exam_orders')
-        .select('examination_id,status')
-        .eq('candidate_id', row.candidate_id)
-        .in('examination_id', examinationIds),
-      admin
-        .from('attempts')
-        .select('examination_id,status,submitted_at')
-        .eq('candidate_id', row.candidate_id)
-        .in('examination_id', examinationIds),
-      admin
-        .from('exam_sessions')
-        .select('examination_id,started_at,submitted_at')
-        .eq('candidate_id', row.candidate_id)
-        .in('examination_id', examinationIds),
-    ]);
+  const [
+    { data: orders, error: orderError },
+    { data: attempts, error: attemptError },
+    { data: sessions, error: sessionError },
+  ] = await Promise.all([
+    admin
+      .from('exam_orders')
+      .select('id,examination_id,status')
+      .eq('candidate_id', row.candidate_id)
+      .in('examination_id', examinationIds),
+    admin
+      .from('attempts')
+      .select('examination_id,status,submitted_at')
+      .eq('candidate_id', row.candidate_id)
+      .in('examination_id', examinationIds),
+    admin
+      .from('exam_sessions')
+      .select('examination_id,started_at,submitted_at')
+      .eq('candidate_id', row.candidate_id)
+      .in('examination_id', examinationIds),
+  ]);
 
   if (orderError) throw new Error(orderError.message);
   if (attemptError) throw new Error(attemptError.message);
@@ -546,9 +549,35 @@ async function validateCipmnCampaignRow(
   );
   const unresolved = new Set(
     (orders || [])
-      .filter((order: any) => ['pending', 'cancelled', 'expired', 'failed'].includes(String(order.status || '').toLowerCase()))
+      .filter((order: any) =>
+        ['pending', 'cancelled', 'expired', 'failed', 'abandoned', 'reversed', 'voided']
+          .includes(String(order.status || '').toLowerCase())
+      )
       .map((order: any) => String(order.examination_id)),
   );
+
+  if (row.message_type === 'cipmn_payment_recovery' && (orders || []).length) {
+    const orderIds = (orders || []).map((order: any) => String(order.id)).filter(Boolean);
+    if (orderIds.length) {
+      const { data: payments, error: paymentError } = await admin
+        .from('exam_payments')
+        .select('order_id,status,provider_payload,updated_at')
+        .in('order_id', orderIds)
+        .order('updated_at', { ascending: false });
+      if (paymentError) throw new Error(paymentError.message);
+
+      const orderById = new Map((orders || []).map((order: any) => [String(order.id), order]));
+      for (const payment of payments || []) {
+        const status = String((payment as any).status || '').toLowerCase();
+        const providerStatus = String((payment as any).provider_payload?.status || '').toLowerCase();
+        if (['failed', 'abandoned', 'reversed', 'voided', 'cancelled'].includes(status) ||
+            ['failed', 'abandoned', 'reversed', 'voided', 'cancelled'].includes(providerStatus)) {
+          const order = orderById.get(String((payment as any).order_id));
+          if (order?.examination_id) unresolved.add(String(order.examination_id));
+        }
+      }
+    }
+  }
   const completed = new Set(
     (attempts || [])
       .filter((attempt: any) =>
