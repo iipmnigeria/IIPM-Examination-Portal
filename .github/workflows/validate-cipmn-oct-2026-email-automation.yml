@@ -6,7 +6,9 @@ on:
       - safe/cipmn-exam-email-automation
     paths:
       - 'docs/CIPMN_OCT_2026_EMAIL_AUTOMATION.md'
+      - 'docs/CIPMN_OCT_2026_SIMULATED_SEND_MATRIX.md'
       - 'scripts/cipmn-oct-2026-email-dry-run.sql'
+      - 'scripts/cipmn-oct-2026-outbox-planner.sql'
       - 'scripts/cipmn-oct-2026-monitor-copy-config-draft.sql'
       - 'scripts/validate-cipmn-oct-2026-email-automation.mjs'
       - 'supabase/functions/agilecert-communications/index.ts'
