@@ -58,279 +58,279 @@ declare
   v_mcqs jsonb := $mcq$
 [
   {
-    "position":1,
-    "question":"Which statement best reflects the central idea of Outcome Realisation in EL01?",
-    "options":[
+    "position": 1,
+    "question": "Which statement best reflects the central idea of Outcome Realisation in EL01?",
+    "options": [
       "A project is successful once its physical deliverables are completed.",
       "Outcome Realisation links what is delivered to the changes achieved and the long-term value created.",
       "Outcome Realisation focuses only on post-project financial returns.",
       "Outcome Realisation replaces project monitoring with stakeholder opinion."
     ],
-    "correct":2
+    "correct": 2
   },
   {
-    "position":2,
-    "question":"In the EL01 results chain, which description correctly distinguishes outputs, outcomes and benefits?",
-    "options":[
-      "Outputs are long-term value, outcomes are deliverables, and benefits are short-term changes.",
+    "position": 2,
+    "question": "In the EL01 results chain, which description correctly distinguishes outputs, outcomes and benefits?",
+    "options": [
       "Outputs are tangible deliverables, outcomes are changes resulting from their use, and benefits are long-term measurable value.",
       "Outputs and outcomes are identical, while benefits are optional.",
-      "Outputs are external impacts, outcomes are costs, and benefits are project activities."
+      "Outputs are external impacts, outcomes are costs, and benefits are project activities.",
+      "Outputs are long-term value, outcomes are deliverables, and benefits are short-term changes."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":3,
-    "question":"Which feature of an output is emphasized in the module's comparison table?",
-    "options":[
-      "It is usually a tangible deliverable achieved during or immediately after project completion.",
-      "It normally appears years after project closure.",
+    "position": 3,
+    "question": "Which feature of an output is emphasized in the module's comparison table?",
+    "options": [
       "It is primarily influenced by the external environment.",
-      "It represents strategic value rather than a deliverable."
+      "It represents strategic value rather than a deliverable.",
+      "It is usually a tangible deliverable achieved during or immediately after project completion.",
+      "It normally appears years after project closure."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":4,
-    "question":"Which example from the Kaduna rural-road case is an output rather than an outcome or benefit?",
-    "options":[
+    "position": 4,
+    "question": "Which example from the Kaduna rural-road case is an output rather than an outcome or benefit?",
+    "options": [
+      "Maternal and child health outcomes improved.",
       "Travel time for farmers reduced by about 45%.",
       "Agricultural income increased by 30%.",
-      "More than 500 km of rural feeder roads were rehabilitated.",
-      "Maternal and child health outcomes improved."
+      "More than 500 km of rural feeder roads were rehabilitated."
     ],
-    "correct":3
+    "correct": 4
   },
   {
-    "position":5,
-    "question":"Which example from the Kaduna rural-road case is an outcome?",
-    "options":[
+    "position": 5,
+    "question": "Which example from the Kaduna rural-road case is an outcome?",
+    "options": [
       "Ten community maintenance cooperatives were created.",
       "Travel time for farmers accessing markets reduced by an average of 45%.",
       "Local farm income increased by 30%.",
       "Long-term local employment was sustained through maintenance cooperatives."
     ],
-    "correct":2
+    "correct": 2
   },
   {
-    "position":6,
-    "question":"Which example from the same rural-road case is classified as a benefit in EL01?",
-    "options":[
-      "Road signs and drainage systems were installed.",
+    "position": 6,
+    "question": "Which example from the same rural-road case is classified as a benefit in EL01?",
+    "options": [
       "Local workers were trained in road maintenance.",
       "Agricultural income for rural farmers increased by 30% because market access improved.",
-      "Five hundred kilometres of roads were rehabilitated."
+      "Five hundred kilometres of roads were rehabilitated.",
+      "Road signs and drainage systems were installed."
     ],
-    "correct":3
+    "correct": 2
   },
   {
-    "position":7,
-    "question":"What risk does EL01 associate with confusing outputs and outcomes?",
-    "options":[
-      "Focusing on activity completion without establishing whether meaningful change occurred.",
-      "Measuring too many long-term benefits.",
+    "position": 7,
+    "question": "What risk does EL01 associate with confusing outputs and outcomes?",
+    "options": [
       "Giving excessive attention to stakeholder value.",
-      "Using too many performance indicators."
+      "Using too many performance indicators.",
+      "Focusing on activity completion without establishing whether meaningful change occurred.",
+      "Measuring too many long-term benefits."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":8,
-    "question":"Why do outcomes matter according to the module?",
-    "options":[
+    "position": 8,
+    "question": "Why do outcomes matter according to the module?",
+    "options": [
+      "They are always fully controlled by the project manager.",
       "They prove only that project activities were completed.",
       "They show the real-world relevance and utility of outputs and help assess whether strategic objectives are being met.",
-      "They replace the need to measure benefits.",
-      "They are always fully controlled by the project manager."
+      "They replace the need to measure benefits."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":9,
-    "question":"How does EL01 define Benefits Realisation Management (BRM)?",
-    "options":[
+    "position": 9,
+    "question": "How does EL01 define Benefits Realisation Management (BRM)?",
+    "options": [
       "A structured approach for ensuring projects and programmes deliver intended benefits and organisational value.",
       "A method for tracking only expenditure after project closure.",
       "A procurement framework for selecting suppliers.",
       "A technique for measuring only immediate outputs."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":10,
-    "question":"Which sequence correctly represents the five BRM stages shown in EL01?",
-    "options":[
-      "Plan → Identify and Quantify → Review → Realise → Appraise.",
+    "position": 10,
+    "question": "Which sequence correctly represents the five BRM stages shown in EL01?",
+    "options": [
       "Identify and Quantify → Value and Appraise → Plan → Realise → Review.",
       "Value and Appraise → Plan → Identify → Review → Realise.",
-      "Identify → Realise → Plan → Review → Appraise."
+      "Identify → Realise → Plan → Review → Appraise.",
+      "Plan → Identify and Quantify → Review → Realise → Appraise."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":11,
-    "question":"At the BRM 'Identify and Quantify' stage, what is the main emphasis?",
-    "options":[
-      "Identifying expected benefits, their dependencies and how they connect to project or programme objectives.",
-      "Closing all benefits after final delivery.",
+    "position": 11,
+    "question": "At the BRM 'Identify and Quantify' stage, what is the main emphasis?",
+    "options": [
       "Comparing only actual expenditure with budget.",
-      "Assigning a supplier to each benefit."
+      "Assigning a supplier to each benefit.",
+      "Identifying expected benefits, their dependencies and how they connect to project or programme objectives.",
+      "Closing all benefits after final delivery."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":12,
-    "question":"What is central to the BRM 'Value and Appraise' stage?",
-    "options":[
+    "position": 12,
+    "question": "What is central to the BRM 'Value and Appraise' stage?",
+    "options": [
+      "Transferring all benefit ownership to the project team.",
       "Creating a benefit management strategy that defines value, measurement, responsibility and tracking duration.",
       "Suspending measurement until project closure.",
-      "Replacing benefits with output measures.",
-      "Transferring all benefit ownership to the project team."
+      "Replacing benefits with output measures."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":13,
-    "question":"What does the BRM 'Plan' stage require?",
-    "options":[
+    "position": 13,
+    "question": "What does the BRM 'Plan' stage require?",
+    "options": [
       "Planning when benefits are expected to appear and who will track benefits that arise after project completion.",
       "Treating all benefits as immediate.",
       "Focusing only on the delivery schedule.",
       "Ending benefit ownership at project closure."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":14,
-    "question":"What is the purpose of the BRM 'Realise' stage?",
-    "options":[
-      "To deliver the change that makes the intended benefits possible and assess how delivery is progressing.",
+    "position": 14,
+    "question": "What is the purpose of the BRM 'Realise' stage?",
+    "options": [
       "To identify the first list of possible benefits before initiation.",
       "To close the project before any outcome is measured.",
-      "To replace the benefits strategy with a procurement plan."
+      "To replace the benefits strategy with a procurement plan.",
+      "To deliver the change that makes the intended benefits possible and assess how delivery is progressing."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":15,
-    "question":"What happens during the BRM 'Review' stage?",
-    "options":[
-      "Expected benefits are compared with actual results and assumptions or stakeholder expectations are reconsidered where necessary.",
-      "Only outputs are counted and archived.",
+    "position": 15,
+    "question": "What happens during the BRM 'Review' stage?",
+    "options": [
       "All benefits are assumed to have been achieved.",
-      "Benefits are converted back into project tasks."
+      "Benefits are converted back into project tasks.",
+      "Expected benefits are compared with actual results and assumptions or stakeholder expectations are reconsidered where necessary.",
+      "Only outputs are counted and archived."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":16,
-    "question":"Which is an output indicator in the module's education-project M&E examples?",
-    "options":[
+    "position": 16,
+    "question": "Which is an output indicator in the module's education-project M&E examples?",
+    "options": [
+      "Higher employment resulting from better education.",
       "Improved national literacy rate.",
       "Increase in student attendance rate.",
-      "Number of classrooms built.",
-      "Higher employment resulting from better education."
+      "Number of classrooms built."
     ],
-    "correct":3
+    "correct": 4
   },
   {
-    "position":17,
-    "question":"Which is an outcome indicator in the module's health-project examples?",
-    "options":[
+    "position": 17,
+    "question": "Which is an outcome indicator in the module's health-project examples?",
+    "options": [
       "Number of clinics constructed.",
       "Number of vaccines distributed.",
       "Increase in antenatal care attendance.",
       "Increase in national life expectancy."
     ],
-    "correct":3
+    "correct": 3
   },
   {
-    "position":18,
-    "question":"Which is a benefit indicator in the module's infrastructure examples?",
-    "options":[
-      "Kilometres of road built.",
+    "position": 18,
+    "question": "Which is a benefit indicator in the module's infrastructure examples?",
+    "options": [
       "Number of boreholes drilled.",
       "Reduction in travel time.",
-      "Increase in local economic value and property values along road corridors."
+      "Increase in local economic value and property values along road corridors.",
+      "Kilometres of road built."
     ],
-    "correct":4
+    "correct": 3
   },
   {
-    "position":19,
-    "question":"When should a baseline survey be conducted in the M&E practice described in EL01?",
-    "options":[
-      "Before project implementation to establish a benchmark.",
-      "Only after the first outcome appears.",
+    "position": 19,
+    "question": "When should a baseline survey be conducted in the M&E practice described in EL01?",
+    "options": [
       "At project closure.",
-      "One to three years after project completion."
+      "One to three years after project completion.",
+      "Before project implementation to establish a benchmark.",
+      "Only after the first outcome appears."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":20,
-    "question":"What is the principal purpose of the module's midline survey?",
-    "options":[
+    "position": 20,
+    "question": "What is the principal purpose of the module's midline survey?",
+    "options": [
+      "To determine the final national impact.",
       "To measure progress on outputs and early outcomes during implementation.",
       "To prove all long-term benefits have been sustained.",
-      "To replace the baseline.",
-      "To determine the final national impact."
+      "To replace the baseline."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":21,
-    "question":"What does the module recommend for a Post-Project Review?",
-    "options":[
+    "position": 21,
+    "question": "What does the module recommend for a Post-Project Review?",
+    "options": [
       "Conduct it 1–3 years later to capture sustained benefits.",
       "Conduct it before initiation.",
       "Conduct it only when outputs fail.",
       "Use it only to confirm final expenditure."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":22,
-    "question":"Which combination reflects how outcome realisation is practised in the Nigerian context according to EL01?",
-    "options":[
-      "Government M&E frameworks, donor-driven M&E systems, community engagement and public-sector performance scorecards.",
+    "position": 22,
+    "question": "Which combination reflects how outcome realisation is practised in the Nigerian context according to EL01?",
+    "options": [
       "Only contractor completion certificates and financial audits.",
       "Only donor scorecards with no local participation.",
-      "Only national budget releases and procurement reports."
+      "Only national budget releases and procurement reports.",
+      "Government M&E frameworks, donor-driven M&E systems, community engagement and public-sector performance scorecards."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":23,
-    "question":"Which development priorities are specifically cited as guiding Nigerian outcome realisation?",
-    "options":[
-      "National Development Plan 2021–2025, Nigeria Vision 2050 and the Sustainable Development Goals.",
-      "Only annual federal budgets.",
+    "position": 23,
+    "question": "Which development priorities are specifically cited as guiding Nigerian outcome realisation?",
+    "options": [
       "Only ERGP and procurement thresholds.",
-      "Only donor country strategies."
+      "Only donor country strategies.",
+      "National Development Plan 2021–2025, Nigeria Vision 2050 and the Sustainable Development Goals.",
+      "Only annual federal budgets."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":24,
-    "question":"In the module's sector comparison, what opportunity was used to address infrastructure funding delays, contract variations and weak stakeholder engagement?",
-    "options":[
+    "position": 24,
+    "question": "In the module's sector comparison, what opportunity was used to address infrastructure funding delays, contract variations and weak stakeholder engagement?",
+    "options": [
+      "Replacing outcomes with output counts.",
       "A PPP model to mobilise resources.",
       "Removal of monitoring requirements.",
-      "Suspension of stakeholder engagement.",
-      "Replacing outcomes with output counts."
+      "Suspension of stakeholder engagement."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":25,
-    "question":"Which statement best summarizes the Nigerian public-sector lesson in EL01?",
-    "options":[
+    "position": 25,
+    "question": "Which statement best summarizes the Nigerian public-sector lesson in EL01?",
+    "options": [
       "Weak M&E, corruption and political interference can derail outcomes, while PPPs, community ownership, innovative tools and strong governance can help sustain and scale benefits.",
       "Outputs alone are sufficient where projects are publicly funded.",
       "Community ownership is unnecessary if contractors complete on time.",
       "Benefits should be measured only at national level."
     ],
-    "correct":1
+    "correct": 1
   }
 ]
 $mcq$::jsonb;
