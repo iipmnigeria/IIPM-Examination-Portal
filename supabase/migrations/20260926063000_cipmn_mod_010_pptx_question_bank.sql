@@ -65,279 +65,279 @@ declare
   v_mcqs jsonb := $mcq$
 [
   {
-    "position":1,
-    "question":"Which statement best distinguishes project leadership from traditional project management in Module 10?",
-    "options":[
+    "position": 1,
+    "question": "Which statement best distinguishes project leadership from traditional project management in Module 10?",
+    "options": [
       "Leadership focuses on people, vision, adaptability and resilience, while management emphasizes processes, scope, compliance and control.",
       "Leadership is mainly about Gantt charts and CPM, while management is mainly about stakeholder engagement.",
       "Leadership and management are presented as identical competencies.",
       "Management is preferred in VUCA contexts because predictability is always possible."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":2,
-    "question":"Which three dimensions make up the PMI Talent Triangle as presented in the deck?",
-    "options":[
-      "Finance, procurement and governance.",
+    "position": 2,
+    "question": "Which three dimensions make up the PMI Talent Triangle as presented in the deck?",
+    "options": [
       "Technical project management, strategic and business management, and leadership.",
       "Scope, schedule and cost.",
-      "Communication, conflict and negotiation."
+      "Communication, conflict and negotiation.",
+      "Finance, procurement and governance."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":3,
-    "question":"What does VUCA stand for in Module 10?",
-    "options":[
-      "Vision, Unity, Collaboration, Adaptability.",
-      "Value, Urgency, Control, Accountability.",
+    "position": 3,
+    "question": "What does VUCA stand for in Module 10?",
+    "options": [
       "Volatility, Uncertainty, Complexity, Ambiguity.",
-      "Variance, Uncertainty, Cost, Alignment."
+      "Variance, Uncertainty, Cost, Alignment.",
+      "Vision, Unity, Collaboration, Adaptability.",
+      "Value, Urgency, Control, Accountability."
     ],
-    "correct":3
+    "correct": 1
   },
   {
-    "position":4,
-    "question":"A project leader changes leadership style according to team maturity, urgency and complexity. Which style best matches this behavior?",
-    "options":[
+    "position": 4,
+    "question": "A project leader changes leadership style according to team maturity, urgency and complexity. Which style best matches this behavior?",
+    "options": [
+      "Democratic.",
       "Autocratic.",
       "Laissez-faire.",
-      "Situational.",
-      "Democratic."
+      "Situational."
     ],
-    "correct":3
+    "correct": 4
   },
   {
-    "position":5,
-    "question":"Which leadership style is described as prioritizing team growth and support while building trust and loyalty?",
-    "options":[
+    "position": 5,
+    "question": "Which leadership style is described as prioritizing team growth and support while building trust and loyalty?",
+    "options": [
       "Servant leadership.",
       "Autocratic leadership.",
       "Laissez-faire leadership.",
       "Authoritative control."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":6,
-    "question":"Which statement best reflects sustainable leadership in the Module 10 materials?",
-    "options":[
-      "It focuses only on short-term project outputs.",
+    "position": 6,
+    "question": "Which statement best reflects sustainable leadership in the Module 10 materials?",
+    "options": [
       "It balances economic, social and environmental priorities and embeds sustainability across the project lifecycle.",
       "It treats ESG reporting as optional after project closure.",
-      "It replaces stakeholder engagement with technical analysis."
+      "It replaces stakeholder engagement with technical analysis.",
+      "It focuses only on short-term project outputs."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":7,
-    "question":"Which strategic tool is used in the deck to map stakeholders by power and interest?",
-    "options":[
-      "Stakeholder Matrix.",
-      "Balanced Scorecard.",
+    "position": 7,
+    "question": "Which strategic tool is used in the deck to map stakeholders by power and interest?",
+    "options": [
       "SWOT Analysis.",
-      "RACI Matrix."
+      "RACI Matrix.",
+      "Stakeholder Matrix.",
+      "Balanced Scorecard."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":8,
-    "question":"Which Balanced Scorecard perspectives are listed in Module 10?",
-    "options":[
+    "position": 8,
+    "question": "Which Balanced Scorecard perspectives are listed in Module 10?",
+    "options": [
+      "Strengths, weaknesses, opportunities and threats.",
       "Scope, schedule, cost and risk.",
       "Finance, customer, processes and learning.",
-      "People, process, technology and culture.",
-      "Strengths, weaknesses, opportunities and threats."
+      "People, process, technology and culture."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":9,
-    "question":"Which characteristic is explicitly associated with high-performing project teams in the deck?",
-    "options":[
+    "position": 9,
+    "question": "Which characteristic is explicitly associated with high-performing project teams in the deck?",
+    "options": [
       "Avoidance of all disagreement.",
       "Psychological safety and trust.",
       "Dependence on a single technical expert.",
       "Minimal role clarity to preserve flexibility."
     ],
-    "correct":2
+    "correct": 2
   },
   {
-    "position":10,
-    "question":"Which sequence correctly represents Tuckman’s team-development model as taught in Module 10?",
-    "options":[
-      "Forming → Storming → Norming → Performing → Adjourning.",
+    "position": 10,
+    "question": "Which sequence correctly represents Tuckman’s team-development model as taught in Module 10?",
+    "options": [
       "Storming → Forming → Performing → Norming → Adjourning.",
       "Forming → Norming → Storming → Performing → Closing.",
-      "Initiating → Planning → Executing → Monitoring → Closing."
+      "Initiating → Planning → Executing → Monitoring → Closing.",
+      "Forming → Storming → Norming → Performing → Adjourning."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":11,
-    "question":"During which Tuckman stage do conflicts typically emerge and require communication planning and dispute resolution?",
-    "options":[
-      "Forming.",
-      "Storming.",
+    "position": 11,
+    "question": "During which Tuckman stage do conflicts typically emerge and require communication planning and dispute resolution?",
+    "options": [
       "Norming.",
-      "Performing."
+      "Performing.",
+      "Forming.",
+      "Storming."
     ],
-    "correct":2
+    "correct": 4
   },
   {
-    "position":12,
-    "question":"What is the main purpose of a RACI Matrix in team building according to the deck?",
-    "options":[
+    "position": 12,
+    "question": "What is the main purpose of a RACI Matrix in team building according to the deck?",
+    "options": [
+      "To replace project charters.",
       "To calculate project risk exposure.",
       "To clarify responsibilities and accountability and reduce overlap or neglect.",
-      "To estimate team productivity numerically.",
-      "To replace project charters."
+      "To estimate team productivity numerically."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":13,
-    "question":"Which statement best describes psychological safety in Module 10?",
-    "options":[
+    "position": 13,
+    "question": "Which statement best describes psychological safety in Module 10?",
+    "options": [
       "A climate where people can share ideas, mistakes and concerns without fear.",
       "A policy that prevents teams from challenging leaders.",
       "A technique for suppressing conflict.",
       "A financial incentive for high performers."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":14,
-    "question":"Which emotional-intelligence component is most directly associated with staying composed under stress?",
-    "options":[
-      "Self-awareness.",
+    "position": 14,
+    "question": "Which emotional-intelligence component is most directly associated with staying composed under stress?",
+    "options": [
       "Self-regulation.",
       "Motivation.",
-      "Social skills."
+      "Social skills.",
+      "Self-awareness."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":15,
-    "question":"Which set contains the five emotional-intelligence components emphasized in the deck?",
-    "options":[
-      "Self-awareness, self-regulation, motivation, empathy and social skills.",
-      "Vision, control, planning, execution and closure.",
+    "position": 15,
+    "question": "Which set contains the five emotional-intelligence components emphasized in the deck?",
+    "options": [
       "Trust, authority, delegation, budgeting and auditing.",
-      "Cognition, IQ, technical skill, tenure and experience."
+      "Cognition, IQ, technical skill, tenure and experience.",
+      "Self-awareness, self-regulation, motivation, empathy and social skills.",
+      "Vision, control, planning, execution and closure."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":16,
-    "question":"Which practice is recommended as a quick win for operationalizing emotional intelligence in project teams?",
-    "options":[
+    "position": 16,
+    "question": "Which practice is recommended as a quick win for operationalizing emotional intelligence in project teams?",
+    "options": [
+      "Restricting retrospectives to technical performance only.",
       "Emotional check-ins at meetings.",
       "Eliminating feedback during stressful periods permanently.",
-      "Replacing stakeholder engagement with dashboards.",
-      "Restricting retrospectives to technical performance only."
+      "Replacing stakeholder engagement with dashboards."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":17,
-    "question":"What do the letters in the SBI feedback model stand for?",
-    "options":[
+    "position": 17,
+    "question": "What do the letters in the SBI feedback model stand for?",
+    "options": [
       "Situation, Behavior, Impact.",
       "Strategy, Balance, Influence.",
       "Scope, Budget, Integration.",
       "Stakeholder, Baseline, Improvement."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":18,
-    "question":"Why does the Module 10 deck recommend the SBI model for constructive feedback?",
-    "options":[
-      "It focuses feedback on observable facts and impact, reducing defensiveness and improving clarity.",
+    "position": 18,
+    "question": "Why does the Module 10 deck recommend the SBI model for constructive feedback?",
+    "options": [
       "It allows leaders to avoid difficult conversations.",
       "It emphasizes personality judgments to accelerate correction.",
-      "It replaces the need for empathy."
+      "It replaces the need for empathy.",
+      "It focuses feedback on observable facts and impact, reducing defensiveness and improving clarity."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":19,
-    "question":"Which combination is identified as helping sustain high performance over time?",
-    "options":[
-      "Continuous alignment, recognition, stress management and lifelong learning.",
-      "Micromanagement, workload growth, annual feedback and fixed roles.",
+    "position": 19,
+    "question": "Which combination is identified as helping sustain high performance over time?",
+    "options": [
       "Competition, secrecy, individual incentives and limited communication.",
-      "Longer hours, fewer breaks, reduced training and centralized decisions."
+      "Longer hours, fewer breaks, reduced training and centralized decisions.",
+      "Continuous alignment, recognition, stress management and lifelong learning.",
+      "Micromanagement, workload growth, annual feedback and fixed roles."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":20,
-    "question":"What are the five spokes of the High-Performance Wheel Framework?",
-    "options":[
+    "position": 20,
+    "question": "What are the five spokes of the High-Performance Wheel Framework?",
+    "options": [
+      "Planning, Execution, Monitoring, Change and Closure.",
       "Purpose, People, Processes, Performance and Partnership.",
       "Scope, Time, Cost, Quality and Risk.",
-      "Trust, Control, Speed, Innovation and Budget.",
-      "Planning, Execution, Monitoring, Change and Closure."
+      "Trust, Control, Speed, Innovation and Budget."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":21,
-    "question":"Which pitfall is described as killing trust, slowing decisions and creating bottlenecks?",
-    "options":[
+    "position": 21,
+    "question": "Which pitfall is described as killing trust, slowing decisions and creating bottlenecks?",
+    "options": [
       "Micromanagement.",
       "Psychological safety.",
       "Recognition culture.",
       "Coaching."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":22,
-    "question":"Which leadership approach is described as adjusting style to context, team maturity and stressors, with more direction early and more autonomy later?",
-    "options":[
-      "Adaptive leadership.",
+    "position": 22,
+    "question": "Which leadership approach is described as adjusting style to context, team maturity and stressors, with more direction early and more autonomy later?",
+    "options": [
       "Pure autocratic leadership.",
       "Laissez-faire leadership.",
-      "Transactional-only leadership."
+      "Transactional-only leadership.",
+      "Adaptive leadership."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":23,
-    "question":"Which emerging trend is specifically discussed in relation to high-performing teams?",
-    "options":[
-      "AI integration for predictive analytics, automated tasks, risk insights and virtual assistants.",
-      "Eliminating digital collaboration from remote teams.",
+    "position": 23,
+    "question": "Which emerging trend is specifically discussed in relation to high-performing teams?",
+    "options": [
       "Reducing cultural intelligence in global projects.",
-      "Removing asynchronous communication."
+      "Removing asynchronous communication.",
+      "AI integration for predictive analytics, automated tasks, risk insights and virtual assistants.",
+      "Eliminating digital collaboration from remote teams."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":24,
-    "question":"Which communication practice is recommended for communities and local stakeholders?",
-    "options":[
+    "position": 24,
+    "question": "Which communication practice is recommended for communities and local stakeholders?",
+    "options": [
+      "One-way email communication regardless of context.",
       "Town halls, storytelling and dialogue adapted to stakeholder needs.",
       "Only technical reports and formal memos.",
-      "Only dashboards with no discussion.",
-      "One-way email communication regardless of context."
+      "Only dashboards with no discussion."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":25,
-    "question":"In the Lagos–Calabar Coastal Highway case, which lesson is emphasized about leadership style?",
-    "options":[
+    "position": 25,
+    "question": "In the Lagos–Calabar Coastal Highway case, which lesson is emphasized about leadership style?",
+    "options": [
       "No single style fits all contexts; leaders should adapt style to the situation.",
       "Servant leadership should be used for every project phase.",
       "Authoritative leadership should replace stakeholder consultation.",
       "Technical execution matters more than leadership."
     ],
-    "correct":1
+    "correct": 1
   }
 ]
 $mcq$::jsonb;
