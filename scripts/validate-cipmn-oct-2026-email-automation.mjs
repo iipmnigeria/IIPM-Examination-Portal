@@ -3,6 +3,7 @@ import fs from 'node:fs';
 const dryRun = fs.readFileSync('scripts/cipmn-oct-2026-email-dry-run.sql', 'utf8');
 const config = fs.readFileSync('scripts/cipmn-oct-2026-monitor-copy-config-draft.sql', 'utf8');
 const planner = fs.readFileSync('scripts/cipmn-oct-2026-outbox-planner.sql', 'utf8');
+const disabledInsert = fs.readFileSync('scripts/cipmn-oct-2026-outbox-insert-disabled.sql', 'utf8');
 const matrix = fs.readFileSync('docs/CIPMN_OCT_2026_SIMULATED_SEND_MATRIX.md', 'utf8');
 const comms = fs.readFileSync('supabase/functions/agilecert-communications/index.ts', 'utf8');
 const spec = fs.readFileSync('docs/CIPMN_OCT_2026_EMAIL_AUTOMATION.md', 'utf8');
@@ -66,6 +67,14 @@ assert(matrix.includes('Izedonmen Friday Egbokhare') && matrix.includes('MOD-011
   'Simulated send matrix must capture the validated recovery target.');
 assert(matrix.includes('Chiemerie Nnenna Awuzie') && matrix.includes('Not registered'),
   'Simulated matrix must retain unregistered official candidates.');
+assert(disabledInsert.includes('select false::boolean as write_enabled'),
+  'Disabled outbox insert must default write_enabled to false.');
+assert(disabledInsert.includes('where control.write_enabled = true'),
+  'Disabled outbox insert must require the explicit write guard.');
+assert(disabledInsert.includes('pl.eligible_for_existing_outbox'),
+  'Disabled insert must exclude candidates without real AgileCert profiles.');
+assert(disabledInsert.includes("'cipmn_payment_recovery','cipmn_mock_resume','cipmn_mock_start'"),
+  'Operational CIPMN message classification is missing.');
 
 const forbiddenWrite = /\b(insert\s+into|update\s+public\.|delete\s+from|alter\s+table|drop\s+table)\b/i;
 assert(!forbiddenWrite.test(dryRun), 'Dry-run preview contains a mutating SQL statement.');
