@@ -211,7 +211,7 @@ declare
   },
   {
     "position": 15,
-    "question": "At the same reporting cut-off date, the team needs the budgeted value of the work that has actually been completed. In EL03 Earned Value Management, which metric represents this amount?",
+    "question": "A work package has completed deliverables, and the team wants to express that completed work in approved-budget terms rather than actual spending. Which EL03 Earned Value Management metric should be used?",
     "options": [
       "Budgeted cost of scheduled work.",
       "Remaining contingency.",
