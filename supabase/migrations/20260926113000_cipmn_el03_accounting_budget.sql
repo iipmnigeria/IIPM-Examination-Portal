@@ -90,7 +90,7 @@ declare
   },
   {
     "position": 4,
-    "question": "Which EL03 financial KPI formula is correct?",
+    "question": "When reviewing cost efficiency and variance under the EL03 financial KPI framework, which of the following formulas is correct?",
     "options": [
       "EAC = CPI ÷ BAC",
       "CV = AC – EV",
@@ -200,7 +200,7 @@ declare
   },
   {
     "position": 14,
-    "question": "In EL03 Earned Value Management, what does Planned Value (PV) represent?",
+    "question": "At a reporting cut-off date, the team needs the budgeted cost of work that was scheduled to have been completed. In EL03 Earned Value Management, which metric represents this amount?",
     "options": [
       "Budgeted cost of scheduled work.",
       "Budgeted value of work actually completed.",
@@ -211,7 +211,7 @@ declare
   },
   {
     "position": 15,
-    "question": "In EL03 Earned Value Management, what does Earned Value (EV) represent?",
+    "question": "At the same reporting cut-off date, the team needs the budgeted value of the work that has actually been completed. In EL03 Earned Value Management, which metric represents this amount?",
     "options": [
       "Budgeted cost of scheduled work.",
       "Remaining contingency.",
@@ -405,9 +405,9 @@ declare
     "position":28,
     "question":"Using only EL03: (a) explain PV, EV and AC; (b) calculate and interpret CV, SV, CPI and SPI; (c) explain BAC, EAC, ETC and VAC including the source formulas; (d) explain how EVM integrates cost and schedule performance; and (e) apply the cost-control lessons from the Ogun State road-expansion case.",
     "criteria":[
-      {"name":"PV/EV/AC","marks":2,"expected":"Defines PV as budgeted scheduled work, EV as budgeted completed work and AC as actual expenditure for completed work."},
-      {"name":"CV/SV/CPI/SPI","marks":2,"expected":"Uses and interprets CV=EV-AC, SV=EV-PV, CPI=EV/AC and SPI=EV/PV including favourable/unfavourable meanings."},
-      {"name":"BAC/EAC/ETC/VAC","marks":2,"expected":"Explains BAC, EAC=BAC/CPI when current cost trend continues, ETC=EAC-AC and VAC=BAC-EAC."},
+      {"name":"PV/EV/AC","marks":2,"expected":"Defines Planned Value (PV) as budgeted scheduled work, Earned Value (EV) as budgeted completed work and Actual Cost (AC) as actual expenditure for completed work."},
+      {"name":"CV/SV/CPI/SPI","marks":2,"expected":"Uses and interprets Cost Variance (CV)=EV-AC, Schedule Variance (SV)=EV-PV, Cost Performance Index (CPI)=EV/AC and Schedule Performance Index (SPI)=EV/PV including favourable/unfavourable meanings."},
+      {"name":"BAC/EAC/ETC/VAC","marks":2,"expected":"Explains Budget at Completion (BAC), Estimate at Completion (EAC)=BAC/CPI when current cost trend continues, Estimate to Complete (ETC)=EAC-AC and Variance at Completion (VAC)=BAC-EAC."},
       {"name":"EVM integration","marks":2,"expected":"Explains how EVM combines scope, schedule and cost to provide objective performance information and forecasting."},
       {"name":"Ogun case","marks":2,"expected":"Applies source lessons: baseline cost tracking, monthly EVM, validation of completed work before invoices, cost-control oversight and dashboard visibility."}
     ]
@@ -428,9 +428,9 @@ declare
     "question":"Using only EL03: (a) define financial risk and identify major sources; (b) explain the risk-identification, assessment, prioritization, response and monitoring process; (c) explain Avoidance, Mitigation, Transfer and Acceptance; (d) explain financial change management and the Change Request → Impact Analysis → CCB Review → Approval/Rejection → Baseline Update → Implementation/Tracking flow; and (e) apply the Smart City Infrastructure in Abuja case.",
     "criteria":[
       {"name":"Financial risk","marks":2,"expected":"Defines financial risk and identifies source-supported risks such as scope creep, inflation/currency volatility, funding delays, unplanned resource costs and regulatory/tax changes."},
-      {"name":"Risk process","marks":2,"expected":"Explains identification, likelihood/impact assessment, prioritization, response planning and monitoring/control."},
-      {"name":"Risk responses","marks":2,"expected":"Explains Avoidance, Mitigation, Transfer and Acceptance with source-level distinctions."},
-      {"name":"Financial change control","marks":2,"expected":"Explains the structured change-control sequence and the roles of change requests, impact analysis, CCB/Steering review, budget/baseline/funding updates, implementation and documentation."},
+      {"name":"Risk process","marks":2,"expected":"Explains Risk Identification, likelihood/impact assessment, Risk Prioritization, response planning and Monitoring & Control."},
+      {"name":"Risk responses","marks":2,"expected":"Explains Risk Avoidance, Risk Mitigation, Risk Transfer and Risk Acceptance with source-level distinctions."},
+      {"name":"Financial change control","marks":2,"expected":"Explains the structured change-control sequence and the roles of Change Requests, Impact Analysis, Change Control Board (CCB)/Steering review, Cost Baseline Update/funding-plan updates, implementation and documentation."},
       {"name":"Smart City case","marks":2,"expected":"Applies source lessons: unbudgeted scope expansion, absent risk register/change governance, 18% FX impact, financial change log, risk-based contingency and CCB leading to reduced second-phase variance."}
     ]
   }
