@@ -456,6 +456,170 @@ async function sendWithResend(
   return { id, payload };
 }
 
+
+const CIPMN_OCT_2026_MODULES: Record<string, { examinationId: string; examinationDate: string }> = {
+  'MOD-001': { examinationId: '2e5fea8b-a4de-5c61-9a43-e53e9d28403f', examinationDate: '2026-10-08' },
+  'MOD-002': { examinationId: 'fe7a116b-72ef-5d1f-acc8-36938ee8b0cf', examinationDate: '2026-10-09' },
+  'MOD-003': { examinationId: '916ed55c-e157-5e23-9d46-43ad4e2b9c2a', examinationDate: '2026-10-10' },
+  'MOD-004': { examinationId: '5322572d-27b0-5467-ab89-c6b45612b960', examinationDate: '2026-10-10' },
+  'MOD-005': { examinationId: 'd0c77c9c-a711-5864-97ac-c930ca231773', examinationDate: '2026-10-10' },
+  'MOD-006': { examinationId: '63311ad6-4bc2-59b6-a5fd-283423c4a2ac', examinationDate: '2026-10-11' },
+  'MOD-007': { examinationId: 'a573f28c-a38a-5978-a6a9-42b1d8239935', examinationDate: '2026-10-11' },
+  'MOD-008': { examinationId: '2eec289b-9c0b-57e4-a2c6-e288fa6d4a28', examinationDate: '2026-10-11' },
+  'MOD-009': { examinationId: '8305ebe1-ea1e-5089-bf4c-cb5bac29a918', examinationDate: '2026-10-12' },
+  'MOD-010': { examinationId: '37eaf7f3-42c8-525c-8c28-cd9c3327da13', examinationDate: '2026-10-13' },
+  'MOD-011': { examinationId: '6561efd6-938e-5da0-aae3-520349741cc9', examinationDate: '2026-10-14' },
+  // Official MOD-012 maps internally to the live international-programmes examination.
+  'MOD-012': { examinationId: '3327bd65-d739-9b41-78f5-1c54da529c35', examinationDate: '2026-10-15' },
+  'EL01': { examinationId: '9eb84cf2-bd25-f4ed-084b-413d7a976237', examinationDate: '2026-10-16' },
+  'EL02': { examinationId: '98eedf01-59f6-979f-b2b9-2f55a640e6d0', examinationDate: '2026-10-17' },
+  'EL03': { examinationId: '76f9ca55-0ecb-ac3b-a823-7e350b857e84', examinationDate: '2026-10-17' },
+  'EL04': { examinationId: '00dbbdb2-03a4-52d6-6ff6-6310520d23b2', examinationDate: '2026-10-17' },
+  'EL05': { examinationId: '5e3969ef-fbd3-84e9-e853-2f27ed0ce264', examinationDate: '2026-10-18' },
+};
+
+function lagosDateString(value = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Lagos',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function cipmnPayloadCodes(row: OutboxRow): string[] {
+  const raw = cleanText(row.payload?.moduleCodes || row.payload?.moduleCode, 2000);
+  return Array.from(new Set(raw.split(',').map((value) => value.trim()).filter(Boolean)));
+}
+
+async function validateCipmnCampaignRow(
+  row: OutboxRow,
+): Promise<{ valid: boolean; reason: string }> {
+  if (!row.event_key.startsWith('cipmn-oct-2026:')) {
+    return { valid: true, reason: 'not_cipmn_campaign' };
+  }
+
+  const today = lagosDateString();
+  const codes = cipmnPayloadCodes(row)
+    .filter((code) => CIPMN_OCT_2026_MODULES[code]?.examinationDate >= today);
+
+  if (!codes.length) {
+    return { valid: false, reason: 'all_related_examinations_have_passed' };
+  }
+
+  const moduleEntries = codes.map((code) => ({
+    code,
+    ...CIPMN_OCT_2026_MODULES[code],
+  }));
+  const examinationIds = moduleEntries.map((entry) => entry.examinationId);
+  const admin = adminClient();
+
+  const [{ data: orders, error: orderError }, { data: attempts, error: attemptError }, { data: sessions, error: sessionError }] =
+    await Promise.all([
+      admin
+        .from('exam_orders')
+        .select('examination_id,status')
+        .eq('candidate_id', row.candidate_id)
+        .in('examination_id', examinationIds),
+      admin
+        .from('attempts')
+        .select('examination_id,status,submitted_at')
+        .eq('candidate_id', row.candidate_id)
+        .in('examination_id', examinationIds),
+      admin
+        .from('exam_sessions')
+        .select('examination_id,started_at,submitted_at')
+        .eq('candidate_id', row.candidate_id)
+        .in('examination_id', examinationIds),
+    ]);
+
+  if (orderError) throw new Error(orderError.message);
+  if (attemptError) throw new Error(attemptError.message);
+  if (sessionError) throw new Error(sessionError.message);
+
+  const entitled = new Set(
+    (orders || [])
+      .filter((order: any) => ['paid', 'waived'].includes(String(order.status || '').toLowerCase()))
+      .map((order: any) => String(order.examination_id)),
+  );
+  const unresolved = new Set(
+    (orders || [])
+      .filter((order: any) => ['pending', 'cancelled', 'expired', 'failed'].includes(String(order.status || '').toLowerCase()))
+      .map((order: any) => String(order.examination_id)),
+  );
+  const completed = new Set(
+    (attempts || [])
+      .filter((attempt: any) =>
+        Boolean(attempt.submitted_at) ||
+        ['submitted', 'graded', 'completed'].includes(String(attempt.status || '').toLowerCase())
+      )
+      .map((attempt: any) => String(attempt.examination_id)),
+  );
+  const started = new Set(
+    (sessions || [])
+      .filter((session: any) => Boolean(session.started_at))
+      .map((session: any) => String(session.examination_id)),
+  );
+
+  const stillDue = moduleEntries.some((entry) => {
+    const id = entry.examinationId;
+    if (row.message_type === 'cipmn_payment_recovery') {
+      return unresolved.has(id) && !entitled.has(id);
+    }
+    if (row.message_type === 'cipmn_unpurchased_modules') {
+      return !entitled.has(id);
+    }
+    if (row.message_type === 'cipmn_mock_start') {
+      return entitled.has(id) && !completed.has(id) && !started.has(id);
+    }
+    if (row.message_type === 'cipmn_mock_resume') {
+      return entitled.has(id) && !completed.has(id) && started.has(id);
+    }
+    if (row.message_type === 'cipmn_exam_preparation') {
+      return true;
+    }
+    return false;
+  });
+
+  return {
+    valid: stillDue,
+    reason: stillDue ? 'still_due' : 'campaign_condition_resolved',
+  };
+}
+
+async function cancelClaimedCipmnRow(row: OutboxRow, reason: string): Promise<void> {
+  const admin = adminClient();
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from('agilecert_communication_outbox')
+    .update({
+      status: 'cancelled',
+      cancelled_at: now,
+      updated_at: now,
+      failure_code: 'cipmn_campaign_no_longer_due',
+      failure_message: cleanText(reason, 500),
+    })
+    .eq('id', row.id)
+    .eq('status', 'processing');
+  if (error) throw new Error(error.message);
+
+  const { error: eventError } = await admin
+    .from('agilecert_communication_events')
+    .insert({
+      outbox_id: row.id,
+      candidate_id: row.candidate_id,
+      event_type: 'cancelled',
+      metadata: {
+        campaign: 'cipmn-oct-2026',
+        reason,
+        messageType: row.message_type,
+      },
+    });
+  if (eventError) throw new Error(eventError.message);
+}
+
 async function scanAndSend(): Promise<Record<string, unknown>> {
   const admin = adminClient();
   const { data: settingsData, error: settingsError } = await admin
@@ -506,6 +670,14 @@ async function scanAndSend(): Promise<Record<string, unknown>> {
 
   for (const row of claimed) {
     try {
+      if (row.event_key.startsWith('cipmn-oct-2026:')) {
+        const validity = await validateCipmnCampaignRow(row);
+        if (!validity.valid) {
+          await cancelClaimedCipmnRow(row, validity.reason);
+          continue;
+        }
+      }
+
       const rendered = await renderMessage(row, settings);
       const provider = await sendWithResend(row, settings, rendered);
       const { error } = await admin.rpc('complete_agilecert_communication_delivery', {
