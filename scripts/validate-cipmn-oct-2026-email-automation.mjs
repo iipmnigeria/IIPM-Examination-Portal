@@ -5,6 +5,8 @@ const config = fs.readFileSync('scripts/cipmn-oct-2026-monitor-copy-config-draft
 const planner = fs.readFileSync('scripts/cipmn-oct-2026-outbox-planner.sql', 'utf8');
 const disabledInsert = fs.readFileSync('scripts/cipmn-oct-2026-outbox-insert-disabled.sql', 'utf8');
 const matrix = fs.readFileSync('docs/CIPMN_OCT_2026_SIMULATED_SEND_MATRIX.md', 'utf8');
+const firstWave = fs.readFileSync('docs/CIPMN_OCT_2026_FIRST_WAVE_PREVIEW.md', 'utf8');
+const campaignMigration = fs.readFileSync('supabase/migrations/20260926141000_cipmn_oct_2026_email_campaign.sql', 'utf8');
 const comms = fs.readFileSync('supabase/functions/agilecert-communications/index.ts', 'utf8');
 const spec = fs.readFileSync('docs/CIPMN_OCT_2026_EMAIL_AUTOMATION.md', 'utf8');
 
@@ -75,6 +77,27 @@ assert(disabledInsert.includes('pl.eligible_for_existing_outbox'),
   'Disabled insert must exclude candidates without real AgileCert profiles.');
 assert(disabledInsert.includes("'cipmn_payment_recovery','cipmn_mock_resume','cipmn_mock_start'"),
   'Operational CIPMN message classification is missing.');
+assert(campaignMigration.includes('enabled boolean not null default false'),
+  'Campaign migration must install disabled by default.');
+assert(campaignMigration.includes("values (\n  true, false, 'iipmnigeria@gmail.com'"),
+  'Campaign seed must remain disabled and use the approved monitor copy.');
+assert(campaignMigration.includes('queue_horizon_minutes integer not null default 90'),
+  'Campaign must keep the short queue horizon.');
+assert(campaignMigration.includes("interval '2 days'") && campaignMigration.includes("interval '3 days'") && campaignMigration.includes("interval '1 day'"),
+  'Campaign cadence intervals are incomplete.');
+for (const paymentState of ['failed','abandoned','reversed','voided','cancelled']) {
+  assert(campaignMigration.includes(paymentState), `Missing recovery state ${paymentState}`);
+}
+assert(comms.includes("row.event_key.startsWith('cipmn-oct-2026:') && settings.monitor_copy_email"),
+  'Monitoring copy must be limited to CIPMN campaign emails.');
+assert(comms.includes('validateCipmnCampaignRow') && comms.includes('cancelClaimedCipmnRow'),
+  'Pre-send CIPMN stop-condition validation is missing.');
+assert(comms.includes("refresh_cipmn_oct_2026_email_outbox"),
+  'Hourly communications worker is not wired to the gated CIPMN refresh.');
+assert(firstWave.includes('26 September 2026 — 14:30 WAT') &&
+       firstWave.includes('iipmnigeria@gmail.com') &&
+       firstWave.includes('IIPM-B3E11715BFB14F6D9CB1'),
+  'First-wave preview is incomplete.');
 
 const forbiddenWrite = /\b(insert\s+into|update\s+public\.|delete\s+from|alter\s+table|drop\s+table)\b/i;
 assert(!forbiddenWrite.test(dryRun), 'Dry-run preview contains a mutating SQL statement.');
