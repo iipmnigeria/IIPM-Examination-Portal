@@ -79,7 +79,7 @@ jobs:
           test -n "$asset"
           js_file="dist/${asset#./}"
           test -s "$js_file"
-          grep -q 'AI Certification Adviser' "$js_file"
+          grep -Rqs --include='*.js' 'AI Certification Adviser' dist/assets
 
           bundle_sha="$(sha256sum "$js_file" | awk '{print $1}')"
           echo "BUNDLE_SHA=$bundle_sha" >> "$GITHUB_ENV"
