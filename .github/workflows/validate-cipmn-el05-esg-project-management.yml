@@ -1,0 +1,51 @@
+name: Validate CIPMN EL05 ESG Project Management
+
+on:
+  push:
+    branches:
+      - safe/cipmn-el05-esg-project-management
+    paths:
+      - 'supabase/migrations/20260926143000_cipmn_el05_esg_project_management.sql'
+      - 'scripts/validate-cipmn-el05-esg-project-management.mjs'
+      - '.github/workflows/validate-cipmn-el05-esg-project-management.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/20260926143000_cipmn_el05_esg_project_management.sql'
+      - 'scripts/validate-cipmn-el05-esg-project-management.mjs'
+      - '.github/workflows/validate-cipmn-el05-esg-project-management.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-cipmn-el05-esg-project-management-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate EL05 source-strict elective
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout candidate changes
+        uses: actions/checkout@v4
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate EL05 source scope, structure and migration safety
+        run: node scripts/validate-cipmn-el05-esg-project-management.mjs
+      - name: Install application dependencies
+        run: npm install --no-audit --no-fund
+      - name: Existing TypeScript validation
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Verify production artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
