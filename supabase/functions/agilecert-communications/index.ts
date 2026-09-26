@@ -229,6 +229,98 @@ async function renderMessage(
     ? `This is an operational message about an examination, payment or credential. Manage optional reminders in the portal.`
     : `You may <a href="${escapeHtml(unsubscribeUrl)}" style="color:#475569">unsubscribe from optional AgileCert emails</a> or manage preferences in the portal.`;
 
+
+  if (row.message_type === 'cipmn_exam_preparation') {
+    const nextModules = cleanText(payload.moduleCodes, 500) || 'your remaining CIPMN modules';
+    const nextDate = cleanText(payload.nextExaminationDate, 80) || 'your next examination date';
+    return {
+      subject: 'CIPMN examination preparation: keep moving before your next paper',
+      html: emailFrame({
+        heading: 'Your CIPMN examination preparation continues',
+        intro: `Hello ${name}, the CIPMN Licensing Examination is approaching and your preparation should stay focused on the papers still ahead.`,
+        content: `<p style="line-height:1.7"><strong>Next relevant modules:</strong> ${escapeHtml(nextModules)}</p><p style="line-height:1.7"><strong>Next examination date:</strong> ${escapeHtml(nextDate)}</p><p style="line-height:1.7">Use AgileCert to revise the available preparation materials and practise the current MCQ + Theory mock format before the corresponding examination date.</p>`,
+        actionLabel: 'Continue CIPMN preparation',
+        actionUrl: portalUrl,
+        footer: optionalFooter,
+      }),
+      text: `Hello ${name}, continue preparing for your remaining CIPMN papers. Next relevant modules: ${nextModules}. Next examination date: ${nextDate}. Open AgileCert: ${portalUrl}`,
+    };
+  }
+
+  if (row.message_type === 'cipmn_payment_recovery') {
+    const moduleCode = cleanText(payload.moduleCode, 80) || 'your CIPMN module';
+    const examinationDate = cleanText(payload.examinationDate, 80) || 'the scheduled examination date';
+    const reference = cleanText(payload.reference, 120);
+    return {
+      subject: `Complete your AgileCert payment for ${moduleCode}`,
+      html: emailFrame({
+        heading: 'Your CIPMN preparation payment is still incomplete',
+        intro: `Hello ${name}, your AgileCert payment for ${moduleCode} has not yet been completed.`,
+        content: `<p style="line-height:1.7">Your preparation access for this module will remain unavailable until payment is successfully completed.</p><p style="line-height:1.7"><strong>Examination date:</strong> ${escapeHtml(examinationDate)}${reference ? `<br><strong>Payment reference:</strong> ${escapeHtml(reference)}` : ''}</p><p style="line-height:1.7">If you have already completed payment using another transaction, no further action is required once AgileCert confirms the successful order.</p>`,
+        actionLabel: 'Complete payment',
+        actionUrl: portalUrl,
+        footer: optionalFooter,
+      }),
+      text: `Hello ${name}, your AgileCert payment for ${moduleCode} is still incomplete. Examination date: ${examinationDate}. Complete payment in AgileCert: ${portalUrl}`,
+    };
+  }
+
+  if (row.message_type === 'cipmn_unpurchased_modules') {
+    const modules = cleanText(payload.moduleCodes, 1200) || 'your remaining modules';
+    const nearestDate = cleanText(payload.nearestExaminationDate, 80) || 'the next scheduled examination date';
+    const discountCode = cleanText(payload.discountCode, 80);
+    const discountExpiresAt = cleanText(payload.discountExpiresAt, 80);
+    const offer = discountCode
+      ? `<p style="line-height:1.7"><strong>Current access code:</strong> ${escapeHtml(discountCode)}${discountExpiresAt ? `<br><strong>Offer ends:</strong> ${escapeHtml(discountExpiresAt)}` : ''}</p>`
+      : '';
+    return {
+      subject: 'Your remaining CIPMN preparation modules on AgileCert',
+      html: emailFrame({
+        heading: 'Complete the preparation modules still ahead',
+        intro: `Hello ${name}, you still have CIPMN examination modules that are not yet active in your AgileCert account.`,
+        content: `<p style="line-height:1.7"><strong>Modules not yet purchased:</strong> ${escapeHtml(modules)}</p><p style="line-height:1.7"><strong>Nearest relevant examination:</strong> ${escapeHtml(nearestDate)}</p>${offer}<p style="line-height:1.7">Modules whose official examination dates have passed are automatically removed from these reminders.</p>`,
+        actionLabel: 'Review remaining modules',
+        actionUrl: portalUrl,
+        footer: optionalFooter,
+      }),
+      text: `Hello ${name}, your remaining unpurchased CIPMN preparation modules are: ${modules}. Nearest relevant examination: ${nearestDate}. Review them in AgileCert: ${portalUrl}`,
+    };
+  }
+
+  if (row.message_type === 'cipmn_mock_start') {
+    const modules = cleanText(payload.moduleCodes, 1200) || 'your purchased CIPMN modules';
+    const nearestDate = cleanText(payload.nearestExaminationDate, 80) || 'your next examination date';
+    return {
+      subject: 'Start the CIPMN mock examinations already available to you',
+      html: emailFrame({
+        heading: 'You have purchased mocks that are still untouched',
+        intro: `Hello ${name}, some CIPMN mock examinations already available in your AgileCert account have not yet been started.`,
+        content: `<p style="line-height:1.7"><strong>Ready to start:</strong> ${escapeHtml(modules)}</p><p style="line-height:1.7"><strong>Nearest relevant examination:</strong> ${escapeHtml(nearestDate)}</p><p style="line-height:1.7">Starting now gives you time to identify weak areas, revisit the preparation material and practise the MCQ + Theory format before the real examination.</p>`,
+        actionLabel: 'Start your mock',
+        actionUrl: portalUrl,
+        footer: optionalFooter,
+      }),
+      text: `Hello ${name}, these purchased CIPMN mocks are still untouched: ${modules}. Nearest relevant examination: ${nearestDate}. Start in AgileCert: ${portalUrl}`,
+    };
+  }
+
+  if (row.message_type === 'cipmn_mock_resume') {
+    const modules = cleanText(payload.moduleCodes, 1200) || 'your incomplete CIPMN mock';
+    const nearestDate = cleanText(payload.nearestExaminationDate, 80) || 'your next examination date';
+    return {
+      subject: 'Resume your incomplete CIPMN mock examination',
+      html: emailFrame({
+        heading: 'Your CIPMN mock is waiting for you',
+        intro: `Hello ${name}, you started a CIPMN mock examination but have not yet completed it.`,
+        content: `<p style="line-height:1.7"><strong>Incomplete mock:</strong> ${escapeHtml(modules)}</p><p style="line-height:1.7"><strong>Nearest relevant examination:</strong> ${escapeHtml(nearestDate)}</p><p style="line-height:1.7">Return to AgileCert and complete the mock while there is still time to review the areas that need more attention.</p>`,
+        actionLabel: 'Resume your mock',
+        actionUrl: portalUrl,
+        footer: optionalFooter,
+      }),
+      text: `Hello ${name}, resume your incomplete CIPMN mock: ${modules}. Nearest relevant examination: ${nearestDate}. Continue in AgileCert: ${portalUrl}`,
+    };
+  }
+
   if (row.message_type === 'preparation_material_ready') {
     const title = cleanText(payload.examinationTitle, 240) || 'your examination';
     return {
