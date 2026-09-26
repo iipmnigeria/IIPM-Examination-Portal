@@ -18,6 +18,10 @@ create table if not exists public.cipmn_oct_2026_email_campaign (
   updated_at timestamptz not null default now()
 );
 
+alter table public.cipmn_oct_2026_email_campaign enable row level security;
+revoke all on table public.cipmn_oct_2026_email_campaign from anon, authenticated;
+grant select, insert, update, delete on table public.cipmn_oct_2026_email_campaign to service_role;
+
 insert into public.cipmn_oct_2026_email_campaign(
   singleton, enabled, monitor_copy_email, campaign_start_date, campaign_end_date,
   max_daily_emails, minimum_gap_hours, queue_horizon_minutes, discount_code, discount_expires_on
@@ -69,7 +73,7 @@ returns table (
   delivery_note text
 )
 language sql
-security definer
+security invoker
 set search_path = public, auth, extensions
 as $function$
 with
@@ -402,7 +406,7 @@ create or replace function public.refresh_cipmn_oct_2026_email_outbox(
 )
 returns jsonb
 language plpgsql
-security definer
+security invoker
 set search_path = public, auth, extensions
 as $function$
 declare
