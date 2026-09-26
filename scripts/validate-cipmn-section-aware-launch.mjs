@@ -106,7 +106,7 @@ if (!process.exitCode) {
 }
 
 
-const appMcqSubmit = app.match(/const handleSubmitCipmnMcq = async \\([\\s\\S]*?\\n  \\};/);
+const appMcqSubmit = app.match(/const handleSubmitCipmnMcq = async \([\s\S]*?\n  \};/);
 expect(Boolean(appMcqSubmit), 'App.handleSubmitCipmnMcq must exist.');
 if (appMcqSubmit) {
   expect(appMcqSubmit[0].includes("currentSection: 'theory'"), 'MCQ submission must preserve the same live session as Theory-ready after scoring.');
