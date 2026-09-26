@@ -1,5 +1,4 @@
-import { jsPDF } from 'jspdf';
-import QRCode from 'qrcode';
+import type { jsPDF } from 'jspdf';
 import {
   getCertificateRenderPayload,
   type CertificateRenderPayload,
@@ -180,6 +179,10 @@ const renderDefaultCertificate = (
 };
 
 export async function renderCertificatePdf(payload: CertificateRenderPayload): Promise<void> {
+  const [{ jsPDF }, { default: QRCode }] = await Promise.all([
+    import('jspdf'),
+    import('qrcode'),
+  ]);
   const certificate = payload.certificate as CertificateWithExaminationCode;
   const template = payload.template || {
     ...defaultTemplate,
