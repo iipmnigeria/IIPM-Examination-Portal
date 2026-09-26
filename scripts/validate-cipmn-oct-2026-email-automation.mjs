@@ -2,6 +2,8 @@ import fs from 'node:fs';
 
 const dryRun = fs.readFileSync('scripts/cipmn-oct-2026-email-dry-run.sql', 'utf8');
 const config = fs.readFileSync('scripts/cipmn-oct-2026-monitor-copy-config-draft.sql', 'utf8');
+const planner = fs.readFileSync('scripts/cipmn-oct-2026-outbox-planner.sql', 'utf8');
+const matrix = fs.readFileSync('docs/CIPMN_OCT_2026_SIMULATED_SEND_MATRIX.md', 'utf8');
 const comms = fs.readFileSync('supabase/functions/agilecert-communications/index.ts', 'utf8');
 const spec = fs.readFileSync('docs/CIPMN_OCT_2026_EMAIL_AUTOMATION.md', 'utf8');
 
@@ -40,15 +42,41 @@ assert(comms.includes("cc: settings.monitor_copy_email?.trim() ? [settings.monit
   'Resend request lacks central monitoring-copy CC support.');
 assert(spec.includes('maximum 2 CIPMN campaign emails') && spec.includes('minimum 6 hours'),
   'Candidate-level frequency guard is missing.');
+assert(planner.includes('eligible_for_existing_outbox'),
+  'Outbox planner must distinguish registered candidates from email-only outreach.');
+assert(planner.includes("when b.completed then 'completed'") && planner.indexOf("when b.completed then 'completed'") < planner.indexOf("when b.started then 'in_progress'"),
+  'Outbox planner must prioritize completed over in-progress.');
+assert(planner.includes("paid.status in ('paid','waived')"),
+  'Outbox planner must suppress historical recovery after successful replacement.');
+assert(planner.includes("exam_date < ((select as_of from params) at time zone 'Africa/Lagos')::date"),
+  'Outbox planner must suppress passed examinations.');
+assert(planner.includes("'iipmnigeria@gmail.com'::text monitor_copy_email"),
+  'Outbox planner monitoring copy is missing.');
+for (const messageType of [
+  'cipmn_exam_preparation',
+  'cipmn_payment_recovery',
+  'cipmn_unpurchased_modules',
+  'cipmn_mock_start',
+  'cipmn_mock_resume',
+]) {
+  assert(comms.includes(`row.message_type === '${messageType}'`),
+    `Missing renderer for ${messageType}`);
+}
+assert(matrix.includes('Izedonmen Friday Egbokhare') && matrix.includes('MOD-011 unresolved payment'),
+  'Simulated send matrix must capture the validated recovery target.');
+assert(matrix.includes('Chiemerie Nnenna Awuzie') && matrix.includes('Not registered'),
+  'Simulated matrix must retain unregistered official candidates.');
 
 const forbiddenWrite = /\b(insert\s+into|update\s+public\.|delete\s+from|alter\s+table|drop\s+table)\b/i;
 assert(!forbiddenWrite.test(dryRun), 'Dry-run preview contains a mutating SQL statement.');
+assert(!forbiddenWrite.test(planner), 'Outbox planner contains a mutating SQL statement.');
 
 console.log(JSON.stringify({
   ok: true,
   officialModuleCount: officialCodes.length,
   monitoringCopy: 'iipmnigeria@gmail.com',
   dryRunReadOnly: true,
+  outboxPlannerReadOnly: !/\\b(insert\\s+into|update\\s+public\\.|delete\\s+from|alter\\s+table|drop\\s+table)\\b/i.test(planner),
   stopConditionsValidated: [
     'exam-passed',
     'paid-replacement-suppresses-recovery',
