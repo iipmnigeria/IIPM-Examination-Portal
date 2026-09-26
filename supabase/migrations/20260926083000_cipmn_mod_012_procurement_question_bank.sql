@@ -68,279 +68,279 @@ declare
   v_mcqs jsonb := $mcq$
 [
   {
-    "position":1,
-    "question":"Which statement best defines project procurement management in Module 12?",
-    "options":[
+    "position": 1,
+    "question": "Which statement best defines project procurement management in Module 12?",
+    "options": [
       "Planning, sourcing and controlling external goods, works and services needed for project work.",
       "Managing only supplier invoices after contract award.",
       "Selecting the lowest-priced bidder regardless of risk.",
       "Preparing internal resources before procurement starts."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":2,
-    "question":"Which statement best describes when contract management begins and ends according to the source?",
-    "options":[
-      "It begins at market analysis and ends at bid opening.",
+    "position": 2,
+    "question": "Which statement best describes when contract management begins and ends according to the source?",
+    "options": [
       "It begins once contractual obligations are agreed and continues through performance, acceptance, closeout and lessons learned.",
       "It begins only when a supplier breaches the contract.",
-      "It ends immediately after the contract is signed."
+      "It ends immediately after the contract is signed.",
+      "It begins at market analysis and ends at bid opening."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":3,
-    "question":"Which sequence reflects the source's procurement-to-contract flow from need through performance?",
-    "options":[
-      "Need → Specification → Budget → Commitment → Market → Supplier → Contract → Performance.",
-      "Budget → Contract → Market → Supplier → Need → Performance.",
+    "position": 3,
+    "question": "Which sequence reflects the source's procurement-to-contract flow from need through performance?",
+    "options": [
       "Supplier → Need → Budget → Contract → Specification → Performance.",
-      "Specification → Performance → Market → Budget → Supplier → Contract."
+      "Specification → Performance → Market → Budget → Supplier → Contract.",
+      "Need → Specification → Budget → Commitment → Market → Supplier → Contract → Performance.",
+      "Budget → Contract → Market → Supplier → Need → Performance."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":4,
-    "question":"In the rural-road case, which failure best illustrates why value for money must not be reduced to lowest price?",
-    "options":[
+    "position": 4,
+    "question": "In the rural-road case, which failure best illustrates why value for money must not be reduced to lowest price?",
+    "options": [
+      "The contractor was paid only after accepted work.",
       "The contractor lacked adequate equipment and capacity while material prices and availability risks were underestimated.",
       "The Ministry used too much market analysis before award.",
-      "The project used a contract with excessive quality controls.",
-      "The contractor was paid only after accepted work."
+      "The project used a contract with excessive quality controls."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":5,
-    "question":"How does Module 12 define Value for Money?",
-    "options":[
+    "position": 5,
+    "question": "How does Module 12 define Value for Money?",
+    "options": [
       "The lowest tendered price that meets the deadline.",
       "The best combination of fitness for purpose, quality, whole-life cost, delivery capability, risk profile, contract protection and compliance.",
       "The highest technical score regardless of affordability.",
       "The fastest supplier that can mobilize immediately."
     ],
-    "correct":2
+    "correct": 2
   },
   {
-    "position":6,
-    "question":"Which statement correctly describes the Public Procurement Act 2007 in the module?",
-    "options":[
-      "It is Nigeria's primary legal framework for public procurement and promotes transparency, accountability, competition and value for money.",
+    "position": 6,
+    "question": "Which statement correctly describes the Public Procurement Act 2007 in the module?",
+    "options": [
       "It applies only to contract closeout and disputes.",
       "It replaces the need for internal approvals and records.",
-      "It requires direct procurement as the default method."
+      "It requires direct procurement as the default method.",
+      "It is Nigeria's primary legal framework for public procurement and promotes transparency, accountability, competition and value for money."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":7,
-    "question":"What is the role of the Bureau of Public Procurement (BPP) as presented in Module 12?",
-    "options":[
-      "To execute every procurement on behalf of project teams.",
-      "To monitor and oversee public procurement, issue guidance, certify applicable procurements and support standards/compliance.",
+    "position": 7,
+    "question": "What is the role of the Bureau of Public Procurement (BPP) as presented in Module 12?",
+    "options": [
       "To replace the Accounting Officer in all approvals.",
-      "To act as the supplier evaluation committee."
+      "To act as the supplier evaluation committee.",
+      "To execute every procurement on behalf of project teams.",
+      "To monitor and oversee public procurement, issue guidance, certify applicable procurements and support standards/compliance."
     ],
-    "correct":2
+    "correct": 4
   },
   {
-    "position":8,
-    "question":"What does a Certificate of No Objection (CNO) signify in the module?",
-    "options":[
+    "position": 8,
+    "question": "What does a Certificate of No Objection (CNO) signify in the module?",
+    "options": [
+      "That the lowest bidder must be selected.",
       "That a supplier cannot submit a claim.",
       "That compliance has been confirmed before certain public procurement awards.",
-      "That the contract has reached final acceptance.",
-      "That the lowest bidder must be selected."
+      "That the contract has reached final acceptance."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":9,
-    "question":"Which group contains only procurement-planning activities taught in Module 12?",
-    "options":[
+    "position": 9,
+    "question": "Which group contains only procurement-planning activities taught in Module 12?",
+    "options": [
       "Needs assessment, market analysis, risk review, procurement-method selection, evaluation criteria and approval path.",
       "Claims settlement, arbitration, litigation and closeout.",
       "Vendor onboarding, liquidation and payroll control.",
       "Lessons learned, retention release and final acceptance only."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":10,
-    "question":"Which market-analysis question is explicitly emphasized before sourcing specialized equipment?",
-    "options":[
-      "Can the local market provide maintenance, training, spare parts and support after purchase?",
+    "position": 10,
+    "question": "Which market-analysis question is explicitly emphasized before sourcing specialized equipment?",
+    "options": [
       "Which bidder has the largest social-media following?",
       "Which supplier can waive all warranties?",
-      "Can the evaluation committee avoid checking import exposure?"
+      "Can the evaluation committee avoid checking import exposure?",
+      "Can the local market provide maintenance, training, spare parts and support after purchase?"
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":11,
-    "question":"Which procurement method is identified as the default route for transparency and broad competition?",
-    "options":[
-      "Restricted Tendering.",
-      "Direct Procurement.",
+    "position": 11,
+    "question": "Which procurement method is identified as the default route for transparency and broad competition?",
+    "options": [
       "Open Competitive Bidding.",
-      "Emergency Procurement."
+      "Emergency Procurement.",
+      "Restricted Tendering.",
+      "Direct Procurement."
     ],
-    "correct":3
+    "correct": 1
   },
   {
-    "position":12,
-    "question":"Which situation best fits Restricted Tendering under the source's procurement-method logic?",
-    "options":[
+    "position": 12,
+    "question": "Which situation best fits Restricted Tendering under the source's procurement-method logic?",
+    "options": [
+      "An urgent emergency requiring immediate response.",
       "Low-value office stationery available from many suppliers.",
       "A market where only a limited number of capable suppliers exist.",
-      "A complex requirement that needs specification refinement.",
-      "An urgent emergency requiring immediate response."
+      "A complex requirement that needs specification refinement."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":13,
-    "question":"When is Two-Stage Tendering most appropriate according to Module 12?",
-    "options":[
+    "position": 13,
+    "question": "When is Two-Stage Tendering most appropriate according to Module 12?",
+    "options": [
       "For simple, low-value readily available items.",
       "For complex requirements where specifications need refinement.",
       "Only when a single supplier exists.",
       "Only after a contract dispute."
     ],
-    "correct":2
+    "correct": 2
   },
   {
-    "position":14,
-    "question":"Which principle governs the use of Direct or Emergency Procurement in the module?",
-    "options":[
-      "They are shortcuts that require less documentation.",
+    "position": 14,
+    "question": "Which principle governs the use of Direct or Emergency Procurement in the module?",
+    "options": [
       "They are exceptional routes that still require justification, documentation, approvals and audit trail.",
       "They remove the need for competition and value-for-money review.",
-      "They automatically eliminate procurement risk."
+      "They automatically eliminate procurement risk.",
+      "They are shortcuts that require less documentation."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":15,
-    "question":"Which bid-evaluation practice is required by the source to protect fairness?",
-    "options":[
-      "Define criteria before bids are opened, apply them consistently and document the evaluation.",
-      "Adjust criteria after seeing supplier prices.",
+    "position": 15,
+    "question": "Which bid-evaluation practice is required by the source to protect fairness?",
+    "options": [
       "Award primarily on relationship history.",
-      "Ignore technical capacity if the financial proposal is low."
+      "Ignore technical capacity if the financial proposal is low.",
+      "Define criteria before bids are opened, apply them consistently and document the evaluation.",
+      "Adjust criteria after seeing supplier prices."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":16,
-    "question":"Which contract type is most suitable when scope is clearly defined and the buyer wants a fixed price?",
-    "options":[
+    "position": 16,
+    "question": "Which contract type is most suitable when scope is clearly defined and the buyer wants a fixed price?",
+    "options": [
+      "Framework Agreement.",
       "Lump Sum.",
       "Time & Materials.",
-      "Cost Reimbursable.",
-      "Framework Agreement."
+      "Cost Reimbursable."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":17,
-    "question":"Which contract type is appropriate when payment depends on measured quantities that may vary?",
-    "options":[
+    "position": 17,
+    "question": "Which contract type is appropriate when payment depends on measured quantities that may vary?",
+    "options": [
       "Unit Rate.",
       "Lump Sum.",
       "Cost Reimbursable.",
       "PPP / Concession."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":18,
-    "question":"Why does the source warn that a lump-sum contract can create claims or poor-quality delivery when scope is unclear?",
-    "options":[
-      "Because fixed pricing depends on sufficiently clear specifications and risk allocation.",
+    "position": 18,
+    "question": "Why does the source warn that a lump-sum contract can create claims or poor-quality delivery when scope is unclear?",
+    "options": [
       "Because lump-sum contracts prohibit performance monitoring.",
       "Because lump-sum contracts always transfer all risk to the buyer.",
-      "Because lump-sum contracts cannot include quality requirements."
+      "Because lump-sum contracts cannot include quality requirements.",
+      "Because fixed pricing depends on sufficiently clear specifications and risk allocation."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":19,
-    "question":"Which document-control principle is emphasized during tender formation and contract signing?",
-    "options":[
-      "Tender instructions, clarifications, accepted proposal, award letter, terms, specifications and approved addenda incorporated into the contract should be controlled.",
-      "Only the signed contract page needs to be retained.",
+    "position": 19,
+    "question": "Which document-control principle is emphasized during tender formation and contract signing?",
+    "options": [
       "Bidder clarifications should be discarded after award.",
-      "Approved addenda should remain outside the contract file."
+      "Approved addenda should remain outside the contract file.",
+      "Tender instructions, clarifications, accepted proposal, award letter, terms, specifications and approved addenda incorporated into the contract should be controlled.",
+      "Only the signed contract page needs to be retained."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":20,
-    "question":"Which set best reflects the supplier-management lifecycle taught in Module 12?",
-    "options":[
+    "position": 20,
+    "question": "Which set best reflects the supplier-management lifecycle taught in Module 12?",
+    "options": [
+      "Qualify → Sign → Ignore until completion.",
       "Select → Onboard → Monitor → Resolve → Close.",
       "Advertise → Litigate → Close.",
-      "Award → Pay → Disband.",
-      "Qualify → Sign → Ignore until completion."
+      "Award → Pay → Disband."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":21,
-    "question":"Which payment-control rule is explicitly taught in the source?",
-    "options":[
+    "position": 21,
+    "question": "Which payment-control rule is explicitly taught in the source?",
+    "options": [
       "Pay only for accepted work, valid invoices and milestones supported by certification.",
       "Pay mobilization and milestone claims before checking documentation.",
       "Release payment whenever the contractor reports progress verbally.",
       "Ignore retention and guarantee conditions if the project is delayed."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":22,
-    "question":"Which sequence correctly represents variation control in Module 12?",
-    "options":[
-      "Document request → assess scope/cost/time/quality impact → approve or reject → update contract and baseline.",
+    "position": 22,
+    "question": "Which sequence correctly represents variation control in Module 12?",
+    "options": [
       "Approve first → assess impact later → update only if disputed.",
       "Implement verbally → document after completion.",
-      "Reject every change after award."
+      "Reject every change after award.",
+      "Document request → assess scope/cost/time/quality impact → approve or reject → update contract and baseline."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":23,
-    "question":"Which item is central to claims management according to the source?",
-    "options":[
-      "Checking contractual entitlement, evidence, notice timing, cause, responsibility and mitigation action.",
-      "Accepting all claims if the supplier submits an invoice.",
+    "position": 23,
+    "question": "Which item is central to claims management according to the source?",
+    "options": [
       "Treating every delay as force majeure.",
-      "Escalating directly to litigation without evidence review."
+      "Escalating directly to litigation without evidence review.",
+      "Checking contractual entitlement, evidence, notice timing, cause, responsibility and mitigation action.",
+      "Accepting all claims if the supplier submits an invoice."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":24,
-    "question":"Which dispute-resolution sequence moves from collaborative resolution toward the most formal option in the source?",
-    "options":[
+    "position": 24,
+    "question": "Which dispute-resolution sequence moves from collaborative resolution toward the most formal option in the source?",
+    "options": [
+      "Mediation → Procurement Planning → Court Award.",
       "Negotiation / Mediation or Conciliation → Arbitration → Litigation.",
       "Litigation → Negotiation → Mediation.",
-      "Arbitration → Tender Evaluation → Litigation.",
-      "Mediation → Procurement Planning → Court Award."
+      "Arbitration → Tender Evaluation → Litigation."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":25,
-    "question":"Which practice is explicitly identified as unethical and prohibited in procurement control?",
-    "options":[
+    "position": 25,
+    "question": "Which practice is explicitly identified as unethical and prohibited in procurement control?",
+    "options": [
       "Splitting contracts into smaller packages to avoid thresholds or approvals.",
       "Declaring conflicts of interest before evaluation.",
       "Keeping scoring sheets and approval records.",
       "Giving suppliers equal information and time."
     ],
-    "correct":1
+    "correct": 1
   }
 ]
 $mcq$::jsonb;
