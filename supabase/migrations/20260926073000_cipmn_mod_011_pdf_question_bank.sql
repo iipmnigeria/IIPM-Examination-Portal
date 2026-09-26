@@ -68,279 +68,279 @@ declare
   v_mcqs jsonb := $mcq$
 [
   {
-    "position":1,
-    "question":"Which description best captures the purpose of DUCAP as presented in the current Module 11 licensing material?",
-    "options":[
+    "position": 1,
+    "question": "Which description best captures the purpose of DUCAP as presented in the current Module 11 licensing material?",
+    "options": [
       "To replace all predictive controls with unrestricted Agile autonomy.",
       "To combine delivery control and predictability with Agile adaptability in challenging project environments.",
       "To prescribe a single software-development lifecycle for all Nigerian projects.",
       "To focus only on governance while leaving delivery methods undefined."
     ],
-    "correct":2
+    "correct": 2
   },
   {
-    "position":2,
-    "question":"Which organizational challenge is explicitly identified as one DUCAP was developed to address?",
-    "options":[
-      "Balancing executive need for control with team need for autonomy.",
+    "position": 2,
+    "question": "Which organizational challenge is explicitly identified as one DUCAP was developed to address?",
+    "options": [
       "Eliminating stakeholder feedback during delivery.",
       "Removing the need for formal project governance.",
-      "Replacing all compliance requirements with iterative experimentation."
+      "Replacing all compliance requirements with iterative experimentation.",
+      "Balancing executive need for control with team need for autonomy."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":3,
-    "question":"Which set correctly identifies DUCAP's four key elements?",
-    "options":[
-      "Scope, Schedule, Cost and Quality.",
-      "Predictive, Agile, Hybrid and Adaptive.",
+    "position": 3,
+    "question": "Which set correctly identifies DUCAP's four key elements?",
+    "options": [
       "Pillar, Activity, Process and Vision.",
-      "Initiation, Planning, Execution and Closure."
+      "Initiation, Planning, Execution and Closure.",
+      "Scope, Schedule, Cost and Quality.",
+      "Predictive, Agile, Hybrid and Adaptive."
     ],
-    "correct":3
+    "correct": 1
   },
   {
-    "position":4,
-    "question":"How does Module 11 characterize the DUCAP Pillars?",
-    "options":[
+    "position": 4,
+    "question": "How does Module 11 characterize the DUCAP Pillars?",
+    "options": [
+      "A sequence of stage-gate approvals performed only by senior management.",
       "Optional templates that may be used only at project closure.",
       "Compulsory principles that guide how the Project Manager must think and deliver within the Nigerian context.",
-      "A list of software tools for day-to-day project control.",
-      "A sequence of stage-gate approvals performed only by senior management."
+      "A list of software tools for day-to-day project control."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":5,
-    "question":"What is the DUCAP expectation for Lessons Learned Management?",
-    "options":[
+    "position": 5,
+    "question": "What is the DUCAP expectation for Lessons Learned Management?",
+    "options": [
       "Lessons learned should begin during conceptualisation, draw on relevant past experience, and continue throughout delivery.",
       "Lessons learned should be documented only after formal project closure.",
       "Only failed projects should be reviewed for lessons.",
       "Lessons learned are optional where the Project Case is strong."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":6,
-    "question":"Which statement best describes DUCAP's Project Value Justification pillar?",
-    "options":[
-      "Every project should maintain a Project Case that compares intended value/results with estimated cost and is reaffirmed throughout the lifecycle.",
+    "position": 6,
+    "question": "Which statement best describes DUCAP's Project Value Justification pillar?",
+    "options": [
       "Value is assessed only after benefits have been realized.",
       "Mandatory projects do not require value-for-money consideration.",
-      "A Project Case is needed only for private-sector projects."
+      "A Project Case is needed only for private-sector projects.",
+      "Every project should maintain a Project Case that compares intended value/results with estimated cost and is reaffirmed throughout the lifecycle."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":7,
-    "question":"A project is divided into stand-alone portions so that each portion can be completed, assessed for viability, and paused with minimal loss if necessary. Which DUCAP pillar is being applied?",
-    "options":[
-      "Outcome Realization Management.",
-      "Segmented Delivery Management.",
+    "position": 7,
+    "question": "A project is divided into stand-alone portions so that each portion can be completed, assessed for viability, and paused with minimal loss if necessary. Which DUCAP pillar is being applied?",
+    "options": [
       "Project Post-Delivery Sustainability.",
-      "Project Change Management."
+      "Project Change Management.",
+      "Outcome Realization Management.",
+      "Segmented Delivery Management."
     ],
-    "correct":2
+    "correct": 4
   },
   {
-    "position":8,
-    "question":"Before a DUCAP project commences, what financial condition is specifically required for the first delivery segment?",
-    "options":[
+    "position": 8,
+    "question": "Before a DUCAP project commences, what financial condition is specifically required for the first delivery segment?",
+    "options": [
+      "Funding may be confirmed after the first Segment Interaction Point.",
       "The project must have all lifetime funding fully deposited.",
       "Funding for at least the first segment must be available and signed off for use.",
-      "Only a non-binding funding intention is required.",
-      "Funding may be confirmed after the first Segment Interaction Point."
+      "Only a non-binding funding intention is required."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":9,
-    "question":"Which pillar directly addresses unity, shared commitment, wellbeing, social inclusion and equality within the project team?",
-    "options":[
+    "position": 9,
+    "question": "Which pillar directly addresses unity, shared commitment, wellbeing, social inclusion and equality within the project team?",
+    "options": [
       "Team Cohesion, Wellbeing and Equality.",
       "Project Value Justification.",
       "Environmental & Health Impact.",
       "Segmented Delivery Management."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":10,
-    "question":"What does DUCAP require regarding environmental and health impacts?",
-    "options":[
-      "They should be evaluated only after the project becomes operational.",
+    "position": 10,
+    "question": "What does DUCAP require regarding environmental and health impacts?",
+    "options": [
       "They should be considered before, during and after delivery, with early forecasting and mitigation of negative effects.",
       "They apply only to infrastructure projects.",
-      "They are subordinate to cost and schedule and need not affect project design."
+      "They are subordinate to cost and schedule and need not affect project design.",
+      "They should be evaluated only after the project becomes operational."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":11,
-    "question":"Which requirement best reflects DUCAP's Project Post-Delivery Sustainability pillar?",
-    "options":[
-      "A written and approved means of sustaining the delivered project should exist before delivery begins.",
-      "Sustainability planning starts only after project acceptance.",
+    "position": 11,
+    "question": "Which requirement best reflects DUCAP's Project Post-Delivery Sustainability pillar?",
+    "options": [
       "The Project Manager may transfer all sustainability responsibility at the first delivery segment.",
-      "A sustainability plan is optional where the project meets scope and budget."
+      "A sustainability plan is optional where the project meets scope and budget.",
+      "A written and approved means of sustaining the delivered project should exist before delivery begins.",
+      "Sustainability planning starts only after project acceptance."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":12,
-    "question":"How does DUCAP define project scope within Scope & Viability Management?",
-    "options":[
+    "position": 12,
+    "question": "How does DUCAP define project scope within Scope & Viability Management?",
+    "options": [
+      "Only customer-facing deliverables.",
       "Only the tangible outputs produced by the project.",
       "All outputs, outcomes and benefits, together with all work required to deliver them.",
-      "Only work packages included in the original schedule.",
-      "Only customer-facing deliverables."
+      "Only work packages included in the original schedule."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":13,
-    "question":"In the DUCAP RACI treatment, what does 'Accountable' mean?",
-    "options":[
+    "position": 13,
+    "question": "In the DUCAP RACI treatment, what does 'Accountable' mean?",
+    "options": [
       "The person who physically performs the task.",
       "The individual or group that owns the task, gives approval and is ultimately responsible for the outcome.",
       "A person who must be informed after a decision.",
       "A specialist consulted only when an exception occurs."
     ],
-    "correct":2
+    "correct": 2
   },
   {
-    "position":14,
-    "question":"DUCAP supplements its RACI treatment with a RAG priority method. What does Amber mean?",
-    "options":[
-      "Important and urgent — High.",
+    "position": 14,
+    "question": "DUCAP supplements its RACI treatment with a RAG priority method. What does Amber mean?",
+    "options": [
       "Important but not urgent — Medium.",
       "Important but can be done later — Low.",
-      "Not important and should be removed."
+      "Not important and should be removed.",
+      "Important and urgent — High."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":15,
-    "question":"Which statement best reflects DUCAP's approach to Quality and Regulation Management?",
-    "options":[
-      "Quality is assessed only by cost, schedule and scope performance.",
-      "Quality includes traditional success factors plus stakeholder satisfaction, team wellbeing/equality, applicable regulation and customer satisfaction.",
+    "position": 15,
+    "question": "Which statement best reflects DUCAP's approach to Quality and Regulation Management?",
+    "options": [
       "Regulatory requirements are managed separately from quality.",
-      "Quality is a closure-stage activity performed after delivery."
+      "Quality is a closure-stage activity performed after delivery.",
+      "Quality is assessed only by cost, schedule and scope performance.",
+      "Quality includes traditional success factors plus stakeholder satisfaction, team wellbeing/equality, applicable regulation and customer satisfaction."
     ],
-    "correct":2
+    "correct": 4
   },
   {
-    "position":16,
-    "question":"Which statement best describes Outcome Realization Management in DUCAP?",
-    "options":[
+    "position": 16,
+    "question": "Which statement best describes Outcome Realization Management in DUCAP?",
+    "options": [
+      "A replacement for the sustainability plan.",
       "A structured approach to define, plan for and track project outcomes and ultimately benefits, including after deliverables are completed.",
       "A method for closing all project benefits when outputs are handed over.",
-      "A finance-only review performed by the Project Board.",
-      "A replacement for the sustainability plan."
+      "A finance-only review performed by the Project Board."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":17,
-    "question":"Which sequence correctly represents the three main DUCAP process groupings?",
-    "options":[
+    "position": 17,
+    "question": "Which sequence correctly represents the three main DUCAP process groupings?",
+    "options": [
       "Project Preparatory → Project Implementation/Control → Project Closure and Handover.",
       "Concept → Design → Procurement.",
       "Initiation → Sprint Delivery → Benefits Audit.",
       "Business Case → Agile Delivery → Programme Closure."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":18,
-    "question":"Which activities belong to the DUCAP Project Preparatory process structure?",
-    "options":[
-      "Start up, Pre-planning/Lessons Learnt, and Full planning.",
+    "position": 18,
+    "question": "Which activities belong to the DUCAP Project Preparatory process structure?",
+    "options": [
       "Risk closure, supplier release and BAU handover.",
       "Daily Scrum, Sprint Review and Retrospective.",
-      "Procurement, Quality Audit and Benefits Closure."
+      "Procurement, Quality Audit and Benefits Closure.",
+      "Start up, Pre-planning/Lessons Learnt, and Full planning."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":19,
-    "question":"How should a Segment Interaction Point (SIP) be understood under DUCAP?",
-    "options":[
-      "A routine milestone requiring no management review.",
-      "A genuine pause and senior-management/Project Board interaction where the previous segment and next-stage viability are reviewed.",
+    "position": 19,
+    "question": "How should a Segment Interaction Point (SIP) be understood under DUCAP?",
+    "options": [
       "A daily meeting controlled entirely by the Project Manager.",
-      "A financial checkpoint used only when funding is exhausted."
+      "A financial checkpoint used only when funding is exhausted.",
+      "A routine milestone requiring no management review.",
+      "A genuine pause and senior-management/Project Board interaction where the previous segment and next-stage viability are reviewed."
     ],
-    "correct":2
+    "correct": 4
   },
   {
-    "position":20,
-    "question":"Which responsibility belongs to the Project Manager at a Segment Interaction Point when an exception exceeds project tolerance?",
-    "options":[
+    "position": 20,
+    "question": "Which responsibility belongs to the Project Manager at a Segment Interaction Point when an exception exceeds project tolerance?",
+    "options": [
+      "Transfer the decision to the delivery team.",
       "Proceed without escalation because segment authority is already granted.",
       "Inform the Project Board and provide sufficient information for a continue, redirect or abort decision.",
-      "Close the entire project automatically.",
-      "Transfer the decision to the delivery team."
+      "Close the entire project automatically."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":21,
-    "question":"During DUCAP Implementation and Control, what is a core Project Manager responsibility?",
-    "options":[
+    "position": 21,
+    "question": "During DUCAP Implementation and Control, what is a core Project Manager responsibility?",
+    "options": [
       "Authorize, review and receive completed work packages while monitoring boundaries and reporting to the board.",
       "Delegate all monitoring to senior management.",
       "Freeze the sustainability plan after planning approval.",
       "Avoid revisiting the Project Case once implementation begins."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":22,
-    "question":"Which activity is explicitly part of DUCAP project closure?",
-    "options":[
-      "Completing the Lessons Learned Log/Report and handing over an accepted sustainability plan to BAU.",
+    "position": 22,
+    "question": "Which activity is explicitly part of DUCAP project closure?",
+    "options": [
       "Starting the Project Case.",
       "Approving funding for the first delivery segment.",
-      "Creating the initial stakeholder list."
+      "Creating the initial stakeholder list.",
+      "Completing the Lessons Learned Log/Report and handing over an accepted sustainability plan to BAU."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":23,
-    "question":"According to Module 11, when should the project team finally disband?",
-    "options":[
-      "Immediately after the final deliverable is technically completed.",
-      "After the sustainability plan is operational and necessary documents have been handed over to the client/BAU.",
+    "position": 23,
+    "question": "According to Module 11, when should the project team finally disband?",
+    "options": [
       "At the first Segment Interaction Point after implementation.",
-      "When the Project Board approves the final invoice."
+      "When the Project Board approves the final invoice.",
+      "Immediately after the final deliverable is technically completed.",
+      "After the sustainability plan is operational and necessary documents have been handed over to the client/BAU."
     ],
-    "correct":2
+    "correct": 4
   },
   {
-    "position":24,
-    "question":"What is the central purpose of the DUCAP Vision Element?",
-    "options":[
+    "position": 24,
+    "question": "What is the central purpose of the DUCAP Vision Element?",
+    "options": [
+      "To replace business objectives with community objectives.",
       "To promote national development/value creation, national integration/inclusion, and efficient use of limited resources within the project environment.",
       "To mandate local hiring regardless of competence.",
-      "To prioritize political affiliation when selecting project teams.",
-      "To replace business objectives with community objectives."
+      "To prioritize political affiliation when selecting project teams."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":25,
-    "question":"Which practice does Module 11 explicitly warn against in applying the DUCAP Vision Element?",
-    "options":[
+    "position": 25,
+    "question": "Which practice does Module 11 explicitly warn against in applying the DUCAP Vision Element?",
+    "options": [
       "Selecting team members solely to satisfy diversity requirements without first ensuring they are skilled and suitable for purpose.",
       "Using diverse teams where relevant skills are available.",
       "Considering local cultural, religious and political sensitivities.",
       "Promoting fairness, respect and inclusion during delivery."
     ],
-    "correct":1
+    "correct": 1
   }
 ]
 $mcq$::jsonb;
