@@ -57,31 +57,281 @@ declare
   v_exam_id constant uuid := public.cipmn_mock_seed_uuid('CIPMN-MOD-EL02:EXAM');
   v_mcqs jsonb := $mcq$
 [
-  {"position":1,"question":"Which statement best reflects the purpose of professional ethics in project management as taught in EL02?","options":["To replace governance controls with personal judgement.","To guide responsible conduct, protect trust and support transparent and accountable project decisions.","To focus only on compliance after project completion.","To allow project managers to ignore stakeholder concerns when delivery targets are met."],"correct":2},
-  {"position":2,"question":"Which situation is explicitly presented as an ethical issue in the EL02 materials?","options":["Declaring a conflict of interest before evaluation.","Inflating a supplier invoice to create room for an unofficial payment.","Using an approved governance dashboard.","Escalating a regulatory concern through the proper channel."],"correct":2},
-  {"position":3,"question":"A project manager awards work to a relative despite stronger competing bids. Which ethical concern from EL02 does this most directly illustrate?","options":["Nepotism.","Whistleblowing.","Mediation.","Performance reporting."],"correct":1},
-  {"position":4,"question":"A project team deliberately reports 90% completion when only 60% of the agreed work has been done. Which EL02 ethical issue is most directly involved?","options":["Progress misreporting.","Conflict resolution.","Governance alignment.","Contract termination."],"correct":1},
-  {"position":5,"question":"Which action best reflects proper handling of a Conflict of Interest under EL02?","options":["Hide the relationship if the affected supplier appears technically qualified.","Disclose the conflict and avoid participating in decisions where impartiality could reasonably be questioned.","Continue the evaluation but document the conflict after award.","Allow the conflicted person to score only the financial section."],"correct":2},
-  {"position":6,"question":"Which sequence correctly represents the ethical decision process taught in EL02?","options":["Gather facts → Decide → Recognize issue → Reflect → Apply ethical test.","Recognize issue → Gather facts → Apply ethical test → Decide → Reflect.","Apply ethical test → Gather facts → Decide → Recognize issue → Reflect.","Recognize issue → Decide → Gather facts → Reflect → Apply ethical test."],"correct":2},
-  {"position":7,"question":"Which ethical approach in EL02 focuses primarily on choosing the action that produces the greatest overall good?","options":["Virtue Ethics.","Rights-based Ethics.","Utilitarianism.","Legal positivism."],"correct":3},
-  {"position":8,"question":"Which ethical approach emphasizes respecting the rights and dignity of affected individuals rather than only the total outcome?","options":["Rights-based Ethics.","Utilitarianism.","Virtue Ethics.","Cost-benefit analysis."],"correct":1},
-  {"position":9,"question":"Which ethical approach asks what a person of good character and integrity should do in the situation?","options":["Rights-based Ethics.","Virtue Ethics.","Utilitarianism.","Compliance auditing."],"correct":2},
-  {"position":10,"question":"Which leadership behaviour is most consistent with ethical leadership in EL02?","options":["Rewarding results even when improper methods were used.","Leading by example, encouraging openness and standing firm against unethical pressure.","Keeping ethical concerns within the project team even when escalation is required.","Avoiding difficult ethical decisions by delegating them entirely."],"correct":2},
-  {"position":11,"question":"Which whistleblowing route is explicitly recognized in EL02?","options":["Internal reporting channels, relevant bodies such as EFCC/ICPC, and applicable donor channels.","Only anonymous social-media publication.","Only external litigation.","Only reporting to the supplier involved."],"correct":1},
-  {"position":12,"question":"Which factor is identified in EL02 as a practical ethical pressure in the Nigerian project environment?","options":["Political interference and inconsistent enforcement.","Excessive automation of governance reporting.","Mandatory arbitration in all contracts.","Universal absence of stakeholder diversity."],"correct":1},
-  {"position":13,"question":"Which statement best describes project governance in EL02?","options":["A system of structures, processes, people and tools that supports strategic alignment, accountability, compliance and value delivery.","A documentation exercise performed only before project approval.","A substitute for project leadership and stakeholder engagement.","A finance function responsible only for audit trails."],"correct":1},
-  {"position":14,"question":"Which governance role is typically responsible for executive direction, oversight and major project decisions according to EL02?","options":["Project Board or Sponsor.","Every supplier equally.","Only the project scheduler.","External auditors acting alone."],"correct":1},
-  {"position":15,"question":"What is a core governance contribution of a Project Management Office (PMO) in the EL02 context?","options":["Strengthening standards, reporting, oversight and consistency across projects.","Replacing all project sponsors.","Eliminating escalation routes.","Approving every supplier invoice personally."],"correct":1},
-  {"position":16,"question":"Which set contains governance tools or mechanisms specifically discussed in EL02?","options":["Dashboards, audit reports and KPIs.","Only Gantt charts and CPM.","Only legal pleadings and court orders.","Only procurement invoices and tax receipts."],"correct":1},
-  {"position":17,"question":"Which governance references are named in EL02 at the level of general governance guidance?","options":["PMBOK, PRINCE2, ISO 37000 and DUCAP.","COBIT, ITIL, TOGAF and Six Sigma.","FIDIC, NEC, JCT and ICC.","COSO, Basel III, IFRS 9 and SOX."],"correct":1},
-  {"position":18,"question":"What lesson does the NIMC/NIN case illustrate in the EL02 governance discussion?","options":["Weak governance, coordination or oversight can delay delivery even where the programme itself is strategically important.","Governance structures are unnecessary for national programmes.","Technical capability alone guarantees timely delivery.","Public-sector programmes should avoid dashboards and reporting."],"correct":1},
-  {"position":19,"question":"Which Nigerian law is identified in EL02 as the primary public-procurement legal framework relevant to projects?","options":["Public Procurement Act 2007.","Companies and Allied Matters Act only.","Labour Act only.","Environmental Impact Assessment Act only."],"correct":1},
-  {"position":20,"question":"Which legal framework named in EL02 is most directly associated with employment and labour obligations?","options":["Labour Act.","Public Procurement Act 2007.","Environmental Impact Assessment Act.","Nigerian Contract Law."],"correct":1},
-  {"position":21,"question":"Which contract provisions are explicitly highlighted in EL02 as important areas for legal clarity?","options":["Scope, payment terms, force majeure, termination and dispute resolution.","Only branding, marketing and media rights.","Only project schedule and team structure.","Only supplier tax history."],"correct":1},
-  {"position":22,"question":"Which dispute-resolution method in EL02 involves direct discussion by the parties without necessarily using an independent third party?","options":["Negotiation.","Mediation.","Arbitration.","Litigation."],"correct":1},
-  {"position":23,"question":"Which dispute-resolution method uses an independent neutral who helps parties reach agreement but does not normally impose a binding decision?","options":["Mediation.","Arbitration.","Litigation.","Termination."],"correct":1},
-  {"position":24,"question":"Which compliance practice is recommended in EL02 for reducing legal and regulatory risk during projects?","options":["Use a legal-compliance checklist by project phase, involve legal advisers early, train the team and monitor compliance regularly.","Review legal obligations only after a dispute arises.","Delegate compliance entirely to suppliers.","Avoid documenting permits and approvals to reduce administrative burden."],"correct":1},
-  {"position":25,"question":"In the EL02 ₦1.5bn ICT project case, which combination best reflects the failures that contributed to project collapse and restart cost?","options":["Procurement irregularities, weak contractual provisions, labour breaches and regulatory non-compliance.","Excessive legal review, too much governance and over-documented procurement.","Too many mediation sessions before award.","Overuse of environmental-impact analysis and public consultation."],"correct":1}
+  {
+    "position": 1,
+    "question": "Which statement best reflects the purpose of professional ethics in project management as taught in EL02?",
+    "options": [
+      "To replace governance controls with personal judgement.",
+      "To guide responsible conduct, protect trust and support transparent and accountable project decisions.",
+      "To focus only on compliance after project completion.",
+      "To allow project managers to ignore stakeholder concerns when delivery targets are met."
+    ],
+    "correct": 2
+  },
+  {
+    "position": 2,
+    "question": "Which situation is explicitly presented as an ethical issue in the EL02 materials?",
+    "options": [
+      "Inflating a supplier invoice to create room for an unofficial payment.",
+      "Using an approved governance dashboard.",
+      "Escalating a regulatory concern through the proper channel.",
+      "Declaring a conflict of interest before evaluation."
+    ],
+    "correct": 1
+  },
+  {
+    "position": 3,
+    "question": "A project manager awards work to a relative despite stronger competing bids. Which ethical concern from EL02 does this most directly illustrate?",
+    "options": [
+      "Mediation.",
+      "Performance reporting.",
+      "Nepotism.",
+      "Whistleblowing."
+    ],
+    "correct": 3
+  },
+  {
+    "position": 4,
+    "question": "A project team deliberately reports 90% completion when only 60% of the agreed work has been done. Which EL02 ethical issue is most directly involved?",
+    "options": [
+      "Contract termination.",
+      "Progress misreporting.",
+      "Conflict resolution.",
+      "Governance alignment."
+    ],
+    "correct": 2
+  },
+  {
+    "position": 5,
+    "question": "Which action best reflects proper handling of a Conflict of Interest under EL02?",
+    "options": [
+      "Hide the relationship if the affected supplier appears technically qualified.",
+      "Disclose the conflict and avoid participating in decisions where impartiality could reasonably be questioned.",
+      "Continue the evaluation but document the conflict after award.",
+      "Allow the conflicted person to score only the financial section."
+    ],
+    "correct": 2
+  },
+  {
+    "position": 6,
+    "question": "Which sequence correctly represents the ethical decision process taught in EL02?",
+    "options": [
+      "Recognize issue → Gather facts → Apply ethical test → Decide → Reflect.",
+      "Apply ethical test → Gather facts → Decide → Recognize issue → Reflect.",
+      "Recognize issue → Decide → Gather facts → Reflect → Apply ethical test.",
+      "Gather facts → Decide → Recognize issue → Reflect → Apply ethical test."
+    ],
+    "correct": 1
+  },
+  {
+    "position": 7,
+    "question": "Which ethical approach in EL02 focuses primarily on choosing the action that produces the greatest overall good?",
+    "options": [
+      "Utilitarianism.",
+      "Legal positivism.",
+      "Virtue Ethics.",
+      "Rights-based Ethics."
+    ],
+    "correct": 1
+  },
+  {
+    "position": 8,
+    "question": "Which ethical approach emphasizes respecting the rights and dignity of affected individuals rather than only the total outcome?",
+    "options": [
+      "Cost-benefit analysis.",
+      "Rights-based Ethics.",
+      "Utilitarianism.",
+      "Virtue Ethics."
+    ],
+    "correct": 2
+  },
+  {
+    "position": 9,
+    "question": "Which ethical approach asks what a person of good character and integrity should do in the situation?",
+    "options": [
+      "Rights-based Ethics.",
+      "Virtue Ethics.",
+      "Utilitarianism.",
+      "Compliance auditing."
+    ],
+    "correct": 2
+  },
+  {
+    "position": 10,
+    "question": "Which leadership behaviour is most consistent with ethical leadership in EL02?",
+    "options": [
+      "Leading by example, encouraging openness and standing firm against unethical pressure.",
+      "Keeping ethical concerns within the project team even when escalation is required.",
+      "Avoiding difficult ethical decisions by delegating them entirely.",
+      "Rewarding results even when improper methods were used."
+    ],
+    "correct": 1
+  },
+  {
+    "position": 11,
+    "question": "Which whistleblowing route is explicitly recognized in EL02?",
+    "options": [
+      "Only external litigation.",
+      "Only reporting to the supplier involved.",
+      "Internal reporting channels, relevant bodies such as EFCC/ICPC, and applicable donor channels.",
+      "Only anonymous social-media publication."
+    ],
+    "correct": 3
+  },
+  {
+    "position": 12,
+    "question": "Which factor is identified in EL02 as a practical ethical pressure in the Nigerian project environment?",
+    "options": [
+      "Universal absence of stakeholder diversity.",
+      "Political interference and inconsistent enforcement.",
+      "Excessive automation of governance reporting.",
+      "Mandatory arbitration in all contracts."
+    ],
+    "correct": 2
+  },
+  {
+    "position": 13,
+    "question": "Which statement best describes project governance in EL02?",
+    "options": [
+      "A system of structures, processes, people and tools that supports strategic alignment, accountability, compliance and value delivery.",
+      "A documentation exercise performed only before project approval.",
+      "A substitute for project leadership and stakeholder engagement.",
+      "A finance function responsible only for audit trails."
+    ],
+    "correct": 1
+  },
+  {
+    "position": 14,
+    "question": "Which governance role is typically responsible for executive direction, oversight and major project decisions according to EL02?",
+    "options": [
+      "Every supplier equally.",
+      "Only the project scheduler.",
+      "External auditors acting alone.",
+      "Project Board or Sponsor."
+    ],
+    "correct": 4
+  },
+  {
+    "position": 15,
+    "question": "What is a core governance contribution of a Project Management Office (PMO) in the EL02 context?",
+    "options": [
+      "Eliminating escalation routes.",
+      "Approving every supplier invoice personally.",
+      "Strengthening standards, reporting, oversight and consistency across projects.",
+      "Replacing all project sponsors."
+    ],
+    "correct": 3
+  },
+  {
+    "position": 16,
+    "question": "Which set contains governance tools or mechanisms specifically discussed in EL02?",
+    "options": [
+      "Only procurement invoices and tax receipts.",
+      "Dashboards, audit reports and KPIs.",
+      "Only Gantt charts and CPM.",
+      "Only legal pleadings and court orders."
+    ],
+    "correct": 2
+  },
+  {
+    "position": 17,
+    "question": "Which governance references are named in EL02 at the level of general governance guidance?",
+    "options": [
+      "PMBOK, PRINCE2, ISO 37000 and DUCAP.",
+      "COBIT, ITIL, TOGAF and Six Sigma.",
+      "FIDIC, NEC, JCT and ICC.",
+      "COSO, Basel III, IFRS 9 and SOX."
+    ],
+    "correct": 1
+  },
+  {
+    "position": 18,
+    "question": "What lesson does the NIMC/NIN case illustrate in the EL02 governance discussion?",
+    "options": [
+      "Governance structures are unnecessary for national programmes.",
+      "Technical capability alone guarantees timely delivery.",
+      "Public-sector programmes should avoid dashboards and reporting.",
+      "Weak governance, coordination or oversight can delay delivery even where the programme itself is strategically important."
+    ],
+    "correct": 4
+  },
+  {
+    "position": 19,
+    "question": "Which Nigerian law is identified in EL02 as the primary public-procurement legal framework relevant to projects?",
+    "options": [
+      "Labour Act only.",
+      "Environmental Impact Assessment Act only.",
+      "Public Procurement Act 2007.",
+      "Companies and Allied Matters Act only."
+    ],
+    "correct": 3
+  },
+  {
+    "position": 20,
+    "question": "Which legal framework named in EL02 is most directly associated with employment and labour obligations?",
+    "options": [
+      "Nigerian Contract Law.",
+      "Labour Act.",
+      "Public Procurement Act 2007.",
+      "Environmental Impact Assessment Act."
+    ],
+    "correct": 2
+  },
+  {
+    "position": 21,
+    "question": "Which contract provisions are explicitly highlighted in EL02 as important areas for legal clarity?",
+    "options": [
+      "Scope, payment terms, force majeure, termination and dispute resolution.",
+      "Only branding, marketing and media rights.",
+      "Only project schedule and team structure.",
+      "Only supplier tax history."
+    ],
+    "correct": 1
+  },
+  {
+    "position": 22,
+    "question": "Which dispute-resolution method in EL02 involves direct discussion by the parties without necessarily using an independent third party?",
+    "options": [
+      "Mediation.",
+      "Arbitration.",
+      "Litigation.",
+      "Negotiation."
+    ],
+    "correct": 4
+  },
+  {
+    "position": 23,
+    "question": "Which dispute-resolution method uses an independent neutral who helps parties reach agreement but does not normally impose a binding decision?",
+    "options": [
+      "Litigation.",
+      "Termination.",
+      "Mediation.",
+      "Arbitration."
+    ],
+    "correct": 3
+  },
+  {
+    "position": 24,
+    "question": "Which compliance practice is recommended in EL02 for reducing legal and regulatory risk during projects?",
+    "options": [
+      "Avoid documenting permits and approvals to reduce administrative burden.",
+      "Use a legal-compliance checklist by project phase, involve legal advisers early, train the team and monitor compliance regularly.",
+      "Review legal obligations only after a dispute arises.",
+      "Delegate compliance entirely to suppliers."
+    ],
+    "correct": 2
+  },
+  {
+    "position": 25,
+    "question": "In the EL02 ₦1.5bn ICT project case, which combination best reflects the failures that contributed to project collapse and restart cost?",
+    "options": [
+      "Procurement irregularities, weak contractual provisions, labour breaches and regulatory non-compliance.",
+      "Excessive legal review, too much governance and over-documented procurement.",
+      "Too many mediation sessions before award.",
+      "Overuse of environmental-impact analysis and public consultation."
+    ],
+    "correct": 1
+  }
 ]
 $mcq$::jsonb;
   v_item jsonb;
