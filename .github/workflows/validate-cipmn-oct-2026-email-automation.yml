@@ -1,0 +1,28 @@
+name: Validate CIPMN October Email Automation
+
+on:
+  push:
+    branches:
+      - safe/cipmn-exam-email-automation
+    paths:
+      - 'docs/CIPMN_OCT_2026_EMAIL_AUTOMATION.md'
+      - 'scripts/cipmn-oct-2026-email-dry-run.sql'
+      - 'scripts/cipmn-oct-2026-monitor-copy-config-draft.sql'
+      - 'scripts/validate-cipmn-oct-2026-email-automation.mjs'
+      - 'supabase/functions/agilecert-communications/index.ts'
+      - '.github/workflows/validate-cipmn-oct-2026-email-automation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate campaign mapping, stop conditions and monitoring copy
+        run: node scripts/validate-cipmn-oct-2026-email-automation.mjs
