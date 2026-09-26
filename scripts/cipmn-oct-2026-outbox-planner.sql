@@ -136,7 +136,6 @@ candidate_plan as (
      when r.recovery_modules is not null and s.never_started_modules is not null then 'cipmn_mock_start'
      when s.in_progress_modules is not null and s.unpurchased_modules is not null then 'cipmn_unpurchased_modules'
      when s.never_started_modules is not null and s.unpurchased_modules is not null then 'cipmn_unpurchased_modules'
-     when s.unpurchased_modules is not null and s.remaining_modules is not null then 'cipmn_exam_preparation'
      else null
    end secondary_type
  from summary s
