@@ -8,9 +8,17 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-react';
-const StudentDashboard = React.lazy(() => import('./components/StudentDashboard'));\nconst ExamExperience = React.lazy(() => import('./components/ExamExperience'));\nconst CipmnExamExperience = React.lazy(() => import('./components/CipmnExamExperience'));\nconst AdminPortal = React.lazy(() => import('./components/AdminPortal'));\nimport AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
-const AiCvProfileBuilder = React.lazy(() => import('./components/AiCvProfileBuilder'));\nimport CandidateAvatar from './components/CandidateAvatar';
-const CandidatePreparationMaterialsPanel = React.lazy(() => import('./components/CandidatePreparationMaterialsPanel'));\nconst CandidateProfilePanel = React.lazy(() => import('./components/CandidateProfilePanel'));\nconst CandidateProfilePhotoEditor = React.lazy(() => import('./components/CandidateProfilePhotoEditor'));\nimport { signOut as signOutPortalUser } from './services/authService';
+const StudentDashboard = React.lazy(() => import('./components/StudentDashboard'));
+const ExamExperience = React.lazy(() => import('./components/ExamExperience'));
+const CipmnExamExperience = React.lazy(() => import('./components/CipmnExamExperience'));
+const AdminPortal = React.lazy(() => import('./components/AdminPortal'));
+import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
+const AiCvProfileBuilder = React.lazy(() => import('./components/AiCvProfileBuilder'));
+import CandidateAvatar from './components/CandidateAvatar';
+const CandidatePreparationMaterialsPanel = React.lazy(() => import('./components/CandidatePreparationMaterialsPanel'));
+const CandidateProfilePanel = React.lazy(() => import('./components/CandidateProfilePanel'));
+const CandidateProfilePhotoEditor = React.lazy(() => import('./components/CandidateProfilePhotoEditor'));
+import { signOut as signOutPortalUser } from './services/authService';
 import {
   getAvailableTests,
   getPortalAttempts,
