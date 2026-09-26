@@ -88,7 +88,7 @@ declare
   },
   {
     "position": 3,
-    "question": "What does VUCA stand for in Module 10?",
+    "question": "In Module 10, leaders are expected to operate effectively in VUCA project environments. What does the acronym VUCA stand for?",
     "options": [
       "Volatility, Uncertainty, Complexity, Ambiguity.",
       "Variance, Uncertainty, Cost, Alignment.",
