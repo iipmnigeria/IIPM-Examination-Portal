@@ -5,6 +5,8 @@ on:
     branches:
       - safe/cipmn-exam-email-automation
     paths:
+      - 'supabase/migrations/20260926141000_cipmn_oct_2026_email_campaign.sql'
+      - 'docs/CIPMN_OCT_2026_FIRST_WAVE_PREVIEW.md'
       - 'docs/CIPMN_OCT_2026_EMAIL_AUTOMATION.md'
       - 'docs/CIPMN_OCT_2026_SIMULATED_SEND_MATRIX.md'
       - 'scripts/cipmn-oct-2026-email-dry-run.sql'
