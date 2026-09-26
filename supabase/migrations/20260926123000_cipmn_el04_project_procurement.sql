@@ -56,279 +56,279 @@ declare
   v_mcqs jsonb := $mcq$
 [
   {
-    "position":1,
-    "question":"Which definition best matches procurement in EL04?",
-    "options":[
+    "position": 1,
+    "question": "Which definition best matches procurement in EL04?",
+    "options": [
       "The process of acquiring external goods, works or services required for successful project implementation.",
       "The internal allocation of staff after contract award.",
       "The process of approving only supplier invoices.",
       "The final audit of completed contracts."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":2,
-    "question":"Which statement correctly describes Nigeria's Public Procurement Act 2007 in EL04?",
-    "options":[
-      "It is the main public-procurement law promoting transparency, accountability, competition and value for money.",
+    "position": 2,
+    "question": "Which statement correctly describes Nigeria's Public Procurement Act 2007 in EL04?",
+    "options": [
       "It applies only to emergency procurement.",
       "It governs private household purchases.",
-      "It replaces the need for procuring entities."
+      "It replaces the need for procuring entities.",
+      "It is the main public-procurement law promoting transparency, accountability, competition and value for money."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":3,
-    "question":"Which institution is identified in EL04 as the highest policy-making body for public procurement?",
-    "options":[
-      "Bureau of Public Procurement.",
-      "National Council on Public Procurement.",
+    "position": 3,
+    "question": "Which institution is identified in EL04 as the highest policy-making body for public procurement?",
+    "options": [
       "Federal Executive Council.",
-      "Ministry Tenders Board."
+      "Ministry Tenders Board.",
+      "Bureau of Public Procurement.",
+      "National Council on Public Procurement."
     ],
-    "correct":2
+    "correct": 4
   },
   {
-    "position":4,
-    "question":"What does a Certificate of No Objection signify in the EL04 deck?",
-    "options":[
+    "position": 4,
+    "question": "What does a Certificate of No Objection signify in the EL04 deck?",
+    "options": [
+      "Final acceptance of completed works.",
       "BPP confirmation that the procurement complies with applicable requirements before fund disbursement.",
       "A contractor's guarantee that no variation will occur.",
-      "A waiver from competitive bidding.",
-      "Final acceptance of completed works."
+      "A waiver from competitive bidding."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":5,
-    "question":"Which sequence best reflects the typical procurement process shown in EL04?",
-    "options":[
+    "position": 5,
+    "question": "Which sequence best reflects the typical procurement process shown in EL04?",
+    "options": [
       "Identify Need → Procurement Planning → Market Research → Procurement Strategy → Solicitation → Tender/Bids → Evaluation → Award → Contract Management → Close-out → Lessons Learned.",
       "Tender → Award → Need Identification → Planning → Close-out.",
       "Market Research → Contract Close-out → Tender → Award.",
       "Award → Needs Assessment → Advertisement → Lessons Learned."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":6,
-    "question":"What procurement lesson is emphasized by the Abuja–Kaduna Rail Line case?",
-    "options":[
-      "Clear scope, strategic partnership, contract coordination and value delivery can support successful procurement outcomes.",
+    "position": 6,
+    "question": "What procurement lesson is emphasized by the Abuja–Kaduna Rail Line case?",
+    "options": [
       "Lowest price alone guarantees value for money.",
       "Contract management is unnecessary after award.",
-      "Public infrastructure should avoid specialist contractors."
+      "Public infrastructure should avoid specialist contractors.",
+      "Clear scope, strategic partnership, contract coordination and value delivery can support successful procurement outcomes."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":7,
-    "question":"Which failure is explicitly linked to abandoned road projects in EL04?",
-    "options":[
-      "Inadequate needs assessment, flawed bidding, weak contract management and corruption.",
-      "Excessive supplier prequalification.",
+    "position": 7,
+    "question": "Which failure is explicitly linked to abandoned road projects in EL04?",
+    "options": [
       "Too much market research.",
-      "Overuse of performance dashboards."
+      "Overuse of performance dashboards.",
+      "Inadequate needs assessment, flawed bidding, weak contract management and corruption.",
+      "Excessive supplier prequalification."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":8,
-    "question":"Which issue contributed to failure in the rural-road procurement scenario?",
-    "options":[
+    "position": 8,
+    "question": "Which issue contributed to failure in the rural-road procurement scenario?",
+    "options": [
+      "The contractor had no other active projects.",
       "The procurement team skipped adequate market analysis and contractor-capacity checks and relied heavily on lowest bid.",
       "The team used too many technical evaluation criteria.",
-      "The project had excessive local material availability.",
-      "The contractor had no other active projects."
+      "The project had excessive local material availability."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":9,
-    "question":"Which item belongs to procurement planning in EL04?",
-    "options":[
+    "position": 9,
+    "question": "Which item belongs to procurement planning in EL04?",
+    "options": [
       "Needs Assessment, Market Analysis, Import Dependency and Pricing Trends.",
       "Only contract litigation.",
       "Only final payment certification.",
       "Only vendor close-out."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":10,
-    "question":"Which procurement risk category includes corruption, fraud and conflict of interest?",
-    "options":[
-      "Ethical Risk.",
+    "position": 10,
+    "question": "Which procurement risk category includes corruption, fraud and conflict of interest?",
+    "options": [
       "Performance Risk.",
       "Logistical Risk.",
-      "Financial Risk."
+      "Financial Risk.",
+      "Ethical Risk."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":11,
-    "question":"Which factor is part of developing a procurement strategy in EL04?",
-    "options":[
-      "Procurement method, contract type, timeline, resources, evaluation criteria and local-content integration.",
-      "Only project branding.",
+    "position": 11,
+    "question": "Which factor is part of developing a procurement strategy in EL04?",
+    "options": [
       "Only supplier tax history.",
-      "Only contract close-out dates."
+      "Only contract close-out dates.",
+      "Procurement method, contract type, timeline, resources, evaluation criteria and local-content integration.",
+      "Only project branding."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":12,
-    "question":"Why did the NAFDAC LIMS scenario adopt a two-stage tendering approach?",
-    "options":[
+    "position": 12,
+    "question": "Why did the NAFDAC LIMS scenario adopt a two-stage tendering approach?",
+    "options": [
+      "To remove long-term support considerations.",
       "To refine technical requirements, assess local capacity, and then obtain financial bids while balancing local content, sustainability and value for money.",
       "To avoid technical evaluation.",
-      "To award directly to an international supplier.",
-      "To remove long-term support considerations."
+      "To award directly to an international supplier."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":13,
-    "question":"Which tool is explicitly listed in EL04 procurement planning and strategy?",
-    "options":[
+    "position": 13,
+    "question": "Which tool is explicitly listed in EL04 procurement planning and strategy?",
+    "options": [
       "Total Cost of Ownership.",
       "Critical Path Method only.",
       "Monte Carlo schedule simulation only.",
       "Balanced Scorecard."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":14,
-    "question":"Which factor most directly influences procurement-method selection in EL04?",
-    "options":[
-      "Procurement value and complexity, urgency, market conditions and nature of the requirement.",
+    "position": 14,
+    "question": "Which factor most directly influences procurement-method selection in EL04?",
+    "options": [
       "Supplier advertising budget.",
       "Project team size only.",
-      "Number of internal meetings."
+      "Number of internal meetings.",
+      "Procurement value and complexity, urgency, market conditions and nature of the requirement."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":15,
-    "question":"For a low-value, readily available item such as office stationery, which method does EL04 identify as potentially appropriate?",
-    "options":[
-      "Request for Quotations.",
-      "International Competitive Bidding.",
+    "position": 15,
+    "question": "For a low-value, readily available item such as office stationery, which method does EL04 identify as potentially appropriate?",
+    "options": [
       "Direct Procurement in every case.",
-      "Two-stage tendering."
+      "Two-stage tendering.",
+      "Request for Quotations.",
+      "International Competitive Bidding."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":16,
-    "question":"Which consequence can result from improper procurement-method selection under EL04?",
-    "options":[
+    "position": 16,
+    "question": "Which consequence can result from improper procurement-method selection under EL04?",
+    "options": [
+      "Elimination of public scrutiny.",
       "Violation of PPA 2007, reduced competition, poor value for money and increased corruption risk.",
       "Automatic contract extension.",
-      "Guaranteed supplier diversity.",
-      "Elimination of public scrutiny."
+      "Guaranteed supplier diversity."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":17,
-    "question":"According to the threshold table in EL04, what is the Request for Quotations threshold for Goods & Non-Consultant Services?",
-    "options":[
+    "position": 17,
+    "question": "According to the threshold table in EL04, what is the Request for Quotations threshold for Goods & Non-Consultant Services?",
+    "options": [
       "Less than ₦30 million.",
       "Less than ₦50 million.",
       "At least ₦500 million.",
       "At least ₦1 billion."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":18,
-    "question":"According to the EL04 threshold table, what is the Request for Quotations threshold for Works?",
-    "options":[
-      "Less than ₦50 million.",
+    "position": 18,
+    "question": "According to the EL04 threshold table, what is the Request for Quotations threshold for Works?",
+    "options": [
       "Less than ₦30 million.",
       "At least ₦1 billion.",
-      "At least ₦5 billion."
+      "At least ₦5 billion.",
+      "Less than ₦50 million."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":19,
-    "question":"Which vendor-management practice is emphasized in the Lagos Blue Line case?",
-    "options":[
-      "Capability-based vendor selection, clear responsibilities, continuous performance monitoring and proactive risk mitigation.",
-      "Awarding work based only on lowest price.",
+    "position": 19,
+    "question": "Which vendor-management practice is emphasized in the Lagos Blue Line case?",
+    "options": [
       "Avoiding contingency planning.",
-      "Stopping supplier communication after contract award."
+      "Stopping supplier communication after contract award.",
+      "Capability-based vendor selection, clear responsibilities, continuous performance monitoring and proactive risk mitigation.",
+      "Awarding work based only on lowest price."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":20,
-    "question":"Which tools are specifically listed for vendor/supplier management in EL04?",
-    "options":[
+    "position": 20,
+    "question": "Which tools are specifically listed for vendor/supplier management in EL04?",
+    "options": [
+      "Only legal case-management tools.",
       "Vendor Relationship Management software, Supplier Performance Management dashboards and Communication Plans.",
       "Only payroll software.",
-      "Only accounting ledgers.",
-      "Only legal case-management tools."
+      "Only accounting ledgers."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":21,
-    "question":"Which statement best describes contract management and administration in EL04?",
-    "options":[
+    "position": 21,
+    "question": "Which statement best describes contract management and administration in EL04?",
+    "options": [
       "It extends from contract award to final closure and ensures both parties fulfil their contractual obligations.",
       "It ends immediately after contract signing.",
       "It is limited to payment approval.",
       "It replaces supplier-performance monitoring."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":22,
-    "question":"Which item is part of EL04 contract administration?",
-    "options":[
-      "Kick-off meeting, communication management, documentation, change management and payment administration.",
+    "position": 22,
+    "question": "Which item is part of EL04 contract administration?",
+    "options": [
       "Only tender advertisement.",
       "Only prequalification.",
-      "Only needs assessment."
+      "Only needs assessment.",
+      "Kick-off meeting, communication management, documentation, change management and payment administration."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":23,
-    "question":"Which dispute-resolution mechanisms are explicitly listed in EL04 contract management?",
-    "options":[
-      "Negotiation, Mediation, Conciliation, Arbitration and Litigation.",
-      "Only Arbitration and Litigation.",
+    "position": 23,
+    "question": "Which dispute-resolution mechanisms are explicitly listed in EL04 contract management?",
+    "options": [
       "Only Negotiation and Mediation.",
-      "Expert Determination and Adjudication only."
+      "Expert Determination and Adjudication only.",
+      "Negotiation, Mediation, Conciliation, Arbitration and Litigation.",
+      "Only Arbitration and Litigation."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":24,
-    "question":"Which set reflects the core ethical principles shown in EL04?",
-    "options":[
+    "position": 24,
+    "question": "Which set reflects the core ethical principles shown in EL04?",
+    "options": [
+      "Negotiation, Arbitration, Audit, Scheduling and Costing.",
       "Integrity, Objectivity, Fairness, Professionalism and Accountability.",
       "Speed, Secrecy, Loyalty, Informality and Flexibility.",
-      "Profit, Competition, Litigation, Control and Exclusivity.",
-      "Negotiation, Arbitration, Audit, Scheduling and Costing."
+      "Profit, Competition, Litigation, Control and Exclusivity."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":25,
-    "question":"What ethical lesson does the P&ID case illustrate in EL04?",
-    "options":[
+    "position": 25,
+    "question": "What ethical lesson does the P&ID case illustrate in EL04?",
+    "options": [
       "Alleged bribery, conflicts of interest and compromised negotiations can create severe financial and reputational consequences.",
       "Contract disputes never affect public finances.",
       "Ethics is separate from procurement performance.",
       "Arbitration automatically protects a procuring entity from corruption."
     ],
-    "correct":1
+    "correct": 1
   }
 ]
 $mcq$::jsonb;
