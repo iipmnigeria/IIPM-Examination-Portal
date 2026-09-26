@@ -8,16 +8,16 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-react';
-import StudentDashboard from './components/StudentDashboard';
-import ExamExperience from './components/ExamExperience';
-import CipmnExamExperience from './components/CipmnExamExperience';
-import AdminPortal from './components/AdminPortal';
+const StudentDashboard = React.lazy(() => import('./components/StudentDashboard'));
+const ExamExperience = React.lazy(() => import('./components/ExamExperience'));
+const CipmnExamExperience = React.lazy(() => import('./components/CipmnExamExperience'));
+const AdminPortal = React.lazy(() => import('./components/AdminPortal'));
 import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
-import AiCvProfileBuilder from './components/AiCvProfileBuilder';
+const AiCvProfileBuilder = React.lazy(() => import('./components/AiCvProfileBuilder'));
 import CandidateAvatar from './components/CandidateAvatar';
-import CandidatePreparationMaterialsPanel from './components/CandidatePreparationMaterialsPanel';
-import CandidateProfilePanel from './components/CandidateProfilePanel';
-import CandidateProfilePhotoEditor from './components/CandidateProfilePhotoEditor';
+const CandidatePreparationMaterialsPanel = React.lazy(() => import('./components/CandidatePreparationMaterialsPanel'));
+const CandidateProfilePanel = React.lazy(() => import('./components/CandidateProfilePanel'));
+const CandidateProfilePhotoEditor = React.lazy(() => import('./components/CandidateProfilePhotoEditor'));
 import { signOut as signOutPortalUser } from './services/authService';
 import {
   getAvailableTests,
@@ -361,6 +361,7 @@ export default function App() {
       )}
 
       <div className="flex-1">
+        <React.Suspense fallback={<div className="flex min-h-[45vh] items-center justify-center text-sm font-semibold text-slate-500">Loading workspace…</div>}>
         <AnimatePresence mode="wait">
           {view === 'dashboard' && (
             <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -403,6 +404,7 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+        </React.Suspense>
       </div>
 
       {view !== 'exam' && (
