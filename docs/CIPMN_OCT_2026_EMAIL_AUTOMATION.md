@@ -133,7 +133,9 @@ This must apply to:
 
 The monitoring address must be configured centrally and not hard-coded into individual templates.
 
-No production activation until the exact monitoring email address has been confirmed.
+Approved monitoring-copy recipient: `iipmnigeria@gmail.com`.
+
+This address must be stored centrally in campaign/communications configuration and included on every CIPMN campaign email as a monitoring copy. It must not be hard-coded separately inside each email template.
 
 ## Deduplication and cadence
 
