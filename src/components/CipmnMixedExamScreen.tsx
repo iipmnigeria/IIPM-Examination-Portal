@@ -31,7 +31,7 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
   const mcqs = useMemo(() => test.questions.filter(q => (q.section || q.type) !== 'theory'), [test.questions]);
   const theory = useMemo(() => test.questions.filter(q => q.section === 'theory' || q.type === 'theory'), [test.questions]);
   const initialSection = test.currentSection === 'theory' ? 'theory' : 'mcq';
-  const [section, setSection] = useState<'mcq'|'mcq_result'|'theory'>(initialSection);
+  const [section] = useState<'mcq'|'theory'>(initialSection);
   const [index, setIndex] = useState(0);
   const [mcqAnswers, setMcqAnswers] = useState<Record<string, number>>(() => {
     if (initialSection === 'theory') return {};
@@ -351,7 +351,7 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
   }, [cameraRequired, cameraState]);
 
   useEffect(() => {
-    if (timeLeft > 0 || busy || autoSubmitStartedRef.current || section === 'mcq_result') return;
+    if (timeLeft > 0 || busy || autoSubmitStartedRef.current) return;
     autoSubmitStartedRef.current = true;
 
     const submitExpiredSection = async () => {
@@ -362,7 +362,6 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
           setMcqScore(score);
           localStorage.removeItem(`aura_exam_answers_${test.id}`);
           setMcqAnswers({});
-          setSection('mcq_result');
           setShowSubmissionReview(false);
           setHonorCodeChecked(false);
           setIndex(0);
@@ -394,7 +393,6 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
       setMcqScore(score);
       localStorage.removeItem(`aura_exam_answers_${test.id}`);
       setMcqAnswers({});
-      setSection('mcq_result');
       setShowSubmissionReview(false);
       setHonorCodeChecked(false);
       setIndex(0);
@@ -410,20 +408,6 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
       localStorage.removeItem(`aura_exam_time_${test.id}`);
     }
     finally { setBusy(false); }
-  }
-
-  if (section === 'mcq_result') {
-    return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
-      <div className="max-w-xl w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-6">
-        <CheckCircle className="w-14 h-14 text-emerald-400 mx-auto" />
-        <div><p className="text-xs uppercase tracking-widest text-slate-400 font-bold">Section A Complete</p>
-        <h1 className="text-3xl font-extrabold mt-2">MCQ Score: {mcqScore}%</h1></div>
-        <p className="text-sm text-slate-300">Your 25 MCQ responses are locked. Continue to the five theory questions to complete this CIPMN examination.</p>
-        <button onClick={()=>{setSection('theory');setIndex(0)}} className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-bold">
-          Proceed to Theory
-        </button>
-      </div>
-    </div>;
   }
 
   return <div className="min-h-screen bg-slate-950 text-slate-100 select-none">
