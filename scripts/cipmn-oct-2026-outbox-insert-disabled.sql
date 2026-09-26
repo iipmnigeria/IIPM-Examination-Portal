@@ -1,7 +1,10 @@
--- CIPMN October 2026 branch-only outbox planner.
--- READ ONLY. Produces prioritized candidate communications without inserting rows.
+-- CIPMN October 2026 disabled outbox insert draft.
+-- SAFETY: write_enabled is false; this script must insert zero rows unless explicitly changed in a reviewed activation step.
 
-with params as (
+with control as (
+  select false::boolean as write_enabled
+),
+params as (
   select now() as as_of
 ),
 candidate_list(full_name,email,phone) as (
