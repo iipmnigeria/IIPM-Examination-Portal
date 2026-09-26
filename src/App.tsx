@@ -8,17 +8,9 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-react';
-import StudentDashboard from './components/StudentDashboard';
-import ExamExperience from './components/ExamExperience';
-import CipmnExamExperience from './components/CipmnExamExperience';
-import AdminPortal from './components/AdminPortal';
-import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
-import AiCvProfileBuilder from './components/AiCvProfileBuilder';
-import CandidateAvatar from './components/CandidateAvatar';
-import CandidatePreparationMaterialsPanel from './components/CandidatePreparationMaterialsPanel';
-import CandidateProfilePanel from './components/CandidateProfilePanel';
-import CandidateProfilePhotoEditor from './components/CandidateProfilePhotoEditor';
-import { signOut as signOutPortalUser } from './services/authService';
+const StudentDashboard = React.lazy(() => import('./components/StudentDashboard'));\nconst ExamExperience = React.lazy(() => import('./components/ExamExperience'));\nconst CipmnExamExperience = React.lazy(() => import('./components/CipmnExamExperience'));\nconst AdminPortal = React.lazy(() => import('./components/AdminPortal'));\nimport AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
+const AiCvProfileBuilder = React.lazy(() => import('./components/AiCvProfileBuilder'));\nimport CandidateAvatar from './components/CandidateAvatar';
+const CandidatePreparationMaterialsPanel = React.lazy(() => import('./components/CandidatePreparationMaterialsPanel'));\nconst CandidateProfilePanel = React.lazy(() => import('./components/CandidateProfilePanel'));\nconst CandidateProfilePhotoEditor = React.lazy(() => import('./components/CandidateProfilePhotoEditor'));\nimport { signOut as signOutPortalUser } from './services/authService';
 import {
   getAvailableTests,
   getPortalAttempts,
@@ -361,6 +353,7 @@ export default function App() {
       )}
 
       <div className="flex-1">
+        <React.Suspense fallback={<div className="flex min-h-[45vh] items-center justify-center text-sm font-semibold text-slate-500">Loading workspace…</div>}>
         <AnimatePresence mode="wait">
           {view === 'dashboard' && (
             <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -403,6 +396,7 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+        </React.Suspense>
       </div>
 
       {view !== 'exam' && (

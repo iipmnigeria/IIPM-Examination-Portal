@@ -1,43 +1,9 @@
-import { StrictMode } from 'react';
+import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
-import AdminAssignmentWidget from './components/AdminAssignmentWidget';
-import AdminCertificateCommerceLauncher from './components/AdminCertificateCommerceLauncher';
-import AdminCertificateManagementLauncher from './components/AdminCertificateManagementLauncher';
-import AdminCertificateCompletionLauncher from './components/AdminCertificateCompletionLauncher';
-import AdminCommerceConsole from './components/AdminCommerceConsole';
-import AdminCommunicationsLauncher from './components/AdminCommunicationsLauncher';
-import AdminCredentialLifecycleLauncher from './components/AdminCredentialLifecycleLauncher';
-import AdminFinanceSponsorshipLauncher from './components/AdminFinanceSponsorshipLauncher';
-import AdminIdentityAssuranceLauncher from './components/AdminIdentityAssuranceLauncher';
-import AdminIdentityProctoringLauncher from './components/AdminIdentityProctoringLauncher';
-import AdminMaterialManagementLauncher from './components/AdminMaterialManagementLauncher';
-import AdminPeopleMessagingLauncher from './components/AdminPeopleMessagingLauncher';
-import AdminPrimaryToolsMenu from './components/AdminPrimaryToolsMenu';
-import AdminVideoLearningAnalyticsLauncher from './components/AdminVideoLearningAnalyticsLauncher';
-import AgileCertPolicyExperience from './components/AgileCertPolicyExperience';
-import AgileProgrammeCatalogue from './components/AgileProgrammeCatalogue';
-import AiCertificationAdviser from './components/AiCertificationAdviser';
-import AiCvEnhancementLauncher from './components/AiCvEnhancementLauncher';
-import CandidateCertificateCommerce from './components/CandidateCertificateCommerce';
-import CandidateCertificateWorkspace from './components/CandidateCertificateWorkspace';
-import CandidateCipmnModuleCart from './components/CandidateCipmnModuleCart';
-import CandidateCipmnRemediationWorkspace from './components/CandidateCipmnRemediationWorkspace';
-import CandidateCommerceOverlay from './components/CandidateCommerceOverlay';
-import CandidateCommunicationPreferences from './components/CandidateCommunicationPreferences';
-import CandidateCredentialWallet from './components/CandidateCredentialWallet';
-import CandidateIdentityAssurance from './components/CandidateIdentityAssurance';
-import CandidateIdentityProctoringWorkspace from './components/CandidateIdentityProctoringWorkspace';
-import CandidateOnboardingBoundary from './components/CandidateOnboardingBoundary';
-import CandidatePrimaryToolsMenu from './components/CandidatePrimaryToolsMenu';
-import CandidateSponsoredAccessWorkspace from './components/CandidateSponsoredAccessWorkspace';
-import CandidateVideoLearningProgressLauncher from './components/CandidateVideoLearningProgressLauncher';
-import CertificatePaymentReturnHandler from './components/CertificatePaymentReturnHandler';
-import CipmnModuleMaterialsMount from './components/CipmnModuleMaterialsMount';
-import LegacyCertificateSecurityGate from './components/LegacyCertificateSecurityGate';
-import PaymentReturnHandler from './components/PaymentReturnHandler';
-import PublicCertificateVerification from './components/PublicCertificateVerification';
-import SupabaseSessionBoundary from './components/SupabaseSessionBoundary';
+const AdminAssignmentWidget = lazy(() => import('./components/AdminAssignmentWidget'));\nconst AdminCertificateCommerceLauncher = lazy(() => import('./components/AdminCertificateCommerceLauncher'));\nconst AdminCertificateManagementLauncher = lazy(() => import('./components/AdminCertificateManagementLauncher'));\nconst AdminCertificateCompletionLauncher = lazy(() => import('./components/AdminCertificateCompletionLauncher'));\nconst AdminCommerceConsole = lazy(() => import('./components/AdminCommerceConsole'));\nconst AdminCommunicationsLauncher = lazy(() => import('./components/AdminCommunicationsLauncher'));\nconst AdminCredentialLifecycleLauncher = lazy(() => import('./components/AdminCredentialLifecycleLauncher'));\nconst AdminFinanceSponsorshipLauncher = lazy(() => import('./components/AdminFinanceSponsorshipLauncher'));\nconst AdminIdentityAssuranceLauncher = lazy(() => import('./components/AdminIdentityAssuranceLauncher'));\nconst AdminIdentityProctoringLauncher = lazy(() => import('./components/AdminIdentityProctoringLauncher'));\nconst AdminMaterialManagementLauncher = lazy(() => import('./components/AdminMaterialManagementLauncher'));\nconst AdminPeopleMessagingLauncher = lazy(() => import('./components/AdminPeopleMessagingLauncher'));\nconst AdminPrimaryToolsMenu = lazy(() => import('./components/AdminPrimaryToolsMenu'));\nconst AdminVideoLearningAnalyticsLauncher = lazy(() => import('./components/AdminVideoLearningAnalyticsLauncher'));\nconst AgileCertPolicyExperience = lazy(() => import('./components/AgileCertPolicyExperience'));\nimport AgileProgrammeCatalogue from './components/AgileProgrammeCatalogue';
+const AiCertificationAdviser = lazy(() => import('./components/AiCertificationAdviser'));\nconst AiCvEnhancementLauncher = lazy(() => import('./components/AiCvEnhancementLauncher'));\nconst CandidateCertificateCommerce = lazy(() => import('./components/CandidateCertificateCommerce'));\nconst CandidateCertificateWorkspace = lazy(() => import('./components/CandidateCertificateWorkspace'));\nconst CandidateCipmnModuleCart = lazy(() => import('./components/CandidateCipmnModuleCart'));\nconst CandidateCipmnRemediationWorkspace = lazy(() => import('./components/CandidateCipmnRemediationWorkspace'));\nconst CandidateCommerceOverlay = lazy(() => import('./components/CandidateCommerceOverlay'));\nconst CandidateCommunicationPreferences = lazy(() => import('./components/CandidateCommunicationPreferences'));\nconst CandidateCredentialWallet = lazy(() => import('./components/CandidateCredentialWallet'));\nconst CandidateIdentityAssurance = lazy(() => import('./components/CandidateIdentityAssurance'));\nconst CandidateIdentityProctoringWorkspace = lazy(() => import('./components/CandidateIdentityProctoringWorkspace'));\nimport CandidateOnboardingBoundary from './components/CandidateOnboardingBoundary';
+const CandidatePrimaryToolsMenu = lazy(() => import('./components/CandidatePrimaryToolsMenu'));\nconst CandidateSponsoredAccessWorkspace = lazy(() => import('./components/CandidateSponsoredAccessWorkspace'));\nconst CandidateVideoLearningProgressLauncher = lazy(() => import('./components/CandidateVideoLearningProgressLauncher'));\nconst CertificatePaymentReturnHandler = lazy(() => import('./components/CertificatePaymentReturnHandler'));\nconst CipmnModuleMaterialsMount = lazy(() => import('./components/CipmnModuleMaterialsMount'));\nconst LegacyCertificateSecurityGate = lazy(() => import('./components/LegacyCertificateSecurityGate'));\nconst PaymentReturnHandler = lazy(() => import('./components/PaymentReturnHandler'));\nconst PublicCertificateVerification = lazy(() => import('./components/PublicCertificateVerification'));\nimport SupabaseSessionBoundary from './components/SupabaseSessionBoundary';
 import './index.css';
 
 const createMemoryStorage = (): Storage => {
@@ -172,6 +138,7 @@ createRoot(rootElement).render(
     <SupabaseSessionBoundary>
       <CandidateOnboardingBoundary>
         <App />
+        <Suspense fallback={null}>
         <CandidatePrimaryToolsMenu />
         <CandidateCipmnModuleCart />
         <CipmnModuleMaterialsMount />
@@ -206,6 +173,7 @@ createRoot(rootElement).render(
         <AdminVideoLearningAnalyticsLauncher />
         <AiCvEnhancementLauncher />
         <AiCertificationAdviser />
+        </Suspense>
       </CandidateOnboardingBoundary>
     </SupabaseSessionBoundary>
   </StrictMode>,
