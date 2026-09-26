@@ -5,6 +5,7 @@ on:
     branches:
       - test/cipmn-section-launch-regression
       - safe/cipmn-independent-section-hotfix
+      - safe/cipmn-restore-approved-continuous-flow
     paths:
       - 'src/App.tsx'
       - 'src/components/StudentDashboard.tsx'
@@ -37,7 +38,7 @@ concurrency:
 
 jobs:
   regression:
-    name: Validate MCQ and Theory launch separation
+    name: Validate approved CIPMN continuous flow
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -49,7 +50,7 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Validate section-aware launch contracts
+      - name: Validate approved examination flow contracts
         run: node scripts/validate-cipmn-section-aware-launch.mjs
 
       - name: Install dependencies

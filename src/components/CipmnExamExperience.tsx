@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ProctorLogEvent, ProctorEventType, Test } from '../types';
 import CipmnMixedExamScreen from './CipmnMixedExamScreen';
 import LiveProctoringEventBridge from './LiveProctoringEventBridge';
 import SecureExamIntegrityPreflight from './SecureExamIntegrityPreflight';
+import { getProctoredExamPayload } from '../services/identityProctoringService';
 
 interface Props {
   test: Test;
@@ -120,6 +121,31 @@ export default function CipmnExamExperience(props: Props) {
     };
   }, [activeTest.proctorPreflightRequired, activeTest.proctoringPolicy]);
 
+  const submitMcqAndHydrateTheory = useCallback(async (
+    answers: Record<string, number>,
+    logs: ProctorLogEvent[],
+    tabAwayCount: number,
+  ): Promise<number> => {
+    const score = await props.onSubmitMcq(answers, logs, tabAwayCount);
+    if (!activeTest.sessionId) return score;
+
+    // The server has now authoritatively moved this session from MCQ to Theory.
+    // Refresh the same protected payload so Section B receives only its five
+    // server-selected Theory questions. Preserve the existing proctor runtime
+    // policy/session rather than reopening or weakening the camera gate.
+    const hydrated = await getProctoredExamPayload(activeTest.sessionId);
+    setActiveTest((current) => ({
+      ...current,
+      ...hydrated,
+      proctoringPolicy: current.proctoringPolicy,
+      proctoringSessionId: hydrated.proctoringSessionId || current.proctoringSessionId,
+      proctorPreflightRequired: false,
+      mcqScore: score,
+      currentSection: 'theory',
+    }));
+    return score;
+  }, [activeTest.sessionId, props.onSubmitMcq]);
+
   if (proctorTerminated) {
     return (
       <div className="min-h-screen bg-slate-950 p-6 text-white flex items-center justify-center">
@@ -156,7 +182,7 @@ export default function CipmnExamExperience(props: Props) {
   return (
     <>
       <LiveProctoringEventBridge examSessionId={activeTest.sessionId} proctoringSessionId={activeTest.proctoringSessionId} policy={activeTest.proctoringPolicy} />
-      <CipmnMixedExamScreen test={activeTest} studentName={props.studentName} simType={props.simType} onSubmitMcq={props.onSubmitMcq} onSubmitTheory={props.onSubmitTheory} />
+      <CipmnMixedExamScreen test={activeTest} studentName={props.studentName} simType={props.simType} onSubmitMcq={submitMcqAndHydrateTheory} onSubmitTheory={props.onSubmitTheory} />
     </>
   );
 }

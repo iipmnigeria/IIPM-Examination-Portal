@@ -109,48 +109,60 @@ if (!process.exitCode) {
 const appMcqSubmit = app.match(/const handleSubmitCipmnMcq = async \([\s\S]*?\n  \};/);
 expect(Boolean(appMcqSubmit), 'App.handleSubmitCipmnMcq must exist.');
 if (appMcqSubmit) {
-  expect(appMcqSubmit[0].includes("setView('dashboard')"), 'MCQ submission must return candidates to the Module Hub/dashboard.');
-  expect(appMcqSubmit[0].includes('setSelectedTest(null)'), 'MCQ submission must close the active exam view.');
-  expect(!appMcqSubmit[0].includes("currentSection: 'theory'"), 'MCQ submission must not auto-switch the frontend into Theory.');
+  expect(appMcqSubmit[0].includes("currentSection: 'theory'"), 'MCQ submission must preserve the same live session as Theory-ready after scoring.');
+  expect(!appMcqSubmit[0].includes("setView('dashboard')"), 'Normal MCQ submission must not force a return to the Module Hub before the scorecard.');
+  expect(!appMcqSubmit[0].includes('setSelectedTest(null)'), 'Normal MCQ submission must keep the active examination mounted for the scorecard.');
 }
 
 expect(
-  !experience.includes('submitMcqAndHydrateTheory'),
-  'CipmnExamExperience must not auto-hydrate Theory after MCQ submission.',
+  experience.includes('submitMcqAndHydrateTheory'),
+  'CipmnExamExperience must securely hydrate the server-authoritative Theory payload after MCQ submission.',
 );
 expect(
-  !experience.includes('getProctoredExamPayload'),
-  'CipmnExamExperience must not fetch Theory automatically after MCQ submission.',
+  experience.includes('getProctoredExamPayload'),
+  'Theory hydration must use the protected server-authoritative payload.',
 );
 expect(
-  !mixedScreen.includes('Proceed to Theory'),
-  'The mixed exam screen must not expose the old automatic Proceed to Theory handoff.',
+  mixedScreen.includes("setSection('mcq_result')"),
+  'Successful MCQ submission must enter the historical MCQ result checkpoint.',
 );
 expect(
-  !mixedScreen.includes("setSection('mcq_result')"),
-  'The MCQ screen must not transition into the legacy mcq_result state.',
+  mixedScreen.includes('Section A Complete'),
+  'The MCQ result checkpoint must show Section A Complete.',
+);
+expect(
+  mixedScreen.includes('MCQ Score: {mcqScore}%'),
+  'The MCQ result checkpoint must display the MCQ score.',
+);
+expect(
+  mixedScreen.includes('Proceed to Theory'),
+  'The MCQ result checkpoint must provide the explicit Proceed to Theory action.',
+);
+expect(
+  mixedScreen.includes("setSection('theory');setIndex(0)"),
+  'Proceed to Theory must open the five Theory questions inside the active secure examination.',
+);
+expect(
+  mixedScreen.includes("'Confirm Final Submission'"),
+  'Theory completion must retain the final submission confirmation.',
 );
 expect(
   hub.includes("theoryReady?'Complete Theory First'"),
-  'The Module Hub must protect a Theory-ready session from an MCQ retake.',
+  'The Module Hub must protect a Theory-ready recovery session from a destructive MCQ retake.',
 );
 expect(
   hub.includes("const canAttemptMcq=examUnlocked&&!theoryReady"),
-  'MCQ retake must be disabled while Theory is ready/in progress.',
+  'MCQ retake must remain disabled while a Theory-ready recovery session is active.',
 );
 expect(
   migration.includes("if v_session.current_section='theory' then"),
   'The server guard must explicitly protect an active Theory session.',
 );
 expect(
-  migration.includes('Complete or submit Theory before starting another MCQ attempt.'),
-  'The server guard must reject destructive MCQ retakes while Theory is active.',
-);
-expect(
   !migration.includes("set status='terminated'"),
-  'The hotfix migration must never terminate an active Theory session.',
+  'The server guard must never terminate an active Theory session to start another MCQ attempt.',
 );
 
 if (!process.exitCode) {
-  console.log('[cipmn-independent-sections] Independent MCQ/Theory hotfix contracts passed.');
+  console.log('[cipmn-approved-flow] Historical continuous MCQ-to-Theory flow and recovery safeguards passed.');
 }
