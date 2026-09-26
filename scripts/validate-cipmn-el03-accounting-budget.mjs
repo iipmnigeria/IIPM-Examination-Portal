@@ -82,7 +82,7 @@ for(const required of [
 for(const requiredFormula of [
   'cv=ev-ac','sv=ev-pv','cpi=ev/ac','spi=ev/pv','eac=bac/cpi','etc=eac-ac','vac=bac-eac'
 ]){
-  const compact=joined.replace(/\s+/g,'').replace(/÷/g,'/').replace(/–/g,'-').replace(/—/g,'-');
+  const compact=joined.replace(/\s+/g,'').replace(/[()]/g,'').replace(/÷/g,'/').replace(/–/g,'-').replace(/—/g,'-');
   expect(compact.includes(requiredFormula),'Required EL03 formula not represented: '+requiredFormula);
 }
 
