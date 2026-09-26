@@ -1,0 +1,57 @@
+name: Validate CIPMN EL01 Outcome Realisation
+
+on:
+  push:
+    branches:
+      - safe/cipmn-el01-outcome-realisation
+    paths:
+      - 'supabase/migrations/20260926093000_cipmn_el01_outcome_realisation.sql'
+      - 'scripts/validate-cipmn-el01-outcome-realisation.mjs'
+      - '.github/workflows/validate-cipmn-el01-outcome-realisation.yml'
+  pull_request:
+    branches: [supabase-integration]
+    paths:
+      - 'supabase/migrations/20260926093000_cipmn_el01_outcome_realisation.sql'
+      - 'scripts/validate-cipmn-el01-outcome-realisation.mjs'
+      - '.github/workflows/validate-cipmn-el01-outcome-realisation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-cipmn-el01-outcome-realisation-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate EL01 source-strict elective
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout candidate changes
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate EL01 source scope, structure and migration safety
+        run: node scripts/validate-cipmn-el01-outcome-realisation.mjs
+
+      - name: Install application dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Existing TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify production artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -q 'AgileCert Global' dist/index.html
