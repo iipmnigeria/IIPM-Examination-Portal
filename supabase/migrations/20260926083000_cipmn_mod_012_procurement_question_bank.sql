@@ -113,7 +113,7 @@ declare
   },
   {
     "position": 5,
-    "question": "How does Module 12 define Value for Money?",
+    "question": "In evaluating procurement options, how does Module 12 define Value for Money beyond simply choosing the lowest tender price?",
     "options": [
       "The lowest tendered price that meets the deadline.",
       "The best combination of fitness for purpose, quality, whole-life cost, delivery capability, risk profile, contract protection and compliance.",
@@ -442,7 +442,7 @@ declare
       {"name":"Variations/claims/payments","marks":2,"expected":"Explains documented variation request, impact assessment, approval/rejection, contract/baseline update; claims entitlement/evidence/notices/cause/responsibility/mitigation; payment only for accepted certified work."},
       {"name":"Certification/audit readiness","marks":2,"expected":"Explains invoice/tax/milestone/measurement checks, engineer/supervisor/PM certification, retention/advance recovery/guarantee conditions, records/photos/tests and explainable payments."},
       {"name":"Disputes/escalation","marks":2,"expected":"Compares negotiation, mediation, conciliation, arbitration and litigation and explains defined escalation levels, evidence and decision timing."},
-      {"name":"Ethics/anti-corruption","marks":2,"expected":"Explains conflict declaration, fair competition, no splitting, audit trails, no kickbacks and transparent reporting."},
+      {"name":"Ethics/anti-corruption","marks":2,"expected":"Explains Conflict of Interest declaration, fair competition, no splitting, audit trails, no kickbacks and transparent reporting."},
       {"name":"Tools/digital/learning","marks":2,"expected":"Explains procurement plans, market surveys, risk matrices, tender/RFQ/RFP templates, scoring/due diligence tools, issue/variation/payment/SLA controls, e-procurement/ERP/spend/supplier dashboards, supplier scorecards and lessons learned."}
     ]
   }
