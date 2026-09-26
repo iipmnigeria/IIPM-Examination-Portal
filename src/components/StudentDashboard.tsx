@@ -24,7 +24,6 @@ import {
   Sparkles,
   Download
 } from 'lucide-react';
-import { jsPDF } from 'jspdf';
 import { Test, Attempt } from '../types';
 import { clearSecuredCameraStream, holdSecuredCameraStream } from '../services/secureCameraSession';
 // @ts-ignore
@@ -77,7 +76,8 @@ export default function StudentDashboard({
   }, [justCompletedAttempt]);
 
   // High-Fidelity Professional PDF Certificate Generator using jsPDF
-  const downloadCertificateAsPDF = (attempt: Attempt) => {
+  const downloadCertificateAsPDF = async (attempt: Attempt) => {
+    const { jsPDF } = await import('jspdf');
     const testObj = tests.find(t => t.id === attempt.testId);
     const courseCode = testObj ? (
       ['HRMFC', 'CHRMG', 'CHRMP'].includes(testObj.course)
