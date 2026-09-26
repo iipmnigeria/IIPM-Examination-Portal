@@ -149,7 +149,7 @@ slots as (
  select cp.*,2 as send_slot,cp.secondary_type as message_type
  from candidate_plan cp
  where cp.secondary_type is not null
-)
+),
 planned as (
 select
   full_name,
