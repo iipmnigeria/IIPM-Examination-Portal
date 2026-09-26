@@ -218,3 +218,60 @@ Campaign metadata should include where applicable:
 - Verify provider configuration.
 - Activate only after explicit production approval.
 - Run live smoke/regression check.
+
+
+## Approved cadence for dry-run validation
+
+All times are Africa/Lagos (WAT). The hourly dispatcher remains unchanged; these rules determine `due_at`.
+
+### Examination preparation/countdown
+
+- 26 Sep through 5 Oct: one consolidated preparation email every 3 days at approximately 08:00 WAT.
+- 6 Oct through 18 Oct: one consolidated preparation email each morning at approximately 07:30 WAT.
+- Each email lists only official modules whose examination date has not passed.
+- On a module's examination date, the module may appear only in the morning preparation message; it is excluded from all later campaign generations after that calendar date.
+- After 18 Oct: no CIPMN October preparation email is generated.
+
+### Failed-payment recovery
+
+For a genuinely unresolved module purchase with no paid/waived replacement:
+
+- first recovery: after the payment/order has remained unresolved for at least 1 hour;
+- second recovery: 24 hours later;
+- subsequent recovery: every 48 hours;
+- when the official module examination is within 3 calendar days: at most once daily;
+- stop immediately after paid/waived fulfilment;
+- stop when the official examination date has passed.
+
+Historical cancelled/expired attempts are ignored when a later paid/waived order exists for the same candidate and examination.
+
+### Unpurchased modules
+
+- one consolidated missing-module email every 72 hours while more than 3 days remain before the nearest missing module;
+- once the nearest missing module is 3 days or less away: at most once daily;
+- remove a module immediately when it becomes paid/waived;
+- remove a module after its official examination date passes;
+- unregistered official candidates receive registration/access guidance rather than a payment-state claim.
+
+### Mock start/resume
+
+- paid/waived but never started: remind every 48 hours;
+- started but incomplete: remind every 24 hours;
+- within 3 days of the corresponding official examination: at most once daily for either state;
+- completed attempts suppress both start and resume reminders even if an older incomplete session still exists;
+- stop after the official examination date passes.
+
+### Candidate-level frequency guard
+
+To avoid overlapping automation streams:
+
+- maximum 2 CIPMN campaign emails to one candidate in any WAT calendar day;
+- minimum 6 hours between CIPMN campaign emails to the same candidate;
+- priority when multiple messages are due:
+  1. payment recovery;
+  2. mock resume;
+  3. mock start;
+  4. unpurchased-module reminder;
+  5. general examination preparation/countdown.
+
+Where practical, lower-priority module information should be consolidated into the higher-priority email rather than sent separately.
