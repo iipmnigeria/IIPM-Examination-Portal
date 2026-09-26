@@ -91,7 +91,7 @@ for(const required of [
 // Prevent unsupported deeper legal/procurement doctrine from entering the bank.
 for(const forbidden of [
   'fidic red book','fidic yellow book','nec4','jct contract',
-  'arbitration and mediation act 2023','laci','lex arbitri','seat of arbitration',
+  'arbitration and mediation act 2023','laci framework','lex arbitri','seat of arbitration',
   'public procurement monetary threshold','bpp threshold','procurement cadre',
   'ndpr','nigeria data protection act 2023','gdpr article',
   'copyright act 2022','patents and designs act',
