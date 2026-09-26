@@ -466,21 +466,6 @@ do $commerce_and_proctoring$
 declare
   v_exam_id constant uuid := public.cipmn_mock_seed_uuid('CIPMN-MOD-EL01:EXAM');
 begin
-  insert into public.exam_prices(
-    id,examination_id,currency,amount_minor,country_codes,is_default,is_active,
-    effective_from,effective_to,created_by,product_type,product_code
-  ) values
-  (
-    public.cipmn_mock_seed_uuid('CIPMN-MOD-EL01:PRICE:NGN'),
-    v_exam_id,'NGN',2500000,array['NG']::text[],true,true,
-    now(),null,null,'examination_access','EXAM-ACCESS-'||upper(v_exam_id::text)
-  ),
-  (
-    public.cipmn_mock_seed_uuid('CIPMN-MOD-EL01:PRICE:USD'),
-    v_exam_id,'USD',5000,array[]::text[],false,true,
-    now(),null,null,'examination_access','EXAM-ACCESS-'||upper(v_exam_id::text)
-  );
-
   insert into public.agilecert_exam_pricing_policies(
     id,examination_id,currency,standard_amount_minor,promotional_amount_minor,
     promotion_name,promotion_starts_at,promotion_ends_at,access_mode,
@@ -490,22 +475,36 @@ begin
     v_exam_id,'NGN',2500000,null,null,null,null,'paid',1,null,true,true,null
   );
 
-  insert into public.agilecert_identity_proctoring_policies(
-    examination_id,policy_version,consent_version,privacy_notice,
-    require_existing_identity_approval,require_government_id,require_selfie,
-    require_exam_day_identity_check,require_camera,require_microphone_permission,
-    require_fullscreen,live_event_capture_enabled,ai_visual_analysis_enabled,
-    external_kyc_enabled,automated_face_match_enabled,liveness_check_enabled,
-    retain_webcam_images,incident_threshold,critical_threshold,low_event_weight,
-    medium_event_weight,high_event_weight,identity_retention_days,
-    proctor_event_retention_days,incident_retention_days,appeal_window_days,
-    active,created_by,updated_by
-  ) values(
-    v_exam_id,2,'cipmn-camera-v1',
-    'Identity and proctoring data is used only to protect examination integrity, investigate incidents and meet certification obligations.',
-    false,false,false,false,true,false,false,true,true,false,false,false,false,
-    60.00,80.00,2.00,8.00,20.00,365,365,730,14,true,null,null
-  );
+  update public.agilecert_identity_proctoring_policies
+  set policy_version=2,
+      consent_version='cipmn-camera-v1',
+      privacy_notice='Identity and proctoring data is used only to protect examination integrity, investigate incidents and meet certification obligations.',
+      require_existing_identity_approval=false,
+      require_government_id=false,
+      require_selfie=false,
+      require_exam_day_identity_check=false,
+      require_camera=true,
+      require_microphone_permission=false,
+      require_fullscreen=false,
+      live_event_capture_enabled=true,
+      ai_visual_analysis_enabled=true,
+      external_kyc_enabled=false,
+      automated_face_match_enabled=false,
+      liveness_check_enabled=false,
+      retain_webcam_images=false,
+      incident_threshold=60.00,
+      critical_threshold=80.00,
+      low_event_weight=2.00,
+      medium_event_weight=8.00,
+      high_event_weight=20.00,
+      identity_retention_days=365,
+      proctor_event_retention_days=365,
+      incident_retention_days=730,
+      appeal_window_days=14,
+      active=true,
+      updated_by=null,
+      updated_at=now()
+  where examination_id=v_exam_id;
 end
 $commerce_and_proctoring$;
 
@@ -520,7 +519,6 @@ declare
   v_bad_options integer;
   v_bad_rubrics integer;
   v_duplicate_texts integer;
-  v_prices integer;
   v_policy integer;
   v_pricing integer;
 begin
@@ -574,10 +572,6 @@ begin
   from public.questions
   where examination_id=v_exam_id and is_active;
 
-  select count(*) into v_prices
-  from public.exam_prices
-  where examination_id=v_exam_id and is_active;
-
   select count(*) into v_policy
   from public.agilecert_identity_proctoring_policies
   where examination_id=v_exam_id and active=true and require_camera=true
@@ -596,7 +590,6 @@ begin
   if v_bad_options<>0 then raise exception 'Found % EL01 MCQ(s) with invalid/repeated options.',v_bad_options; end if;
   if v_bad_rubrics<>0 then raise exception 'Found % invalid EL01 Theory rubric(s).',v_bad_rubrics; end if;
   if v_duplicate_texts<>0 then raise exception 'Found % repeated active EL01 question text(s).',v_duplicate_texts; end if;
-  if v_prices<>2 then raise exception 'Expected 2 active EL01 prices, found %.',v_prices; end if;
   if v_policy<>1 then raise exception 'EL01 proctoring policy invariant failed.'; end if;
   if v_pricing<>1 then raise exception 'EL01 pricing policy invariant failed.'; end if;
 end
@@ -607,5 +600,37 @@ set exam_format='cipmn_mixed',
     status='published',
     updated_at=now()
 where id=public.cipmn_mock_seed_uuid('CIPMN-MOD-EL01:EXAM');
+
+do $publish_verify$
+declare
+  v_exam_id constant uuid := public.cipmn_mock_seed_uuid('CIPMN-MOD-EL01:EXAM');
+  v_prices integer;
+  v_published integer;
+begin
+  select count(*) into v_prices
+  from public.exam_prices
+  where examination_id=v_exam_id
+    and is_active
+    and (
+      (currency='NGN' and amount_minor=2500000 and is_default=true)
+      or (currency='USD' and amount_minor=5000 and is_default=false)
+    );
+
+  select count(*) into v_published
+  from public.examinations
+  where id=v_exam_id
+    and status='published'
+    and exam_format='cipmn_mixed'
+    and requires_payment=true
+    and allow_self_enrollment=false;
+
+  if v_prices<>2 then
+    raise exception 'Expected publish trigger to create 2 active EL01 prices, found %.',v_prices;
+  end if;
+  if v_published<>1 then
+    raise exception 'EL01 publish invariant failed.';
+  end if;
+end
+$publish_verify$;
 
 commit;
