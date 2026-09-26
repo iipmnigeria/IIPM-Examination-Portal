@@ -180,18 +180,30 @@ recovery as (
    off.module_code,
    off.exam_date,
    eo.reference,
-   eo.updated_at unresolved_since
+   greatest(eo.updated_at,coalesce(ep.updated_at,eo.updated_at)) unresolved_since
  from public.exam_orders eo
  join official off on off.examination_id=eo.examination_id
- where eo.status in ('pending','cancelled','expired','failed')
+ left join lateral (
+   select payment.status,payment.provider_payload,payment.updated_at
+   from public.exam_payments payment
+   where payment.order_id=eo.id
+   order by payment.updated_at desc
+   limit 1
+ ) ep on true
+ where (
+     lower(eo.status) in ('pending','cancelled','expired','failed','abandoned','reversed','voided')
+     or lower(coalesce(ep.status,'')) in ('failed','abandoned','reversed','voided','cancelled')
+     or lower(coalesce(ep.provider_payload->>'status','')) in ('failed','abandoned','reversed','voided','cancelled')
+   )
    and off.exam_date >= (p_now at time zone 'Africa/Lagos')::date
    and not exists (
-     select 1 from public.exam_orders paid
+     select 1
+     from public.exam_orders paid
      where paid.candidate_id=eo.candidate_id
        and paid.examination_id=eo.examination_id
        and paid.status in ('paid','waived')
    )
- order by eo.candidate_id,eo.examination_id,eo.updated_at desc
+ order by eo.candidate_id,eo.examination_id,greatest(eo.updated_at,coalesce(ep.updated_at,eo.updated_at)) desc
 ),
 recovery_summary as (
  select
