@@ -21,12 +21,12 @@ No production email was sent by this simulation.
 | Chiemerie Nnenna Awuzie | Not registered | Registration outreach | — | No AgileCert profile under supplied email; 17 official modules outstanding |
 | Emmanuel Habu Ikrenwo | Registered | Mock start | Unpurchased modules | MOD-001 purchased/not started; 16 official modules unpurchased |
 | Fatima Adamu Muhammed | Not registered | Registration outreach | — | No AgileCert profile under supplied email; 17 official modules outstanding |
-| Hafsat Funmilayo Bankole | Registered | Unpurchased modules | Examination preparation | Registered, but no official October module purchased |
-| Iwajomo Adeboye | Registered | Unpurchased modules | Examination preparation | 11 official modules completed; 6 unpurchased |
+| Hafsat Funmilayo Bankole | Registered | Unpurchased modules | — | Registered, but no official October module purchased |
+| Iwajomo Adeboye | Registered | Unpurchased modules | — | 11 official modules completed; 6 unpurchased |
 | Izedonmen Friday Egbokhare | Registered | Payment recovery | Mock resume | MOD-011 unresolved payment; MOD-002 in progress; 1 completed |
 | Mary Ekikereobong Matthew | Registered | Mock start | Unpurchased modules | 6 completed; 5 purchased/not started; 6 unpurchased |
 | Ofoegbu Lotanna Steven | Not registered | Registration outreach | — | No AgileCert profile under supplied email; 17 official modules outstanding |
-| Ohilebo David Moshope | Registered | Unpurchased modules | Examination preparation | 5 completed; 12 unpurchased |
+| Ohilebo David Moshope | Registered | Unpurchased modules | — | 5 completed; 12 unpurchased |
 | Umaina Ibrahim Muhammad | Registered | Mock start | Unpurchased modules | 5 completed; 6 purchased/not started; 6 unpurchased |
 
 ## Current valid payment-recovery target
