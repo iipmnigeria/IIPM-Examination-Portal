@@ -56,279 +56,279 @@ declare
   v_mcqs jsonb := $mcq$
 [
   {
-    "position":1,
-    "question":"Which statement best reflects the role of project financials in EL03?",
-    "options":[
+    "position": 1,
+    "question": "Which statement best reflects the role of project financials in EL03?",
+    "options": [
       "They align financial resources with project goals through estimation, budgeting, funding, tracking, forecasting and reporting.",
       "They are limited to recording supplier invoices after project completion.",
       "They focus only on revenue-generating projects.",
       "They replace scope, schedule and risk management."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":2,
-    "question":"Which lifecycle activity belongs primarily to Monitoring & Control in the EL03 project-financials lifecycle?",
-    "options":[
-      "Business case and funding strategy.",
+    "position": 2,
+    "question": "Which lifecycle activity belongs primarily to Monitoring & Control in the EL03 project-financials lifecycle?",
+    "options": [
       "Detailed cost estimating and baseline creation.",
       "Earned Value Management, variance analysis, re-forecasting and corrective action.",
-      "Final cost reconciliation and release of reserves."
+      "Final cost reconciliation and release of reserves.",
+      "Business case and funding strategy."
     ],
-    "correct":3
+    "correct": 2
   },
   {
-    "position":3,
-    "question":"Which stakeholder responsibility is correctly matched in EL03?",
-    "options":[
-      "Project Sponsor — prepares all detailed work-package estimates.",
-      "Project Accountant/Financial Analyst — prepares reports and forecasts.",
+    "position": 3,
+    "question": "Which stakeholder responsibility is correctly matched in EL03?",
+    "options": [
       "External Auditor — approves supplier payments.",
-      "Team Leads — perform independent regulatory validation."
+      "Team Leads — perform independent regulatory validation.",
+      "Project Sponsor — prepares all detailed work-package estimates.",
+      "Project Accountant/Financial Analyst — prepares reports and forecasts."
     ],
-    "correct":2
+    "correct": 4
   },
   {
-    "position":4,
-    "question":"Which EL03 financial KPI formula is correct?",
-    "options":[
+    "position": 4,
+    "question": "Which EL03 financial KPI formula is correct?",
+    "options": [
+      "EAC = CPI ÷ BAC",
       "CV = AC – EV",
       "CPI = AC ÷ EV",
-      "CV = EV – AC",
-      "EAC = CPI ÷ BAC"
+      "CV = EV – AC"
     ],
-    "correct":3
+    "correct": 4
   },
   {
-    "position":5,
-    "question":"A project has EV of ₦28m and AC of ₦30m. What does EL03's CPI formula indicate?",
-    "options":[
+    "position": 5,
+    "question": "A project has EV of ₦28m and AC of ₦30m. What does EL03's CPI formula indicate?",
+    "options": [
       "CPI is about 0.93, indicating cost inefficiency.",
       "CPI is about 1.07, indicating cost efficiency.",
       "CPI is exactly 1.00, indicating perfect cost performance.",
       "CPI cannot be calculated without PV."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":6,
-    "question":"Which statement correctly distinguishes cost estimation from project budgeting in EL03?",
-    "options":[
-      "Cost estimation predicts resources required for activities/work packages, while budgeting aggregates estimates into the project cost baseline.",
+    "position": 6,
+    "question": "Which statement correctly distinguishes cost estimation from project budgeting in EL03?",
+    "options": [
       "Budgeting estimates unit rates, while cost estimation only approves funding.",
       "Cost estimation occurs only after execution begins.",
-      "Budgeting excludes contingency and indirect costs."
+      "Budgeting excludes contingency and indirect costs.",
+      "Cost estimation predicts resources required for activities/work packages, while budgeting aggregates estimates into the project cost baseline."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":7,
-    "question":"Which item is treated as a contingency reserve in EL03?",
-    "options":[
-      "An allowance for known-unknown risks.",
-      "An allowance only for confirmed invoices.",
+    "position": 7,
+    "question": "Which item is treated as a contingency reserve in EL03?",
+    "options": [
       "A reserve solely for unknown-unknown risks.",
-      "A fixed operating expense."
+      "A fixed operating expense.",
+      "An allowance for known-unknown risks.",
+      "An allowance only for confirmed invoices."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":8,
-    "question":"Which cost-estimation technique uses historical data from similar completed projects?",
-    "options":[
+    "position": 8,
+    "question": "Which cost-estimation technique uses historical data from similar completed projects?",
+    "options": [
+      "Three-Point Estimating.",
       "Bottom-Up Estimating.",
       "Analogous Estimating.",
+      "Parametric Estimating."
+    ],
+    "correct": 3
+  },
+  {
+    "position": 9,
+    "question": "Which cost-estimation technique applies unit rates to measurable quantities such as cost per square metre?",
+    "options": [
+      "Analogous Estimating.",
       "Parametric Estimating.",
+      "Bottom-Up Estimating.",
       "Three-Point Estimating."
     ],
-    "correct":2
+    "correct": 2
   },
   {
-    "position":9,
-    "question":"Which cost-estimation technique applies unit rates to measurable quantities such as cost per square metre?",
-    "options":[
+    "position": 10,
+    "question": "Which cost-estimation technique is the most detailed because estimates are developed at work-package level and then summed?",
+    "options": [
       "Analogous Estimating.",
       "Parametric Estimating.",
-      "Bottom-Up Estimating.",
-      "Three-Point Estimating."
+      "Trend Analysis.",
+      "Bottom-Up Estimating."
     ],
-    "correct":2
+    "correct": 4
   },
   {
-    "position":10,
-    "question":"Which cost-estimation technique is the most detailed because estimates are developed at work-package level and then summed?",
-    "options":[
-      "Bottom-Up Estimating.",
-      "Analogous Estimating.",
-      "Parametric Estimating.",
-      "Trend Analysis."
-    ],
-    "correct":1
-  },
-  {
-    "position":11,
-    "question":"Using EL03's three-point estimating formula, what is the expected cost if O=₦550m, M=₦600m and P=₦680m?",
-    "options":[
-      "₦590m.",
-      "₦600m.",
+    "position": 11,
+    "question": "Using EL03's three-point estimating formula, what is the expected cost if O=₦550m, M=₦600m and P=₦680m?",
+    "options": [
       "Approximately ₦605m.",
-      "₦630m."
+      "₦630m.",
+      "₦590m.",
+      "₦600m."
     ],
-    "correct":3
+    "correct": 1
   },
   {
-    "position":12,
-    "question":"Which statement best describes the cost baseline in EL03?",
-    "options":[
+    "position": 12,
+    "question": "Which statement best describes the cost baseline in EL03?",
+    "options": [
+      "It is used only during project closure.",
       "It is the approved, time-phased budget used to measure and control cost performance.",
       "It is an informal estimate that changes automatically with every invoice.",
-      "It excludes the project schedule.",
-      "It is used only during project closure."
+      "It excludes the project schedule."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":13,
-    "question":"Which finding from the Abuja affordable-housing case most clearly explains why the original budget was exceeded?",
-    "options":[
+    "position": 13,
+    "question": "Which finding from the Abuja affordable-housing case most clearly explains why the original budget was exceeded?",
+    "options": [
       "The project used only analogous estimating without sufficient site-specific investigation.",
       "The project used too much bottom-up estimation.",
       "The project had an excessive contingency reserve.",
       "The project monitored the budget too frequently."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":14,
-    "question":"In EL03 Earned Value Management, what does Planned Value (PV) represent?",
-    "options":[
-      "Actual expenditure for completed work.",
+    "position": 14,
+    "question": "In EL03 Earned Value Management, what does Planned Value (PV) represent?",
+    "options": [
       "Budgeted cost of scheduled work.",
       "Budgeted value of work actually completed.",
-      "Total forecast cost at completion."
+      "Total forecast cost at completion.",
+      "Actual expenditure for completed work."
     ],
-    "correct":2
+    "correct": 1
   },
   {
-    "position":15,
-    "question":"In EL03 Earned Value Management, what does Earned Value (EV) represent?",
-    "options":[
-      "Budgeted cost of work actually completed.",
-      "Actual cash paid to suppliers.",
+    "position": 15,
+    "question": "In EL03 Earned Value Management, what does Earned Value (EV) represent?",
+    "options": [
       "Budgeted cost of scheduled work.",
-      "Remaining contingency."
+      "Remaining contingency.",
+      "Budgeted cost of work actually completed.",
+      "Actual cash paid to suppliers."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":16,
-    "question":"If EV=₦35m and AC=₦45m, what is the Cost Variance (CV) under EL03?",
-    "options":[
+    "position": 16,
+    "question": "If EV=₦35m and AC=₦45m, what is the Cost Variance (CV) under EL03?",
+    "options": [
+      "CV cannot be calculated without PV.",
       "₦10m favourable.",
       "₦10m unfavourable.",
-      "₦80m unfavourable.",
-      "CV cannot be calculated without PV."
+      "₦80m unfavourable."
     ],
-    "correct":2
+    "correct": 3
   },
   {
-    "position":17,
-    "question":"If EV=₦35m and PV=₦40m, what does EL03's Schedule Variance indicate?",
-    "options":[
+    "position": 17,
+    "question": "If EV=₦35m and PV=₦40m, what does EL03's Schedule Variance indicate?",
+    "options": [
       "SV = +₦5m, ahead of schedule.",
       "SV = -₦5m, behind schedule.",
       "SV = +₦75m, under budget.",
       "SV cannot be calculated without AC."
     ],
-    "correct":2
+    "correct": 2
   },
   {
-    "position":18,
-    "question":"Which EL03 relationship is correct when current cost performance is expected to continue?",
-    "options":[
-      "EAC = BAC ÷ CPI.",
+    "position": 18,
+    "question": "Which EL03 relationship is correct when current cost performance is expected to continue?",
+    "options": [
       "EAC = EV ÷ AC.",
       "ETC = BAC – EV.",
-      "VAC = AC – BAC."
+      "VAC = AC – BAC.",
+      "EAC = BAC ÷ CPI."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":19,
-    "question":"Which formula correctly gives Estimate to Complete (ETC) in EL03?",
-    "options":[
-      "ETC = EAC – AC.",
-      "ETC = BAC – EAC.",
+    "position": 19,
+    "question": "Which formula correctly gives Estimate to Complete (ETC) in EL03?",
+    "options": [
       "ETC = EV – PV.",
-      "ETC = AC ÷ EV."
+      "ETC = AC ÷ EV.",
+      "ETC = EAC – AC.",
+      "ETC = BAC – EAC."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":20,
-    "question":"Which item is identified as a core component of project financial reporting in EL03?",
-    "options":[
+    "position": 20,
+    "question": "Which item is identified as a core component of project financial reporting in EL03?",
+    "options": [
+      "Only a final audit report.",
       "Budget summary, actual expenditure, variance analysis, cash flow, EAC, performance metrics and narrative notes.",
       "Only supplier invoices and payment vouchers.",
-      "Only the approved baseline.",
-      "Only a final audit report."
+      "Only the approved baseline."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":21,
-    "question":"Which forecasting technique is explicitly listed in EL03 alongside trend analysis, moving average, regression, scenario/sensitivity and bottom-up estimating?",
-    "options":[
+    "position": 21,
+    "question": "Which forecasting technique is explicitly listed in EL03 alongside trend analysis, moving average, regression, scenario/sensitivity and bottom-up estimating?",
+    "options": [
       "Earned Value Forecasting.",
       "Critical Chain Forecasting.",
       "Delphi Forecasting.",
       "Balanced Scorecard Forecasting."
     ],
-    "correct":1
+    "correct": 1
   },
   {
-    "position":22,
-    "question":"In the Lagos Urban Drainage case, which intervention directly improved financial visibility and cash-flow adjustment?",
-    "options":[
-      "Automated Excel dashboards linked to project accounting software plus monthly rolling forecasts.",
+    "position": 22,
+    "question": "In the Lagos Urban Drainage case, which intervention directly improved financial visibility and cash-flow adjustment?",
+    "options": [
       "Stopping all forecasting until project completion.",
       "Replacing financial reports with verbal updates.",
-      "Removing EAC calculations from project reviews."
+      "Removing EAC calculations from project reviews.",
+      "Automated Excel dashboards linked to project accounting software plus monthly rolling forecasts."
     ],
-    "correct":1
+    "correct": 4
   },
   {
-    "position":23,
-    "question":"Which sequence best reflects the EL03 financial risk management process?",
-    "options":[
-      "Risk Identification → Risk Assessment & Prioritization → Response Planning → Monitoring & Control.",
-      "Monitoring → Closure → Funding → Procurement.",
+    "position": 23,
+    "question": "Which sequence best reflects the EL03 financial risk management process?",
+    "options": [
       "Risk Acceptance → Project Closure → Baseline Creation.",
-      "Budget Update → Risk Identification → Audit only."
+      "Budget Update → Risk Identification → Audit only.",
+      "Risk Identification → Risk Assessment & Prioritization → Response Planning → Monitoring & Control.",
+      "Monitoring → Closure → Funding → Procurement."
     ],
-    "correct":1
+    "correct": 3
   },
   {
-    "position":24,
-    "question":"Which financial risk response is explicitly included in EL03?",
-    "options":[
+    "position": 24,
+    "question": "Which financial risk response is explicitly included in EL03?",
+    "options": [
+      "Only Mitigate and Avoid.",
       "Avoid, Mitigate, Transfer or Accept.",
       "Ignore, Defer, Outsource or Escalate.",
-      "Only Transfer and Accept.",
-      "Only Mitigate and Avoid."
+      "Only Transfer and Accept."
     ],
-    "correct":1
+    "correct": 2
   },
   {
-    "position":25,
-    "question":"Which statement best reflects EL03 financial change control?",
-    "options":[
+    "position": 25,
+    "question": "Which statement best reflects EL03 financial change control?",
+    "options": [
       "Cost-affecting changes should be formally requested, impact-assessed, reviewed, approved or rejected, then reflected in the baseline/funding plan and tracked.",
       "Approved scope changes should not alter the financial baseline.",
       "Any team member may revise the budget without review.",
       "Financial changes should be documented only at project closure."
     ],
-    "correct":1
+    "correct": 1
   }
 ]
 $mcq$::jsonb;
