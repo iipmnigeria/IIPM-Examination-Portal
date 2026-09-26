@@ -103,7 +103,7 @@ declare
   },
   {
     "position": 5,
-    "question": "Which example from the Kaduna rural-road case is an outcome?",
+    "question": "A monitoring report from the Kaduna rural-road project shows that farmers now reach markets about 45% faster after using the rehabilitated roads. In the EL01 results chain, how should this change be classified?",
     "options": [
       "Ten community maintenance cooperatives were created.",
       "Travel time for farmers accessing markets reduced by an average of 45%.",
@@ -191,7 +191,7 @@ declare
   },
   {
     "position": 13,
-    "question": "What does the BRM 'Plan' stage require?",
+    "question": "Within the EL01 BRM framework, what does the Plan stage require when some benefits may appear immediately while others may only emerge after the project or programme has finished?",
     "options": [
       "Planning when benefits are expected to appear and who will track benefits that arise after project completion.",
       "Treating all benefits as immediate.",
@@ -213,7 +213,7 @@ declare
   },
   {
     "position": 15,
-    "question": "What happens during the BRM 'Review' stage?",
+    "question": "At the BRM Review stage in EL01, what should the team do when comparing the benefits originally expected with the actual results and current stakeholder expectations?",
     "options": [
       "All benefits are assumed to have been achieved.",
       "Benefits are converted back into project tasks.",
