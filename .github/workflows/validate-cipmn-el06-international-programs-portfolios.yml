@@ -2,16 +2,15 @@ name: Validate CIPMN EL06 International Programs Portfolios
 on:
   push:
     branches: [safe/cipmn-el06-international-programs-portfolios]
-    paths:
+    paths: &el06_paths
       - 'supabase/migrations/20260926160000_cipmn_el06_international_programs_portfolios.sql'
+      - 'supabase/migrations/20260926160100_cipmn_el06_theory.sql'
+      - 'supabase/migrations/20260926160200_cipmn_el06_publish.sql'
       - 'scripts/validate-cipmn-el06-international-programs-portfolios.mjs'
       - '.github/workflows/validate-cipmn-el06-international-programs-portfolios.yml'
   pull_request:
     branches: [supabase-integration]
-    paths:
-      - 'supabase/migrations/20260926160000_cipmn_el06_international_programs_portfolios.sql'
-      - 'scripts/validate-cipmn-el06-international-programs-portfolios.mjs'
-      - '.github/workflows/validate-cipmn-el06-international-programs-portfolios.yml'
+    paths: *el06_paths
   workflow_dispatch:
 permissions:
   contents: read
