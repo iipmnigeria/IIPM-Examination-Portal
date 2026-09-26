@@ -41,8 +41,9 @@ assert(/^begin;/m.test(config) && /^rollback;/m.test(config),
   'Monitoring-copy draft must remain rollback-only during dry-run.');
 assert(comms.includes("monitor_copy_email: string | null;"),
   'Communications settings type lacks central monitoring-copy support.');
-assert(comms.includes("cc: settings.monitor_copy_email?.trim() ? [settings.monitor_copy_email.trim()] : undefined"),
-  'Resend request lacks central monitoring-copy CC support.');
+assert(comms.includes("row.event_key.startsWith('cipmn-oct-2026:') && settings.monitor_copy_email?.trim()") &&
+       comms.includes("[settings.monitor_copy_email.trim()]"),
+  'Resend request lacks CIPMN-only monitoring-copy CC support.');
 assert(spec.includes('maximum 2 CIPMN campaign emails') && spec.includes('minimum 6 hours'),
   'Candidate-level frequency guard is missing.');
 assert(planner.includes('eligible_for_existing_outbox'),
