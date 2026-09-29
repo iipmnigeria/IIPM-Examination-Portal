@@ -21,7 +21,7 @@ const AiCertificationAdviser = lazy(() => import('./components/AiCertificationAd
 const AiCvEnhancementLauncher = lazy(() => import('./components/AiCvEnhancementLauncher'));
 const CandidateCertificateCommerce = lazy(() => import('./components/CandidateCertificateCommerce'));
 const CandidateCertificateWorkspace = lazy(() => import('./components/CandidateCertificateWorkspace'));
-const CandidateCipmnModuleCart = lazy(() => import('./components/CandidateCipmnModuleCart'));
+import CandidateCipmnModuleCart from './components/CandidateCipmnModuleCart';
 const CandidateCipmnRemediationWorkspace = lazy(() => import('./components/CandidateCipmnRemediationWorkspace'));
 const CandidateCommerceOverlay = lazy(() => import('./components/CandidateCommerceOverlay'));
 const CandidateCommunicationPreferences = lazy(() => import('./components/CandidateCommunicationPreferences'));
@@ -172,9 +172,9 @@ createRoot(rootElement).render(
     <SupabaseSessionBoundary>
       <CandidateOnboardingBoundary>
         <App />
+        <CandidateCipmnModuleCart />
         <Suspense fallback={null}>
         <CandidatePrimaryToolsMenu />
-        <CandidateCipmnModuleCart />
         <CipmnModuleMaterialsMount />
         <AdminPrimaryToolsMenu />
         <AgileCertPolicyExperience />
