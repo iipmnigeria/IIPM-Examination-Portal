@@ -9,8 +9,8 @@ import {
   UserRound,
 } from 'lucide-react';
 const StudentDashboard = React.lazy(() => import('./components/StudentDashboard'));
-const ExamExperience = React.lazy(() => import('./components/ExamExperience'));
-const CipmnExamExperience = React.lazy(() => import('./components/CipmnExamExperience'));
+import ExamExperience from './components/ExamExperience';
+import CipmnExamExperience from './components/CipmnExamExperience';
 const AdminPortal = React.lazy(() => import('./components/AdminPortal'));
 import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
 const AiCvProfileBuilder = React.lazy(() => import('./components/AiCvProfileBuilder'));
