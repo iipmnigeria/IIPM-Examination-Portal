@@ -11,7 +11,7 @@ import {
 const StudentDashboard = React.lazy(() => import('./components/StudentDashboard'));
 import ExamExperience from './components/ExamExperience';
 import CipmnExamExperience from './components/CipmnExamExperience';
-const AdminPortal = React.lazy(() => import('./components/AdminPortal'));
+import AdminPortal from './components/AdminPortal';
 import AgileCertPhaseOneLandingPage from './components/AgileCertPhaseOneLandingPage';
 const AiCvProfileBuilder = React.lazy(() => import('./components/AiCvProfileBuilder'));
 import CandidateAvatar from './components/CandidateAvatar';

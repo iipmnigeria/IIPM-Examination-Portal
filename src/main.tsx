@@ -104,6 +104,28 @@ const normaliseErrorMessage = (value: unknown): string => {
   return 'An unexpected application error occurred.';
 };
 
+const CHUNK_RELOAD_KEY = 'agilecert:chunk-reload-attempted';
+
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+
+  let alreadyRetried = false;
+  try {
+    alreadyRetried = window.sessionStorage.getItem(CHUNK_RELOAD_KEY) === '1';
+    if (!alreadyRetried) {
+      window.sessionStorage.setItem(CHUNK_RELOAD_KEY, '1');
+    }
+  } catch {
+    // Storage may be unavailable; the cache-busting URL still gives recovery a chance.
+  }
+
+  if (alreadyRetried) return;
+
+  const recoveryUrl = new URL(window.location.href);
+  recoveryUrl.searchParams.set('asset-recovery', Date.now().toString());
+  window.location.replace(recoveryUrl.toString());
+});
+
 const showStartupError = (value: unknown) => {
   const message = normaliseErrorMessage(value);
   console.error('AgileCert Global portal startup error:', value);
@@ -212,3 +234,11 @@ createRoot(rootElement).render(
     </SupabaseSessionBoundary>
   </StrictMode>,
 );
+
+window.setTimeout(() => {
+  try {
+    window.sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+  } catch {
+    // Ignore storage failures after a successful startup.
+  }
+}, 10_000);
