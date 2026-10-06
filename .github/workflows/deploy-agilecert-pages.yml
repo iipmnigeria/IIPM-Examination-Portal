@@ -3,6 +3,7 @@ name: Deploy AgileCert Compiled Pages
 on:
   push:
     branches: [supabase-integration]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -31,6 +32,14 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Ensure GitHub Pages uses workflow deployments
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api             --method PUT             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2022-11-28'             "/repos/${GITHUB_REPOSITORY}/pages"             -f build_type=workflow             >/dev/null
+
       - name: Validate, build and fingerprint
         id: fingerprint
         shell: bash
@@ -42,7 +51,9 @@ jobs:
           npm run build
           test -s dist/index.html
           grep -q 'AgileCert Global' dist/index.html
+          grep -q 'data-agilecert-inline-css=' dist/index.html
           ! grep -q '/src/main.tsx' dist/index.html
+          ! grep -Eq '<link[^>]+rel="stylesheet"[^>]+href="\.?/assets/[^"]+\.css"' dist/index.html
           asset="$(grep -Eo 'src="[^"]+\.js"' dist/index.html | head -n 1 | cut -d'"' -f2)"
           test -n "$asset"
           js_file="dist/${asset#./}"
@@ -53,33 +64,6 @@ jobs:
           echo "$sha" > "$RUNNER_TEMP/expected-live-js.sha256"
           rm -f dist/server.cjs dist/server.cjs.map
           touch dist/.nojekyll
-
-      - name: Wait for legacy source build to finish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          success=0
-          for attempt in $(seq 1 90); do
-            response="$(gh api \
-              -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "/repos/${GITHUB_REPOSITORY}/pages/builds/latest")"
-            commit="$(printf '%s' "$response" | jq -r '.commit // ""')"
-            status="$(printf '%s' "$response" | jq -r '.status // ""')"
-            echo "Attempt $attempt: commit=$commit status=$status"
-            if [ "$commit" = "$GITHUB_SHA" ] && [ "$status" = 'built' ]; then
-              success=1
-              break
-            fi
-            if [ "$commit" = "$GITHUB_SHA" ] && [ "$status" = 'errored' ]; then
-              printf '%s\n' "$response"
-              exit 1
-            fi
-            sleep 5
-          done
-          test "$success" -eq 1
 
       - name: Configure GitHub Pages metadata
         uses: actions/configure-pages@v5
@@ -129,6 +113,7 @@ jobs:
             echo "Attempt $attempt: HTTP $status"
             if [ "$status" = '200' ] \
               && grep -q 'AgileCert Global' "$RUNNER_TEMP/live-index.html" \
+              && grep -q 'data-agilecert-inline-css=' "$RUNNER_TEMP/live-index.html" \
               && ! grep -q '/src/main.tsx' "$RUNNER_TEMP/live-index.html"; then
               asset="$(grep -Eo 'src="[^"]+\.js"' "$RUNNER_TEMP/live-index.html" | head -n 1 | cut -d'"' -f2)"
               if [ -n "$asset" ]; then
@@ -187,11 +172,16 @@ jobs:
             const adviserButton = page.locator('button[aria-label="Open AgileCert AI Certification Adviser"]');
             await adviserButton.waitFor({ state: 'visible', timeout: 30000 });
             const bootShellExists = await page.locator('#iipm-boot-shell').count() > 0;
+            const inlineStylesLength = await page
+              .locator('style[data-agilecert-inline-css]')
+              .evaluate((element) => element.textContent?.length || 0)
+              .catch(() => 0);
             const report = {
               status: response ? response.status() : 0,
               title: await page.title(),
               adviserButtonVisible: await adviserButton.isVisible(),
               bootShellExists,
+              inlineStylesLength,
               pageErrors,
               failedRequests,
             };
@@ -202,6 +192,7 @@ jobs:
             if (report.status !== 200) throw new Error(`HTTP ${report.status}`);
             if (!/AgileCert Global/i.test(report.title)) throw new Error(`Unexpected title: ${report.title}`);
             if (!report.adviserButtonVisible || report.bootShellExists) throw new Error('The compiled application did not replace the boot shell.');
+            if (report.inlineStylesLength < 50000) throw new Error(`Compiled portal styling is missing or incomplete (${report.inlineStylesLength} bytes).`);
             if (pageErrors.length || failedRequests.length) throw new Error(`Browser errors detected: ${JSON.stringify({ pageErrors, failedRequests })}`);
           })().catch(error => {
             console.error(error);

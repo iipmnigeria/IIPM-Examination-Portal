@@ -1,18 +1,7 @@
-# Production deployment: automatically publish validated supabase-integration changes.
+# Manual fallback only. Automatic GitHub Pages publication is owned by deploy-agilecert-pages.yml.
 name: Deploy Production Portal
 
 on:
-  push:
-    branches:
-      - supabase-integration
-    paths:
-      - 'src/**'
-      - 'public/**'
-      - 'index.html'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'vite.config.*'
-      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 permissions:
