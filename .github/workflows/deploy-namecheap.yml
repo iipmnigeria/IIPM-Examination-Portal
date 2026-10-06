@@ -246,12 +246,14 @@ jobs:
 
           mv "$release/dist" "$APP_PATH/dist"
 
-          # Keep one prior release's hashed assets available so browsers with
-          # cached HTML cannot fail while transitioning to the new release.
+          # Keep recent hashed assets available for 14 days so browsers with
+          # cached HTML can survive deployments while stale-module recovery
+          # moves older sessions to the current release.
           if [ -d "$APP_PATH/dist.previous/assets" ]; then
             find "$APP_PATH/dist.previous/assets" -maxdepth 1 -type f -print0 \
-              | xargs -0 -r -I{} cp -n "{}" "$APP_PATH/dist/assets/"
+              | xargs -0 -r -I{} cp -p -n "{}" "$APP_PATH/dist/assets/"
           fi
+          find "$APP_PATH/dist/assets" -maxdepth 1 -type f -mtime +14 -delete
 
           cp "$release/app.js" "$APP_PATH/app.js"
           cp "$release/package.json" "$APP_PATH/package.json"
@@ -282,7 +284,9 @@ jobs:
           test -s "$APP_PATH/dist/index.html"
           test -s "$APP_PATH/dist/deployment.json"
           test -s "$APP_PATH/app.js"
+          grep -q "\"commit\": \"$RELEASE_SHA\"" "$APP_PATH/dist/deployment.json"
           grep -q 'data-agilecert-inline-css=' "$APP_PATH/dist/index.html"
+          test "$(wc -c < "$APP_PATH/dist/index.html")" -gt 90000
           entry_asset="$(grep -Eo 'src="[^"]+\.js"' "$APP_PATH/dist/index.html" | head -n 1 | cut -d'"' -f2)"
           test -n "$entry_asset"
           test -s "$APP_PATH/dist/${entry_asset#./}"
@@ -336,6 +340,16 @@ jobs:
               test "$asset_status" = "200"
               test "$(wc -c < "$asset_body")" -gt 1000
               grep -Eiq '^content-type:[[:space:]]*(text|application)/javascript' "$asset_headers"
+
+              deployment_body="$(mktemp)"
+              deployment_status="$(curl --location --silent --show-error \
+                --output "$deployment_body" \
+                --write-out '%{http_code}' \
+                --max-time 30 \
+                --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/127 Safari/537.36' \
+                "https://agilecert.iipmi.org/deployment.json?verify=$SOURCE_SHA" || true)"
+              test "$deployment_status" = "200"
+              grep -q "\"commit\": \"$SOURCE_SHA\"" "$deployment_body"
               echo "AgileCert production deployment is live from commit $SOURCE_SHA with bundle $BUNDLE_SHA."
               ;;
             403)
