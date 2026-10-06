@@ -1,0 +1,121 @@
+name: AgileCert Frontend Health Guard
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agilecert-frontend-health
+  cancel-in-progress: true
+
+jobs:
+  verify-pages:
+    name: Verify GitHub Pages frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check compiled GitHub Pages release
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://iipmnigeria.github.io/IIPM-Examination-Portal/'
+          html="$RUNNER_TEMP/pages-index.html"
+          status="$(curl -L --silent --show-error --max-time 30 -o "$html" -w '%{http_code}' "$base?health=${GITHUB_RUN_ID}")"
+          test "$status" = '200'
+          grep -q 'AgileCert Global' "$html"
+          grep -q 'data-agilecert-inline-css=' "$html"
+          test "$(wc -c < "$html")" -gt 90000
+
+          asset="$(grep -Eo 'src="[^"]+\.js"' "$html" | head -n 1 | cut -d'"' -f2)"
+          test -n "$asset"
+          asset_url="$(python3 - "$base" "$asset" <<'PY'
+          from urllib.parse import urljoin
+          import sys
+          print(urljoin(sys.argv[1], sys.argv[2]))
+          PY
+          )"
+          headers="$RUNNER_TEMP/pages-js.headers"
+          body="$RUNNER_TEMP/pages-js.js"
+          asset_status="$(curl -L --silent --show-error --max-time 30 --dump-header "$headers" -o "$body" -w '%{http_code}' "$asset_url?health=${GITHUB_RUN_ID}")"
+          test "$asset_status" = '200'
+          test "$(wc -c < "$body")" -gt 1000
+          grep -Eiq '^content-type:[[:space:]]*(text|application)/javascript' "$headers"
+
+  verify-production-files:
+    name: Verify production release on Namecheap
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out production branch
+        uses: actions/checkout@v6
+        with:
+          ref: supabase-integration
+          fetch-depth: 1
+
+      - name: Configure SSH
+        env:
+          NAMECHEAP_HOST: ${{ secrets.NAMECHEAP_HOST }}
+          NAMECHEAP_PORT: ${{ secrets.NAMECHEAP_PORT }}
+          NAMECHEAP_SSH_PRIVATE_KEY: ${{ secrets.NAMECHEAP_SSH_PRIVATE_KEY }}
+          NAMECHEAP_SSH_KEY_PASSPHRASE: ${{ secrets.NAMECHEAP_SSH_KEY_PASSPHRASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$NAMECHEAP_SSH_PRIVATE_KEY" > "$HOME/.ssh/namecheap_agilecert"
+          chmod 600 "$HOME/.ssh/namecheap_agilecert"
+          ssh-keygen -p -P "$NAMECHEAP_SSH_KEY_PASSPHRASE" -N "" -f "$HOME/.ssh/namecheap_agilecert" >/dev/null
+          ssh-keyscan -p "$NAMECHEAP_PORT" -H "$NAMECHEAP_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Verify deployed fingerprint and critical assets
+        env:
+          NAMECHEAP_HOST: ${{ secrets.NAMECHEAP_HOST }}
+          NAMECHEAP_PORT: ${{ secrets.NAMECHEAP_PORT }}
+          NAMECHEAP_USER: ${{ secrets.NAMECHEAP_USER }}
+          NAMECHEAP_APP_PATH: ${{ secrets.NAMECHEAP_APP_PATH }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_sha="$(git rev-parse HEAD)"
+          ssh -p "$NAMECHEAP_PORT" -i "$HOME/.ssh/namecheap_agilecert" "$NAMECHEAP_USER@$NAMECHEAP_HOST" \
+            "APP_PATH='$NAMECHEAP_APP_PATH' EXPECTED_SHA='$expected_sha' bash -s" <<'REMOTE'
+          set -euo pipefail
+          test -s "$APP_PATH/dist/index.html"
+          test -s "$APP_PATH/dist/deployment.json"
+          grep -q "\"commit\": \"$EXPECTED_SHA\"" "$APP_PATH/dist/deployment.json"
+          grep -q 'data-agilecert-inline-css=' "$APP_PATH/dist/index.html"
+          test "$(wc -c < "$APP_PATH/dist/index.html")" -gt 90000
+          entry_asset="$(grep -Eo 'src="[^"]+\.js"' "$APP_PATH/dist/index.html" | head -n 1 | cut -d'"' -f2)"
+          test -n "$entry_asset"
+          test -s "$APP_PATH/dist/${entry_asset#./}"
+          test "$(wc -c < "$APP_PATH/dist/${entry_asset#./}")" -gt 1000
+          REMOTE
+
+      - name: Attempt public production route check
+        shell: bash
+        run: |
+          set -euo pipefail
+          html="$RUNNER_TEMP/prod-index.html"
+          headers="$RUNNER_TEMP/prod.headers"
+          status="$(curl -L --silent --show-error --max-time 30 --dump-header "$headers" -o "$html" -w '%{http_code}' \
+            --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/127 Safari/537.36' \
+            "https://agilecert.iipmi.org/?health=${GITHUB_RUN_ID}" || true)"
+          case "$status" in
+            200)
+              grep -q 'AgileCert Global' "$html"
+              grep -q 'data-agilecert-inline-css=' "$html"
+              test "$(wc -c < "$html")" -gt 90000
+              ;;
+            403)
+              echo "::warning::Public production route blocked this GitHub runner with HTTP 403; origin-file verification succeeded."
+              ;;
+            *)
+              echo "Unexpected production HTTP status: $status"
+              exit 1
+              ;;
+          esac
