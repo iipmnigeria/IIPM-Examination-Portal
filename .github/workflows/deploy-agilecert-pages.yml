@@ -32,13 +32,17 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Ensure GitHub Pages uses workflow deployments
+      - name: Check GitHub Pages deployment mode
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          gh api             --method PUT             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2022-11-28'             "/repos/${GITHUB_REPOSITORY}/pages"             -f build_type=workflow             >/dev/null
+          if gh api --method PUT -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "/repos/${GITHUB_REPOSITORY}/pages" -f build_type=workflow >/dev/null 2>&1; then
+            echo "GitHub Pages is configured for workflow deployments."
+          else
+            echo "::warning::The Actions token cannot change the repository Pages build mode. Continuing with the compiled deployment attempt."
+          fi
 
       - name: Validate, build and fingerprint
         id: fingerprint
