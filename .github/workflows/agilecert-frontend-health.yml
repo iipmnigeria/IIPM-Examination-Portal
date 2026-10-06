@@ -2,6 +2,10 @@ name: AgileCert Frontend Health Guard
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/agilecert-frontend-health.yml'
   schedule:
     - cron: '17 * * * *'
 
