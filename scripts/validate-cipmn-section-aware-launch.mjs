@@ -143,12 +143,20 @@ expect(
   'Proceed to Theory must open the five Theory questions inside the active secure examination.',
 );
 expect(
-  mixedScreen.includes("section !== 'theory' || !cameraRequired || cameraState !== 'active'"),
-  'Theory transition must explicitly reattach the existing live camera stream.',
+  mixedScreen.includes('const cameraStreamRef = useRef<MediaStream | null>(null)'),
+  'CIPMN secure camera runtime must retain the active stream inside the mounted examination component.',
 );
 expect(
-  mixedScreen.includes('videoRef.current.srcObject = stream'),
-  'Theory camera restoration must bind the retained stream to the remounted video element.',
+  mixedScreen.includes('const bindCameraPreview = useCallback'),
+  'CIPMN proctor preview must bind the retained stream whenever its video element mounts.',
+);
+expect(
+  mixedScreen.includes('ref={bindCameraPreview}'),
+  'Theory camera restoration must use the remount-safe video binding.',
+);
+expect(
+  mixedScreen.includes('cameraStreamRef.current = stream'),
+  'The live camera stream must be retained for the MCQ-to-Theory handoff.',
 );
 expect(
   mixedScreen.includes("'Confirm Final Submission'"),
