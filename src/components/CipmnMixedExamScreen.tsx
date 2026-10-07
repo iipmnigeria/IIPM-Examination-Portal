@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Eye, Lock, RefreshCw, ShieldAlert, Video } from 'lucide-react';
 import type { ProctorEventType, ProctorLogEvent, Question, Test } from '../types';
 import { clearSecuredCameraStream, takeSecuredCameraStream } from '../services/secureCameraSession';
@@ -75,6 +75,7 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [nextCheckIn, setNextCheckIn] = useState(12);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const autoSubmitStartedRef = useRef(false);
 
@@ -158,6 +159,7 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
           throw new Error('No live webcam video track was detected.');
         }
         activeStream = stream;
+        cameraStreamRef.current = stream;
         track.addEventListener('ended', () => blockCamera('The webcam disconnected or camera permission was withdrawn. The examination is paused.'));
         track.addEventListener('mute', () => {
           muteTimer = window.setTimeout(() => {
@@ -183,27 +185,30 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
       disposed = true;
       if (muteTimer) window.clearTimeout(muteTimer);
       if (activeStream) activeStream.getTracks().forEach((track) => track.stop());
+      if (cameraStreamRef.current === activeStream) cameraStreamRef.current = null;
       clearSecuredCameraStream(false);
     };
   }, [cameraRequired, cameraRetry]);
 
-  useEffect(() => {
-    if (section !== 'theory' || !cameraRequired || cameraState !== 'active') return;
+  const bindCameraPreview = useCallback((element: HTMLVideoElement | null) => {
+    videoRef.current = element;
+    if (!element) return;
 
-    const stream = takeSecuredCameraStream();
+    const stream = cameraStreamRef.current ?? takeSecuredCameraStream();
     const hasLiveVideo = Boolean(
       stream?.getVideoTracks().some((track) => track.readyState === 'live' && track.enabled),
     );
-    if (!stream || !hasLiveVideo || !videoRef.current) return;
+    if (!stream || !hasLiveVideo) return;
 
-    // The MCQ result view temporarily removes the proctor <video> element.
-    // When Theory mounts, reconnect the existing live stream without
-    // requesting camera permission again or changing the examination session.
-    videoRef.current.srcObject = stream;
-    void videoRef.current.play().catch((error) => {
-      console.error('Unable to resume the CIPMN Theory camera preview.', error);
+    cameraStreamRef.current = stream;
+    // The MCQ result checkpoint removes the video element from the DOM.
+    // Bind the same still-live stream whenever the Theory preview remounts.
+    element.srcObject = null;
+    element.srcObject = stream;
+    void element.play().catch((error) => {
+      console.error('Unable to resume the CIPMN camera preview.', error);
     });
-  }, [section, cameraRequired, cameraState]);
+  }, []);
 
   useEffect(() => {
     const handleWindowBlur = () => {
@@ -534,7 +539,7 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
       </div>
 
       <div className="relative aspect-video bg-slate-950 border border-slate-900 rounded-xl overflow-hidden shadow-inner shrink-0">
-        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
+        <video ref={bindCameraPreview} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
         <div className="absolute top-2 left-2 bg-slate-950/80 backdrop-blur-sm border border-slate-800 px-1.5 py-0.5 rounded text-[8px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping"></span> Live Webcam
         </div>
