@@ -143,6 +143,14 @@ expect(
   'Proceed to Theory must open the five Theory questions inside the active secure examination.',
 );
 expect(
+  mixedScreen.includes("section !== 'theory' || !cameraRequired || cameraState !== 'active'"),
+  'Theory transition must explicitly reattach the existing live camera stream.',
+);
+expect(
+  mixedScreen.includes('videoRef.current.srcObject = stream'),
+  'Theory camera restoration must bind the retained stream to the remounted video element.',
+);
+expect(
   mixedScreen.includes("'Confirm Final Submission'"),
   'Theory completion must retain the final submission confirmation.',
 );
