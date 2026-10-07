@@ -188,6 +188,24 @@ export default function CipmnMixedExamScreen({ test, studentName, onSubmitMcq, o
   }, [cameraRequired, cameraRetry]);
 
   useEffect(() => {
+    if (section !== 'theory' || !cameraRequired || cameraState !== 'active') return;
+
+    const stream = takeSecuredCameraStream();
+    const hasLiveVideo = Boolean(
+      stream?.getVideoTracks().some((track) => track.readyState === 'live' && track.enabled),
+    );
+    if (!stream || !hasLiveVideo || !videoRef.current) return;
+
+    // The MCQ result view temporarily removes the proctor <video> element.
+    // When Theory mounts, reconnect the existing live stream without
+    // requesting camera permission again or changing the examination session.
+    videoRef.current.srcObject = stream;
+    void videoRef.current.play().catch((error) => {
+      console.error('Unable to resume the CIPMN Theory camera preview.', error);
+    });
+  }, [section, cameraRequired, cameraState]);
+
+  useEffect(() => {
     const handleWindowBlur = () => {
       setTabAwayCount((previous) => {
         const next = previous + 1;
