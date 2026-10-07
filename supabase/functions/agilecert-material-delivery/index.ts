@@ -19,7 +19,10 @@ const jsonResponse = (status: number, payload: Record<string, unknown>) =>
 
 const isUuid = (value: unknown): value is string =>
   typeof value === 'string'
-  && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  // PostgreSQL accepts canonical 8-4-4-4-12 UUID values regardless of RFC
+  // version/variant bits. AgileCert uses deterministic UUIDs for some
+  // examinations, including CIPMN electives, so validate canonical shape only.
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 const contentDisposition = (fileName: string): string => {
   const safeAscii = fileName
